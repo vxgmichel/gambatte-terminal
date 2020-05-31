@@ -13,7 +13,7 @@ cdef class GB:
 
     def runFor(
         self,
-        np.ndarray[np.uint8_t, ndim=3] video,
+        np.ndarray[np.uint32_t, ndim=2] video,
         ptrdiff_t pitch,
         np.ndarray[np.uint32_t, ndim=1] audio,
         size_t samples,
