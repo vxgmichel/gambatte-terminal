@@ -3,6 +3,7 @@
 cimport numpy as np
 from libcpp.string cimport string
 from libgambatte cimport GB as C_GB
+from libc.stdio cimport sprintf
 
 
 cdef class GB:
@@ -13,12 +14,134 @@ cdef class GB:
 
     def runFor(
         self,
-        np.ndarray[np.uint32_t, ndim=2] video,
+        np.ndarray[np.int32_t, ndim=2] video,
         ptrdiff_t pitch,
-        np.ndarray[np.uint32_t, ndim=1] audio,
+        np.ndarray[np.int32_t, ndim=1] audio,
         size_t samples,
     ):
         cdef unsigned int* video_buffer = <unsigned int*> video.data
         cdef unsigned int* audio_buffer = <unsigned int*> audio.data
         result = self.c_gb.runFor(video_buffer, pitch, audio_buffer, samples)
         return result, samples
+
+
+
+cdef char* move_absolute(char* buff, int x, int y):
+    buff += sprintf(buff - 1, "\033[%d;%dH", x, y)
+    return buff
+
+
+cdef char* move_relative(char* buff, int dx, int dy):
+    # Vertical move
+    if dx < -1:
+        buff += sprintf(buff - 1, "\033[%dA", -dx)
+    elif dx == -1:
+        buff += sprintf(buff - 1, "\033[A")
+    elif dx == 1:
+        buff += sprintf(buff - 1, "\033[B")
+    elif dx > 1:
+        buff += sprintf(buff - 1, "\033[%dB", dx)
+    # Horizontal move
+    if dy < -1:
+        buff += sprintf(buff - 1, "\033[%dD", -dy)
+    elif dy == -1:
+        buff += sprintf(buff - 1, "\033[D")
+    elif dy == 1:
+        buff += sprintf(buff - 1, "\033[C")
+    elif dy > 1:
+        buff += sprintf(buff - 1, "\033[%dC", dy)
+    return buff
+
+
+cdef char* set_foreground(char* buff, int n):
+    cdef int b = n & 0xff
+    cdef int g = (n >> 8) & 0xff
+    cdef int r = (n >> 16) & 0xff
+    buff += sprintf(buff - 1, "\033[38;2;%d;%d;%dm", r, g, b)
+    return buff
+
+
+cdef char* set_background(char* buff, int n):
+    cdef int b = n & 0xff
+    cdef int g = (n >> 8) & 0xff
+    cdef int r = (n >> 16) & 0xff
+    buff += sprintf(buff - 1, "\033[48;2;%d;%d;%dm", r, g, b)
+    return buff
+
+
+cdef char* move_from_to(
+    char *buff, int from_x, int from_y, int to_x, int to_y
+):
+    return move_relative(buff, to_x - from_x, to_y - from_y)
+
+
+def paint_frame(
+    np.ndarray[np.int32_t, ndim=2] video,
+    np.ndarray[np.int32_t, ndim=2] last,
+    int refx, int refy, int width, int height,
+):
+    cdef char[144*160*100] base
+    cdef char* result = base + 1
+    cdef int current_x = refx
+    cdef int current_y = refy
+    cdef int current_fg = -1
+    cdef int current_bg = -1
+    cdef int row_index, column_index
+    cdef int color1, color2
+    cdef int new_x, new_y
+    cdef int invert_print
+
+    # Move at reference point
+    result = move_absolute(result, refx, refy)
+
+    # Loop over terminal cells
+    for row_index in range(min(height - refx, 144 // 2)):
+        for column_index in range(min(width - refy, 160)):
+
+            # Extract colors
+            color1 = video[2 * row_index + 0, column_index]
+            color2 = video[2 * row_index + 1, column_index]
+
+            # Skip if identical to last printed frame
+            if (
+                last is not None and
+                last[2 * row_index + 0, column_index] == color1 and
+                last[2 * row_index + 1, column_index] == color2
+            ):
+                continue
+
+            # Go to the new position
+            new_x, new_y = row_index + refx, column_index + refy
+            result = move_from_to(result, current_x, current_y, new_x, new_y)
+            current_x, current_y = new_x, new_y
+
+            # Detect print type
+            invert_print = (
+                current_fg == color1 or current_bg == color2 or
+                current_fg != color2 and current_bg != color1
+            )
+
+            # Inverted print
+            if invert_print:
+                color1, color2 = color2, color1
+
+
+            # Set background and foreground colors if necessary
+            if current_fg != color1:
+                result = set_foreground(result, color1)
+                current_fg = color1
+            if current_bg != color2:
+                result = set_background(result, color2)
+                current_bg = color2
+
+            # Print lower half block
+            if invert_print:
+                result += sprintf(result - 1, "\xe2\x96\x84")
+            # Print upper half block
+            else:
+                result += sprintf(result - 1, "\xe2\x96\x80")
+
+            # Update cursor position
+            current_y += 1
+
+    return base[:result-base-1]
