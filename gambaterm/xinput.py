@@ -1,0 +1,143 @@
+
+import sys
+import time
+import logging
+import termios
+from enum import IntEnum
+from contextlib import contextmanager
+from concurrent.futures import ThreadPoolExecutor
+
+from Xlib import XK
+from Xlib.ext import xinput
+from Xlib.display import Display
+
+
+class GBInput(IntEnum):
+    A = 0x01
+    B = 0x02
+    SELECT = 0x04
+    START = 0x08
+    RIGHT = 0x10
+    LEFT = 0x20
+    UP = 0x40
+    DOWN = 0x80
+
+
+MAPPING = {
+    XK.XK_Up: GBInput.UP,
+    XK.XK_Down: GBInput.DOWN,
+    XK.XK_Left: GBInput.LEFT,
+    XK.XK_Right: GBInput.RIGHT,
+    XK.XK_d: GBInput.A,
+    XK.XK_D: GBInput.A,
+    XK.XK_space: GBInput.A,
+    XK.XK_c: GBInput.B,
+    XK.XK_C: GBInput.B,
+    XK.XK_Alt_L: GBInput.B,
+    XK.XK_Return: GBInput.START,
+    XK.XK_Shift_L: GBInput.SELECT,
+    XK.XK_Shift_R: GBInput.SELECT
+}
+
+
+@contextmanager
+def key_pressed_context(display=None):
+
+    def target():
+        xdisplay = Display(display)
+        try:
+            extension_info = xdisplay.query_extension('XInputExtension')
+            xinput_major = extension_info.major_opcode
+            window = xdisplay.get_input_focus().focus
+            if isinstance(window, int):
+                window = xdisplay.screen().root
+            window.xinput_select_events([
+              (xinput.AllDevices, xinput.KeyPressMask | xinput.KeyReleaseMask),
+            ])
+            while running:
+                # Get next event
+                event = xdisplay.next_event()
+                assert event.extension == xinput_major, event
+                # Extract information
+                keycode = event.data.detail
+                mods = event.data.mods.effective_mods
+                keysym = xdisplay.keycode_to_keysym(keycode, 0)
+                modkeysym = xdisplay.keycode_to_keysym(keycode, mods)
+                keystr = xdisplay.lookup_string(keysym)
+                repeat = event.data.flags & 0x10000
+                is_key_pressed = event.evtype == xinput.KeyPress and not repeat
+                is_key_released = event.evtype == xinput.KeyRelease
+                # Prepare info string
+                info_string = f"keycode={keycode}, keysym={keysym}, "
+                info_string += f"modkeysym={modkeysym}, keystr={keystr}"
+                # Update the `pressed` accordingly
+                if is_key_pressed:
+                    pressed.add(keysym)
+                    logging.info("Key pressed: " + info_string)
+                if is_key_released:
+                    pressed.discard(keysym)
+                    logging.info("Key released: " + info_string)
+        finally:
+            xdisplay.close()
+
+    with ThreadPoolExecutor() as executor:
+        running = True
+        pressed = set()
+        try:
+            executor.submit(target)
+            yield lambda: pressed
+        finally:
+            running = False
+            pressed.clear()
+
+
+@contextmanager
+def gb_input_context(display=None):
+
+    def get_gb_input():
+        value = 0
+        for keysym in get_pressed():
+            value |= MAPPING.get(keysym, 0)
+        return value
+
+    with key_pressed_context(display=display) as get_pressed:
+        yield get_gb_input
+
+
+@contextmanager
+def disable_echo(output):
+    stdin_fd = sys.stdin.fileno()
+    backup_config = termios.tcgetattr(stdin_fd)
+    new_config = termios.tcgetattr(stdin_fd)
+    new_config[3] = new_config[3] & ~termios.ECHO
+    try:
+        output.write(b"\033[?25l")
+        termios.tcsetattr(stdin_fd, termios.TCSADRAIN, new_config)
+        yield
+    finally:
+        termios.tcsetattr(stdin_fd, termios.TCSADRAIN, backup_config)
+        output.write(b"\033[?25h")
+
+
+def main(output=sys.stdout):
+    reverse_lookup = {
+        v: k[3:] for k, v in XK.__dict__.items() if k.startswith("XK_")
+    }
+    try:
+        with disable_echo(output.buffer):
+            with key_pressed_context() as get_pressed:
+                while True:
+                    # Get codes
+                    codes = list(map(reverse_lookup.get, get_pressed()))
+                    # Print pressed key codes
+                    print(*codes, flush=True, end="", file=output)
+                    # Tick
+                    time.sleep(1/30)
+                    # Clear line and hide cursor
+                    print("\033[2K\r", end="", file=output)
+    except KeyboardInterrupt:
+        print(file=output)
+
+
+if __name__ == '__main__':
+    main()

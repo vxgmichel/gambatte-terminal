@@ -4,16 +4,21 @@
 cimport numpy as np
 from libcpp.string cimport string
 from libgambatte cimport GB as C_GB
+from libgambatte cimport GetInput as C_GetInput
 from libc.stdio cimport sprintf
 
 
 cdef class GB:
-    cdef C_GB c_gb  # Hold a C++ instance which we're wrapping
+    cdef C_GB c_gb
+    cdef C_GetInput c_getinput
+
+    def __cinit__(self):
+        self.c_gb.setInputGetter(&self.c_getinput)
 
     def load(self, str rom_file, unsigned flags=0):
         return self.c_gb.load(rom_file.encode(), flags)
 
-    def runFor(
+    def run_for(
         self,
         np.ndarray[np.int32_t, ndim=2] video,
         ptrdiff_t pitch,
@@ -25,6 +30,8 @@ cdef class GB:
         result = self.c_gb.runFor(video_buffer, pitch, audio_buffer, samples)
         return result, samples
 
+    def set_input(self, unsigned int value):
+        self.c_getinput.value = value
 
 
 cdef char* move_absolute(char* buff, int x, int y):
@@ -125,7 +132,6 @@ def paint_frame(
             # Inverted print
             if invert_print:
                 color1, color2 = color2, color1
-
 
             # Set background and foreground colors if necessary
             if current_fg != color1:

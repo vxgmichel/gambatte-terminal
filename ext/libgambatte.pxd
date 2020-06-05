@@ -10,3 +10,9 @@ cdef extern from "include/gambatte.h" namespace "gambatte":
 	    unsigned int *audioBuf,
             size_t& samples,
         );
+        void setInputGetter(GetInput *getInput);
+
+
+cdef extern from "input.h" namespace "gambatte":
+    cdef cppclass GetInput:
+        unsigned int value;

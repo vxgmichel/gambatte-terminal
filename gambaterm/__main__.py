@@ -3,6 +3,7 @@
 import sys
 import time
 import shutil
+import termios
 import argparse
 from itertools import count
 from collections import deque
@@ -10,6 +11,7 @@ from collections import deque
 import numpy as np
 
 from ._gambatte import GB, paint_frame
+from .xinput import gb_input_context, disable_echo
 
 CSI = b"\033["
 
@@ -22,11 +24,11 @@ CSI = b"\033["
 # POSSIBLE_COLORS = list(starmap(gbc_to_rgb32, product(range(2**5), repeat=3)))
 
 
-def main(arg, test=False, fast=True):
+def run(romfile, get_input, output, test=False, fast=True):
 
     # Load the rom
     gb = GB()
-    return_code = gb.load(arg)
+    return_code = gb.load(romfile)
     if return_code != 0:
         exit(return_code)
 
@@ -38,12 +40,6 @@ def main(arg, test=False, fast=True):
     # Print area
     refx, refy = 1, 1
     width, height = shutil.get_terminal_size((80, 60))
-
-    # Clear screen
-    sys.stdout.buffer.write(CSI + b"2J")
-
-    # Blink off
-    sys.stdout.buffer.write(CSI + b"25m")
 
     # Prepare reporting
     average_over = 30  # frames
@@ -59,11 +55,11 @@ def main(arg, test=False, fast=True):
 
         # Break after 30 seconds in test mode
         if test and i == 30*60:
-            sys.stdout.buffer.write(CSI + b"0m\n")
             break
 
         # Tick the emulator
-        offset, samples = gb.runFor(video, 160, audio, 2 * 35112)
+        gb.set_input(get_input())
+        offset, samples = gb.run_for(video, 160, audio, 2 * 35112)
         assert offset > 0
 
         # Skip every other frame
@@ -75,8 +71,8 @@ def main(arg, test=False, fast=True):
         data = paint_frame(video, last_frame, refx, refy, width, height)
         last_frame = video.copy()
         deltas2.append(time.time() - start)
-        sys.stdout.buffer.write(data)
-        sys.stdout.buffer.flush()
+        output.write(data)
+        output.flush()
         data_length.append(len(data))
         deltas3.append(time.time() - start)
 
@@ -107,10 +103,30 @@ def main(arg, test=False, fast=True):
             print(f"\x1b]0;{title}\x07", end="", flush=True)
 
 
-if __name__ == "__main__":
+def main(args=None):
     parser = argparse.ArgumentParser(description='Gambatte terminal frontend')
     parser.add_argument('romfile', metavar='ROM', type=str)
     parser.add_argument('--test', '-t', action='store_true')
     parser.add_argument('--fast', '-f', action='store_true')
-    args = parser.parse_args()
-    main(args.romfile, args.test, args.fast)
+    args = parser.parse_args(args)
+
+    output = sys.stdout.buffer
+    try:
+        output.write(CSI + b"2J")
+        with disable_echo(output):
+            with gb_input_context() as get_gb_input:
+                run(
+                    args.romfile,
+                    get_gb_input,
+                    output,
+                    test=args.test,
+                    fast=args.fast
+                )
+    except KeyboardInterrupt:
+        pass
+    finally:
+        output.write(CSI + b"0m" + CSI + b"2J")
+
+
+if __name__ == "__main__":
+    main()
