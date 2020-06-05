@@ -17,7 +17,7 @@ setup(
     packages=['gambaterm'],
     setup_requires=["setuptools>=18.0", "cython", "numpy"],
     ext_modules=[gambatte_extension],
-    install_requires=['xlib', 'numpy'],
+    install_requires=['xlib', 'numpy', 'asyncssh'],
     tests_require=['pytest'],
     python_requires='>=3.6',
 
