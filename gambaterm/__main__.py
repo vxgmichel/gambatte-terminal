@@ -9,7 +9,7 @@ from collections import deque
 
 import numpy as np
 
-from _gambatte import GB, paint_frame
+from ._gambatte import GB, paint_frame
 
 CSI = b"\033["
 

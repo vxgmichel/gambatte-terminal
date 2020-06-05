@@ -1,4 +1,5 @@
 # distutils: language = c++
+# distutils: libraries = gambatte
 
 cimport numpy as np
 from libcpp.string cimport string
