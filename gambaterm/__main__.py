@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 
-import sys
+import re
 import time
 import shutil
-import termios
+import select
 import argparse
 from itertools import count
 from collections import deque
@@ -11,9 +11,10 @@ from collections import deque
 import numpy as np
 
 from ._gambatte import GB, paint_frame
-from .xinput import gb_input_context, disable_echo
+from .xinput import gb_input_context, cbreak_mode
 
 CSI = b"\033["
+CPR_PATTERN = re.compile(rb"\033\[\d+;\d+R")
 
 # def gbc_to_rgb32(r, g, b):
 #     new_r = ((r * 13 + g * 2 + b) >> 1) << 16
@@ -24,7 +25,20 @@ CSI = b"\033["
 # POSSIBLE_COLORS = list(starmap(gbc_to_rgb32, product(range(2**5), repeat=3)))
 
 
-def run(romfile, get_input, output, test=False, fast=True):
+def wait_for_cpr(stdin, data=b""):
+    while not CPR_PATTERN.search(data):
+        data += stdin.read(1024)
+
+
+def purge(stdin):
+    while True:
+        r, _, _ = select.select([stdin], (), (), 0)
+        if not r:
+            return
+        stdin.read(1024)
+
+
+def run(romfile, get_input, stdout, stdin, test=False, fast=True):
 
     # Load the rom
     gb = GB()
@@ -53,8 +67,8 @@ def run(romfile, get_input, output, test=False, fast=True):
     # Loop over emulator frames
     for i in count():
 
-        # Break after 30 seconds in test mode
-        if test and i == 30*60:
+        # Break after 1 minute in test mode
+        if test and i == 60*60:
             break
 
         # Tick the emulator
@@ -66,13 +80,19 @@ def run(romfile, get_input, output, test=False, fast=True):
         if i % 2 and not fast:
             continue
 
-        # Display frame
+        # Render frame
         deltas1.append(time.time() - start)
         data = paint_frame(video, last_frame, refx, refy, width, height)
         last_frame = video.copy()
         deltas2.append(time.time() - start)
-        output.write(data)
-        output.flush()
+
+        # Make sure that terminal is done rendring the previous frame
+        if i != 0:
+            wait_for_cpr(stdin)
+
+        # Write frame with CPR request
+        stdout.write(data)
+        stdout.write(CSI + b"6n")
         data_length.append(len(data))
         deltas3.append(time.time() - start)
 
@@ -110,23 +130,23 @@ def main(args=None):
     parser.add_argument('--fast', '-f', action='store_true')
     args = parser.parse_args(args)
 
-    output = sys.stdout.buffer
-    try:
-        output.write(CSI + b"2J")
-        with disable_echo(output):
+    with cbreak_mode() as (stdin, stdout):
+        try:
+            stdout.write(CSI + b"2J")
             with gb_input_context() as get_gb_input:
                 run(
                     args.romfile,
                     get_gb_input,
-                    output,
+                    stdout,
+                    stdin,
                     test=args.test,
                     fast=args.fast
                 )
-    except KeyboardInterrupt:
-        pass
-    finally:
-        output.write(CSI + b"0m" + CSI + b"2J" + b"\n")
-        output.flush()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            purge(stdin)
+            stdout.write(CSI + b"0m" + CSI + b"2J" + b"\n")
 
 
 if __name__ == "__main__":

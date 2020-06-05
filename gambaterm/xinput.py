@@ -1,6 +1,8 @@
 
+import os
 import sys
 import time
+import tty
 import select
 import logging
 import termios
@@ -108,38 +110,39 @@ def gb_input_context(display=None):
 
 
 @contextmanager
-def disable_echo(output):
+def cbreak_mode():
     stdin_fd = sys.stdin.fileno()
+    stdout_fd = sys.stdout.fileno()
+    stdin = os.fdopen(stdin_fd, 'rb', buffering=0)
+    stdout = os.fdopen(stdout_fd, 'wb', buffering=0)
     backup_config = termios.tcgetattr(stdin_fd)
-    new_config = termios.tcgetattr(stdin_fd)
-    new_config[3] = new_config[3] & ~termios.ECHO
     try:
-        output.write(b"\033[?25l")
-        termios.tcsetattr(stdin_fd, termios.TCSADRAIN, new_config)
-        yield
+        tty.setcbreak(stdin_fd)
+        stdout.write(b"\033[?25l")
+        yield (stdin, stdout)
     finally:
         termios.tcsetattr(stdin_fd, termios.TCSADRAIN, backup_config)
-        output.write(b"\033[?25h")
+        stdout.write(b"\033[?25h")
 
 
-def main(output=sys.stdout):
+def main():
     reverse_lookup = {
         v: k[3:] for k, v in XK.__dict__.items() if k.startswith("XK_")
     }
     try:
-        with disable_echo(output.buffer):
+        with cbreak_mode() as (_, stdout):
             with key_pressed_context() as get_pressed:
                 while True:
                     # Get codes
                     codes = list(map(reverse_lookup.get, get_pressed()))
                     # Print pressed key codes
-                    print(*codes, flush=True, end="", file=output)
+                    print(*codes, flush=True, end="")
                     # Tick
                     time.sleep(1/30)
                     # Clear line and hide cursor
-                    print("\033[2K\r", end="", file=output)
+                    stdout.write(b"\033[2K\r")
     except KeyboardInterrupt:
-        print(file=output)
+        print()
 
 
 if __name__ == '__main__':
