@@ -123,6 +123,21 @@ def paint_frame(
             result = move_from_to(result, current_x, current_y, new_x, new_y)
             current_x, current_y = new_x, new_y
 
+            # Print full block
+            if color1 == color2 == current_fg != current_bg:
+                result += sprintf(result - 1, "\xe2\x96\x88")
+                current_y += 1
+                continue
+
+            # Print empty block (space)
+            if color1 == color2:
+                if color1 != current_bg:
+                    result = set_background(result, color1)
+                    current_bg = color1
+                result += sprintf(result - 1, " ")
+                current_y += 1
+                continue
+
             # Detect print type
             invert_print = (
                 current_fg == color1 or current_bg == color2 or
@@ -144,11 +159,11 @@ def paint_frame(
             # Print lower half block
             if invert_print:
                 result += sprintf(result - 1, "\xe2\x96\x84")
+                current_y += 1
+
             # Print upper half block
             else:
                 result += sprintf(result - 1, "\xe2\x96\x80")
-
-            # Update cursor position
-            current_y += 1
+                current_y += 1
 
     return base[:result-base-1]

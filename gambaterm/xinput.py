@@ -1,6 +1,7 @@
 
 import sys
 import time
+import select
 import logging
 import termios
 from enum import IntEnum
@@ -28,13 +29,12 @@ MAPPING = {
     XK.XK_Down: GBInput.DOWN,
     XK.XK_Left: GBInput.LEFT,
     XK.XK_Right: GBInput.RIGHT,
-    XK.XK_d: GBInput.A,
-    XK.XK_D: GBInput.A,
+    XK.XK_r: GBInput.A,
     XK.XK_space: GBInput.A,
-    XK.XK_c: GBInput.B,
-    XK.XK_C: GBInput.B,
+    XK.XK_t: GBInput.B,
     XK.XK_Alt_L: GBInput.B,
     XK.XK_Return: GBInput.START,
+    XK.XK_Control_R: GBInput.START,
     XK.XK_Shift_L: GBInput.SELECT,
     XK.XK_Shift_R: GBInput.SELECT
 }
@@ -55,7 +55,10 @@ def key_pressed_context(display=None):
               (xinput.AllDevices, xinput.KeyPressMask | xinput.KeyReleaseMask),
             ])
             while running:
-                # Get next event
+                # Check running
+                if not xdisplay.pending_events():
+                    select.select([xdisplay], [], [], 0.1)
+                    continue
                 event = xdisplay.next_event()
                 assert event.extension == xinput_major, event
                 # Extract information

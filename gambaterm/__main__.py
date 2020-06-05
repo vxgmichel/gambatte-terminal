@@ -34,7 +34,7 @@ def run(romfile, get_input, output, test=False, fast=True):
 
     # Prepare buffers with invalid data
     video = np.full((144, 160), -1, np.int32)
-    audio = np.full(2 * 35112, -1, np.int32)
+    audio = np.full(10 * 35112, -1, np.int32)
     last_frame = video.copy()
 
     # Print area
@@ -59,7 +59,7 @@ def run(romfile, get_input, output, test=False, fast=True):
 
         # Tick the emulator
         gb.set_input(get_input())
-        offset, samples = gb.run_for(video, 160, audio, 2 * 35112)
+        offset, samples = gb.run_for(video, 160, audio, 10 * 35112)
         assert offset > 0
 
         # Skip every other frame
@@ -125,7 +125,8 @@ def main(args=None):
     except KeyboardInterrupt:
         pass
     finally:
-        output.write(CSI + b"0m" + CSI + b"2J")
+        output.write(CSI + b"0m" + CSI + b"2J" + b"\n")
+        output.flush()
 
 
 if __name__ == "__main__":
