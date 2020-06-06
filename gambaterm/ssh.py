@@ -40,13 +40,16 @@ class SSHSession(asyncssh.SSHServerSession):
             except OSError:
                 pass
 
-    def shell_requested(self) -> bool:
+    def shell_requested(self):
         return True
 
-    def session_started(self) -> None:
+    def exec_requested(self, command):
+        return True
+
+    def session_started(self):
         asyncio.get_event_loop().create_task(self.safe_interact())
 
-    async def safe_interact(self) -> None:
+    async def safe_interact(self):
         try:
             await self.interact()
         except BaseException:
@@ -57,10 +60,20 @@ class SSHSession(asyncssh.SSHServerSession):
 
     async def interact(self):
         display = self._channel.get_x11_display()
+        command = self._channel.get_command()
+        connection = self._channel.get_extra_info("connection")
+        username = self._channel.get_extra_info("username")
+        peername, port = connection._transport.get_extra_info("peername")
+        print(f"> User `{username}` is connected ({peername}:{port})")
+
+        if command:
+            romfile, *_ = command.split()
+            self.kwargs["romfile"] = command
 
         # X11 is required
         if not display:
             self._channel.write(message.encode())
+            print(f"< User `{username}` did not enable X11 forwarding")
             return
 
         def _data_received():
@@ -82,6 +95,7 @@ class SSHSession(asyncssh.SSHServerSession):
         finally:
             loop.remove_reader(self._read_stdout_pipe)
             self._channel.write(b"\033[?25h")
+            print(f"< User `{username}` left ({peername}:{port})")
 
     def thread_target(self, display):
         with gb_input_context(display=display) as get_gb_input:
@@ -113,10 +127,16 @@ class SSHServer(asyncssh.SSHServer):
         self.kwargs = kwargs
 
     def begin_auth(self, username):
-        return False
+        return True
 
     def session_requested(self):
         return SSHSession(**self.kwargs)
+
+    def password_auth_supported(self):
+        return self.kwargs.get("password")
+
+    def validate_password(self, username, password):
+        return password == self.kwargs.get("password")
 
 
 async def run_server(bind="localhost", port=8022, **kwargs):
@@ -145,6 +165,7 @@ def main(args=None):
     parser.add_argument('romfile', metavar='ROM', type=str)
     parser.add_argument('--bind', '-b', type=str, default="localhost")
     parser.add_argument('--port', '-p', type=int, default=8022)
+    parser.add_argument('--password', '-w', type=str)
     parser.add_argument('--test', '-t', action='store_true')
     parser.add_argument('--fast', '-f', action='store_true')
     args = parser.parse_args(args)

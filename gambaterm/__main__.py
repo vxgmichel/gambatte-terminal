@@ -20,17 +20,19 @@ def main(args=None):
         try:
             stdout.write(CSI + b"2J")
             with gb_input_context() as get_gb_input:
-                run(
+                return_code = run(
                     args.romfile,
                     get_gb_input,
                     stdin=stdin,
                     stdout=stdout,
                     get_size=shutil.get_terminal_size,
                     test=args.test,
-                    fast=args.fast
+                    fast=args.fast,
                 )
         except KeyboardInterrupt:
             pass
+        else:
+            exit(return_code)
         finally:
             purge(stdin)
             stdout.write(CSI + b"0m" + CSI + b"2J" + b"\n")

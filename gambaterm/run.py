@@ -36,16 +36,15 @@ def purge(stdin):
 
 
 def run(romfile, get_input, stdin, stdout, get_size, test=False, fast=False):
-
     # Load the rom
     gb = GB()
     return_code = gb.load(romfile)
     if return_code != 0:
-        exit(return_code)
+        return return_code
 
     # Prepare buffers with invalid data
     video = np.full((144, 160), -1, np.int32)
-    audio = np.full(10 * 35112, -1, np.int32)
+    audio = np.full(60 * 35112, -1, np.int32)
     last_frame = video.copy()
 
     # Print area
@@ -66,11 +65,11 @@ def run(romfile, get_input, stdin, stdout, get_size, test=False, fast=False):
 
         # Break after 1 minute in test mode
         if test and i == 60*60:
-            break
+            return 0
 
         # Tick the emulator
         gb.set_input(get_input())
-        offset, samples = gb.run_for(video, 160, audio, 10 * 35112)
+        offset, samples = gb.run_for(video, 160, audio, 60 * 35112)
         assert offset > 0
 
         # Skip every other frame
