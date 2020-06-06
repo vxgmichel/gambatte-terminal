@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import re
+import os
 import time
 import select
 from itertools import count
@@ -118,9 +119,12 @@ def run(romfile, get_input, stdin, stdout, get_size, test=False, fast=False):
             part1 = sum_deltas1 / sum_deltas * 100
             part2 = (sum_deltas2 - sum_deltas1) / sum_deltas * 100
             part3 = (sum_deltas3 - sum_deltas2) / sum_deltas * 100
-            part4 = (sum_deltas - sum_deltas3) / sum_deltas * 100
+            cpu_percent, io_percent = part1 + part2, part3
             data_rate = sum(data_length) / len(data_length) * avg / 1024
-            title = f"FPS: {avg:.1f} - "
-            title += f"{part1:.1f}% {part2:.1f}% {part3:.1f}% {part4:.1f}%"
-            title += f" - {data_rate:.1f}KB/s"
-            print(f"\x1b]0;{title}\x07", end="", flush=True)
+            title = f"Gambaterm - "
+            title += f"{os.path.basename(romfile)} - "
+            title += f"FPS: {avg:.0f} - "
+            title += f"CPU: {cpu_percent:.0f}% - "
+            title += f"IO: {io_percent:.0f}% - "
+            title += f"{data_rate:.0f}KB/s"
+            stdout.write(b"\x1b]0;%s\x07" % title.encode())
