@@ -35,29 +35,29 @@ cdef class GB:
 
 
 cdef char* move_absolute(char* buff, int x, int y):
-    buff += sprintf(buff - 1, "\033[%d;%dH", x, y)
+    buff += sprintf(buff, "\033[%d;%dH", x, y)
     return buff
 
 
 cdef char* move_relative(char* buff, int dx, int dy):
     # Vertical move
     if dx < -1:
-        buff += sprintf(buff - 1, "\033[%dA", -dx)
+        buff += sprintf(buff, "\033[%dA", -dx)
     elif dx == -1:
-        buff += sprintf(buff - 1, "\033[A")
+        buff += sprintf(buff, "\033[A")
     elif dx == 1:
-        buff += sprintf(buff - 1, "\033[B")
+        buff += sprintf(buff, "\033[B")
     elif dx > 1:
-        buff += sprintf(buff - 1, "\033[%dB", dx)
+        buff += sprintf(buff, "\033[%dB", dx)
     # Horizontal move
     if dy < -1:
-        buff += sprintf(buff - 1, "\033[%dD", -dy)
+        buff += sprintf(buff, "\033[%dD", -dy)
     elif dy == -1:
-        buff += sprintf(buff - 1, "\033[D")
+        buff += sprintf(buff, "\033[D")
     elif dy == 1:
-        buff += sprintf(buff - 1, "\033[C")
+        buff += sprintf(buff, "\033[C")
     elif dy > 1:
-        buff += sprintf(buff - 1, "\033[%dC", dy)
+        buff += sprintf(buff, "\033[%dC", dy)
     return buff
 
 
@@ -65,7 +65,7 @@ cdef char* set_foreground(char* buff, int n):
     cdef int b = n & 0xff
     cdef int g = (n >> 8) & 0xff
     cdef int r = (n >> 16) & 0xff
-    buff += sprintf(buff - 1, "\033[38;2;%d;%d;%dm", r, g, b)
+    buff += sprintf(buff, "\033[38;2;%d;%d;%dm", r, g, b)
     return buff
 
 
@@ -73,7 +73,7 @@ cdef char* set_background(char* buff, int n):
     cdef int b = n & 0xff
     cdef int g = (n >> 8) & 0xff
     cdef int r = (n >> 16) & 0xff
-    buff += sprintf(buff - 1, "\033[48;2;%d;%d;%dm", r, g, b)
+    buff += sprintf(buff, "\033[48;2;%d;%d;%dm", r, g, b)
     return buff
 
 
@@ -89,7 +89,7 @@ def paint_frame(
     int refx, int refy, int width, int height,
 ):
     cdef char[144*160*100] base
-    cdef char* result = base + 1
+    cdef char* result = base
     cdef int current_x = refx
     cdef int current_y = refy
     cdef int current_fg = -1
@@ -125,7 +125,7 @@ def paint_frame(
 
             # Print full block
             if color1 == color2 == current_fg != current_bg:
-                result += sprintf(result - 1, "\xe2\x96\x88")
+                result += sprintf(result, "\xe2\x96\x88")
                 current_y += 1
                 continue
 
@@ -134,7 +134,7 @@ def paint_frame(
                 if color1 != current_bg:
                     result = set_background(result, color1)
                     current_bg = color1
-                result += sprintf(result - 1, " ")
+                result += sprintf(result, " ")
                 current_y += 1
                 continue
 
@@ -158,12 +158,12 @@ def paint_frame(
 
             # Print lower half block
             if invert_print:
-                result += sprintf(result - 1, "\xe2\x96\x84")
+                result += sprintf(result, "\xe2\x96\x84")
                 current_y += 1
 
             # Print upper half block
             else:
-                result += sprintf(result - 1, "\xe2\x96\x80")
+                result += sprintf(result, "\xe2\x96\x80")
                 current_y += 1
 
-    return base[:result-base-1]
+    return base[:result-base]
