@@ -1,4 +1,3 @@
-
 import os
 import sys
 import time
@@ -38,24 +37,25 @@ MAPPING = {
     XK.XK_Return: GBInput.START,
     XK.XK_Control_R: GBInput.START,
     XK.XK_Shift_L: GBInput.SELECT,
-    XK.XK_Shift_R: GBInput.SELECT
+    XK.XK_Shift_R: GBInput.SELECT,
 }
 
 
 @contextmanager
 def key_pressed_context(display=None):
-
     def target():
         xdisplay = Display(display)
         try:
-            extension_info = xdisplay.query_extension('XInputExtension')
+            extension_info = xdisplay.query_extension("XInputExtension")
             xinput_major = extension_info.major_opcode
             window = xdisplay.get_input_focus().focus
             if isinstance(window, int):
                 window = xdisplay.screen().root
-            window.xinput_select_events([
-              (xinput.AllDevices, xinput.KeyPressMask | xinput.KeyReleaseMask),
-            ])
+            window.xinput_select_events(
+                [
+                    (xinput.AllDevices, xinput.KeyPressMask | xinput.KeyReleaseMask),
+                ]
+            )
             while running:
                 # Check running
                 if not xdisplay.pending_events():
@@ -98,7 +98,6 @@ def key_pressed_context(display=None):
 
 @contextmanager
 def gb_input_context(display=None):
-
     def get_gb_input():
         value = 0
         for keysym in get_pressed():
@@ -113,8 +112,8 @@ def gb_input_context(display=None):
 def cbreak_mode():
     stdin_fd = sys.stdin.fileno()
     stdout_fd = sys.stdout.fileno()
-    stdin = os.fdopen(stdin_fd, 'rb', buffering=0)
-    stdout = os.fdopen(stdout_fd, 'wb', buffering=0)
+    stdin = os.fdopen(stdin_fd, "rb", buffering=0)
+    stdout = os.fdopen(stdout_fd, "wb", buffering=0)
     backup_config = termios.tcgetattr(stdin_fd)
     try:
         tty.setcbreak(stdin_fd)
@@ -126,9 +125,7 @@ def cbreak_mode():
 
 
 def main():
-    reverse_lookup = {
-        v: k[3:] for k, v in XK.__dict__.items() if k.startswith("XK_")
-    }
+    reverse_lookup = {v: k[3:] for k, v in XK.__dict__.items() if k.startswith("XK_")}
     try:
         with cbreak_mode() as (_, stdout):
             with key_pressed_context() as get_pressed:
@@ -138,12 +135,12 @@ def main():
                     # Print pressed key codes
                     print(*codes, flush=True, end="")
                     # Tick
-                    time.sleep(1/30)
+                    time.sleep(1 / 30)
                     # Clear line and hide cursor
                     stdout.write(b"\033[2K\r")
     except KeyboardInterrupt:
         print()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

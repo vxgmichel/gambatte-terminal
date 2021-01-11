@@ -1,4 +1,3 @@
-
 import os
 import asyncio
 import argparse
@@ -18,7 +17,6 @@ CSI = b"\033["
 
 
 class SSHSession(asyncssh.SSHServerSession):
-
     def __init__(self, **kwargs):
         self.kwargs = kwargs
 
@@ -32,8 +30,10 @@ class SSHSession(asyncssh.SSHServerSession):
 
     def close_all_pipes(self):
         for pipe in (
-            self._read_stdin_pipe, self._write_stdin_pipe,
-            self._read_stdout_pipe, self._write_stdout_pipe
+            self._read_stdin_pipe,
+            self._write_stdin_pipe,
+            self._read_stdout_pipe,
+            self._write_stdout_pipe,
         ):
             try:
                 os.close(pipe)
@@ -131,7 +131,6 @@ class SSHSession(asyncssh.SSHServerSession):
 
 
 class SSHServer(asyncssh.SSHServer):
-
     def __init__(self, **kwargs):
         self.kwargs = kwargs
 
@@ -169,14 +168,13 @@ async def run_server(bind="localhost", port=8022, **kwargs):
 
 
 def main(args=None):
-    parser = argparse.ArgumentParser(
-        description='Gambatte terminal frontend over ssh')
-    parser.add_argument('romfile', metavar='ROM', type=str)
-    parser.add_argument('--bind', '-b', type=str, default="localhost")
-    parser.add_argument('--port', '-p', type=int, default=8022)
-    parser.add_argument('--password', '-w', type=str)
-    parser.add_argument('--test', '-t', action='store_true')
-    parser.add_argument('--fast', '-f', action='store_true')
+    parser = argparse.ArgumentParser(description="Gambatte terminal frontend over ssh")
+    parser.add_argument("romfile", metavar="ROM", type=str)
+    parser.add_argument("--bind", "-b", type=str, default="localhost")
+    parser.add_argument("--port", "-p", type=int, default=8022)
+    parser.add_argument("--password", "-w", type=str)
+    parser.add_argument("--test", "-t", action="store_true")
+    parser.add_argument("--fast", "-f", action="store_true")
     args = parser.parse_args(args)
     kwargs = dict(args._get_kwargs())
     asyncio.run(run_server(**kwargs))

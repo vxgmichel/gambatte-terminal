@@ -11,11 +11,11 @@ CSI = b"\033["
 
 
 def main(args=None):
-    parser = argparse.ArgumentParser(description='Gambatte terminal frontend')
-    parser.add_argument('romfile', metavar='ROM', type=str)
-    parser.add_argument('--true-color', '-c', action='store_true')
-    parser.add_argument('--test', '-t', action='store_true')
-    parser.add_argument('--fast', '-f', action='store_true')
+    parser = argparse.ArgumentParser(description="Gambatte terminal frontend")
+    parser.add_argument("romfile", metavar="ROM", type=str)
+    parser.add_argument("--true-color", "-c", action="store_true")
+    parser.add_argument("--test", "-t", action="store_true")
+    parser.add_argument("--fast", "-f", action="store_true")
     args = parser.parse_args(args)
 
     with audio_player() as audio_out:

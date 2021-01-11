@@ -29,14 +29,15 @@ def purge(stdin):
 
 
 def run(
-        romfile,
-        get_input,
-        stdin, stdout,
-        get_size,
-        true_color=False,
-        audio_out=None,
-        test=False,
-        fast=False
+    romfile,
+    get_input,
+    stdin,
+    stdout,
+    get_size,
+    true_color=False,
+    audio_out=None,
+    test=False,
+    fast=False,
 ):
     # Load the rom
     gb = GB()
@@ -107,7 +108,7 @@ def run(
 
         # Time control
         stop = time.time()
-        deadline = start + (1/60 if fast else 1/30)
+        deadline = start + (1 / 60 if fast else 1 / 30)
         if stop < deadline and not test:
             time.sleep(deadline - stop)
             stop = time.time()
