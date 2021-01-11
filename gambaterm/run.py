@@ -14,14 +14,6 @@ from ._gambatte import GB, paint_frame
 CSI = b"\033["
 CPR_PATTERN = re.compile(rb"\033\[\d+;\d+R")
 
-# def gbc_to_rgb32(r, g, b):
-#     new_r = ((r * 13 + g * 2 + b) >> 1) << 16
-#     new_g = (g * 3 + b) << 9
-#     new_b = (r * 3 + g * 2 + b * 11) >> 1
-#     return new_r | new_g | new_b
-
-# POSSIBLE_COLORS = list(starmap(gbc_to_rgb32, product(range(2**5), repeat=3)))
-
 
 def wait_for_cpr(stdin, data=b""):
     while not CPR_PATTERN.search(data):
@@ -36,7 +28,16 @@ def purge(stdin):
         stdin.read(1024)
 
 
-def run(romfile, get_input, stdin, stdout, get_size, test=False, fast=False):
+def run(
+        romfile,
+        get_input,
+        stdin, stdout,
+        get_size,
+        true_color=False,
+        audio_out=None,
+        test=False,
+        fast=False
+):
     # Load the rom
     gb = GB()
     return_code = gb.load(romfile)
@@ -65,13 +66,17 @@ def run(romfile, get_input, stdin, stdout, get_size, test=False, fast=False):
     for i in count():
 
         # Break after 1 minute in test mode
-        if test and i == 60*60:
+        if test and i == 60 * 60:
             return 0
 
         # Tick the emulator
         gb.set_input(get_input())
         offset, samples = gb.run_for(video, 160, audio, 60 * 35112)
         assert offset > 0
+
+        # Send audio
+        if audio_out:
+            audio_out.send(audio[:samples])
 
         # Skip every other frame
         if i % 2 and not fast:
@@ -86,7 +91,7 @@ def run(romfile, get_input, stdin, stdout, get_size, test=False, fast=False):
 
         # Render frame
         deltas1.append(time.time() - start)
-        data = paint_frame(video, last_frame, refx, refy, width, height)
+        data = paint_frame(video, last_frame, refx, refy, width, height, true_color)
         last_frame = video.copy()
         deltas2.append(time.time() - start)
 

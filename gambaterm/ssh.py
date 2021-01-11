@@ -76,17 +76,22 @@ class SSHSession(asyncssh.SSHServerSession):
             print(f"< User `{username}` did not enable X11 forwarding")
             return
 
+        # TODO: detect color capabilites using TERM and COLORTERM
+        self._true_color = False
+
+        # Force size changed handler
+        size = self._channel.get_terminal_size()
+        self.terminal_size_changed(*size)
+
         def _data_received():
             try:
-                data = os.read(self._read_stdout_pipe, 2*1024*1024)
+                data = os.read(self._read_stdout_pipe, 2 * 1024 * 1024)
             except OSError:
                 return
             self._channel.write(data)
 
         loop = asyncio.get_event_loop()
         try:
-            width, height, _, _ = self._channel.get_terminal_size()
-            self._size = width, height
             self._channel.write(b"\033[?25l")
             loop.add_reader(self._read_stdout_pipe, _data_received)
             await loop.run_in_executor(None, self.thread_target, display)
@@ -105,12 +110,16 @@ class SSHSession(asyncssh.SSHServerSession):
                 stdin=self._stdin,
                 stdout=self._stdout,
                 get_size=lambda: self._size,
+                true_color=self._true_color,
                 test=self.kwargs["test"],
                 fast=self.kwargs["fast"],
             )
 
     def terminal_size_changed(self, width, height, pixwidth, pixheight):
         self._size = width, height
+        term = self._channel.get_terminal_type()
+        username = self._channel.get_extra_info("username")
+        print(f"[Terminal Info] {username}: {term}, {width}x{height}")
 
     def data_received(self, data, datatype):
         if b"\x03" in data or b"\x04" in data:

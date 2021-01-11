@@ -61,20 +61,53 @@ cdef char* move_relative(char* buff, int dx, int dy):
     return buff
 
 
-cdef char* set_foreground(char* buff, int n):
+
+cdef int scale_256_to_6_shift(int x):
+    x >>= 5
+    x -= x > 0
+    x -= x > 1
+    return x
+
+
+cdef int scale_256_to_6_closest(int x):
+    if x < 48:
+        return 0
+    if x < 115:
+        return 1
+    return (x - 35) // 40
+
+cdef int scale_256_to_6_spread(int x):
+    return x // 43
+
+
+cdef char* set_color(char* buff, int n, int true_color, int foreground):
+    cdef int c
     cdef int b = n & 0xff
     cdef int g = (n >> 8) & 0xff
     cdef int r = (n >> 16) & 0xff
-    buff += sprintf(buff, "\033[38;2;%d;%d;%dm", r, g, b)
+    if true_color:
+        if foreground:
+            buff += sprintf(buff, "\033[38;2;%d;%d;%dm", r, g, b)
+        else:
+            buff += sprintf(buff, "\033[48;2;%d;%d;%dm", r, g, b)
+    else:
+        b = scale_256_to_6_shift(b)
+        g = scale_256_to_6_shift(g)
+        r = scale_256_to_6_shift(r)
+        c = 16 + 36 * r + 6 * g + b
+        if foreground:
+            buff += sprintf(buff, "\033[38;5;%dm", c)
+        else:
+            buff += sprintf(buff, "\033[48;5;%dm", c)
     return buff
 
 
-cdef char* set_background(char* buff, int n):
-    cdef int b = n & 0xff
-    cdef int g = (n >> 8) & 0xff
-    cdef int r = (n >> 16) & 0xff
-    buff += sprintf(buff, "\033[48;2;%d;%d;%dm", r, g, b)
-    return buff
+cdef char* set_background(char* buff, int n, int true_color):
+    return set_color(buff, n, true_color, False)
+
+
+cdef char* set_foreground(char* buff, int n, int true_color):
+    return set_color(buff, n, true_color, True)
 
 
 cdef char* move_from_to(
@@ -87,6 +120,7 @@ def paint_frame(
     np.ndarray[np.int32_t, ndim=2] video,
     np.ndarray[np.int32_t, ndim=2] last,
     int refx, int refy, int width, int height,
+    int true_color,
 ):
     cdef char[144*160*100] base
     cdef char* result = base
@@ -132,7 +166,7 @@ def paint_frame(
             # Print empty block (space)
             if color1 == color2:
                 if color1 != current_bg:
-                    result = set_background(result, color1)
+                    result = set_background(result, color1, true_color)
                     current_bg = color1
                 result += sprintf(result, " ")
                 current_y += 1
@@ -150,10 +184,10 @@ def paint_frame(
 
             # Set background and foreground colors if necessary
             if current_fg != color1:
-                result = set_foreground(result, color1)
+                result = set_foreground(result, color1, true_color)
                 current_fg = color1
             if current_bg != color2:
-                result = set_background(result, color2)
+                result = set_background(result, color2, true_color)
                 current_bg = color2
 
             # Print lower half block
