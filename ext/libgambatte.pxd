@@ -11,6 +11,7 @@ cdef extern from "include/gambatte.h" namespace "gambatte":
             size_t& samples,
         );
         void setInputGetter(GetInput *getInput);
+        void setSaveDir(string& sdir);
 
 
 cdef extern from "input.h" namespace "gambatte":

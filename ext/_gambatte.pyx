@@ -33,6 +33,9 @@ cdef class GB:
     def set_input(self, unsigned int value):
         self.c_getinput.value = value
 
+    def set_save_directory(self, str path):
+        self.c_gb.setSaveDir(path.encode())
+
 
 cdef char* move_absolute(char* buff, int x, int y):
     buff += sprintf(buff, "\033[%d;%dH", x, y)

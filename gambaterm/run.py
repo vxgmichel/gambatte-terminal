@@ -36,11 +36,17 @@ def run(
     get_size,
     true_color=False,
     audio_out=None,
-    test=False,
-    fast=False,
+    frame_advance=1,
+    frame_limit=None,
+    speed_factor=1.0,
+    save_directory=None,
 ):
-    # Load the rom
+    # Set save_directory
     gb = GB()
+    if save_directory:
+        gb.set_save_directory(save_directory)
+
+    # Load the rom
     return_code = gb.load(romfile)
     if return_code != 0:
         return return_code
@@ -66,8 +72,8 @@ def run(
     # Loop over emulator frames
     for i in count():
 
-        # Break after 1 minute in test mode
-        if test and i == 60 * 60:
+        # Break when frame limit is reach
+        if frame_limit is not None and i >= frame_limit:
             return 0
 
         # Tick the emulator
@@ -76,39 +82,43 @@ def run(
 
         # Send audio
         if audio_out:
-            audio_out.send(audio[:samples])
+            audio_out.send(audio[:samples], speed_factor)
 
-        # Skip every other frame
-        if i % 2 and not fast:
-            continue
+        # This frame is displayed
+        if i % frame_advance == 0:
 
-        # Check terminal size
-        new_size = get_size()
-        if new_size != (width, height):
-            stdout.write(CSI + b"0m" + CSI + b"2J")
-            width, height = new_size
-            last_frame.fill(-1)
+            # Check terminal size
+            new_size = get_size()
+            if new_size != (width, height):
+                stdout.write(CSI + b"0m" + CSI + b"2J")
+                width, height = new_size
+                last_frame.fill(-1)
 
-        # Render frame
-        deltas1.append(time.time() - start)
-        data = paint_frame(video, last_frame, refx, refy, width, height, true_color)
-        last_frame = video.copy()
-        deltas2.append(time.time() - start)
+            # Render frame
+            deltas1.append(time.time() - start)
+            data = paint_frame(video, last_frame, refx, refy, width, height, true_color)
+            last_frame = video.copy()
+            deltas2.append(time.time() - start)
 
-        # Make sure that terminal is done rendring the previous frame
-        if i != 0:
-            wait_for_cpr(stdin)
+            # Make sure that terminal is done rendring the previous frame
+            if i != 0:
+                wait_for_cpr(stdin)
 
-        # Write frame with CPR request
-        stdout.write(data)
-        stdout.write(CSI + b"6n")
-        data_length.append(len(data))
-        deltas3.append(time.time() - start)
+            # Write frame with CPR request
+            stdout.write(data)
+            stdout.write(CSI + b"6n")
+            data_length.append(len(data))
+            deltas3.append(time.time() - start)
+
+        # This frame is not displayed
+        else:
+            deltas2.append(time.time() - start)
+            deltas3.append(time.time() - start)
 
         # Time control
         stop = time.time()
-        deadline = start + (1 / 60 if fast else 1 / 30)
-        if stop < deadline and not test:
+        deadline = start + (1 / 60) / speed_factor
+        if stop < deadline:
             time.sleep(deadline - stop)
             stop = time.time()
         start, delta = stop, stop - start
@@ -128,7 +138,7 @@ def run(
             data_rate = sum(data_length) / len(data_length) * avg / 1024
             title = f"Gambaterm - "
             title += f"{os.path.basename(romfile)} - "
-            title += f"FPS: {avg:.0f} - "
+            title += f"FPS: {avg / frame_advance:.0f} - "
             title += f"CPU: {cpu_percent:.0f}% - "
             title += f"IO: {io_percent:.0f}% - "
             title += f"{data_rate:.0f}KB/s"

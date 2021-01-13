@@ -1,12 +1,14 @@
 import os
 import asyncio
 import argparse
+import tempfile
 import traceback
 from pathlib import Path
 
 import asyncssh
 
 from .run import run
+from .inputs import read_input_file
 from .xinput import gb_input_context
 
 message = """\
@@ -71,7 +73,7 @@ class SSHSession(asyncssh.SSHServerSession):
             self.kwargs["romfile"] = command
 
         # X11 is required
-        if not display:
+        if not display and self.kwargs["input_file"] is None:
             self._channel.write(message.encode())
             print(f"< User `{username}` did not enable X11 forwarding")
             return
@@ -103,17 +105,33 @@ class SSHSession(asyncssh.SSHServerSession):
             print(f"< User `{username}` left ({peername}:{port})")
 
     def thread_target(self, display):
-        with gb_input_context(display=display) as get_gb_input:
+
+        kwargs = {
+            "romfile": self.kwargs["romfile"],
+            "stdin": self._stdin,
+            "stdout": self._stdout,
+            "get_size": lambda: self._size,
+            "true_color": int(self._true_color),
+            "frame_advance": self.kwargs["frame_advance"],
+            "frame_limit": self.kwargs["frame_limit"],
+            "speed_factor": self.kwargs["speed_factor"],
+        }
+        if self.kwargs["input_file"] is not None:
             run(
-                self.kwargs["romfile"],
-                get_gb_input,
-                stdin=self._stdin,
-                stdout=self._stdout,
-                get_size=lambda: self._size,
-                true_color=self._true_color,
-                test=self.kwargs["test"],
-                fast=self.kwargs["fast"],
+                get_input=read_input_file(self.kwargs["input_file"]),
+                save_directory=tempfile.mkdtemp(),
+                **kwargs,
             )
+        else:
+            username = self._channel.get_extra_info("username")
+            save_directory = Path("ssh_save") / username
+            save_directory.mkdir(parents=True, exist_ok=True)
+            with gb_input_context(display=display) as get_gb_input:
+                run(
+                    get_input=get_gb_input,
+                    save_directory=str(save_directory),
+                    **kwargs,
+                )
 
     def terminal_size_changed(self, width, height, pixwidth, pixheight):
         self._size = width, height
@@ -173,8 +191,12 @@ def main(args=None):
     parser.add_argument("--bind", "-b", type=str, default="localhost")
     parser.add_argument("--port", "-p", type=int, default=8022)
     parser.add_argument("--password", "-w", type=str)
-    parser.add_argument("--test", "-t", action="store_true")
-    parser.add_argument("--fast", "-f", action="store_true")
+
+    parser.add_argument("--input-file", "-i", default=None)
+    parser.add_argument("--frame-advance", "-a", type=int, default=2)
+    parser.add_argument("--frame-limit", "-l", type=int, default=None)
+    parser.add_argument("--speed-factor", "-s", type=float, default=1.0)
+
     args = parser.parse_args(args)
     kwargs = dict(args._get_kwargs())
     asyncio.run(run_server(**kwargs))
