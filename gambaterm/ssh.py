@@ -30,6 +30,11 @@ class SSHSession(asyncssh.SSHServerSession):
         self._channel = chan
         self._size = 10, 10
 
+        # True color detection state
+        self._true_color = False
+        self._true_color_data = b""
+        self._true_color_event = asyncio.Event()
+
     def close_all_pipes(self):
         for pipe in (
             self._read_stdin_pipe,
@@ -78,8 +83,8 @@ class SSHSession(asyncssh.SSHServerSession):
             print(f"< User `{username}` did not enable X11 forwarding")
             return
 
-        # TODO: detect color capabilites using TERM and COLORTERM
-        self._true_color = False
+        # Detect true color support by interracting with the terminal
+        await self.detect_true_color_support()
 
         # Force size changed handler
         size = self._channel.get_terminal_size()
@@ -137,15 +142,36 @@ class SSHSession(asyncssh.SSHServerSession):
         self._size = width, height
         term = self._channel.get_terminal_type()
         username = self._channel.get_extra_info("username")
-        print(f"[Terminal Info] {username}: {term}, {width}x{height}")
+        color = "True color" if self._true_color else "256 colors"
+        print(f"[Terminal Info] {username}: {term}, {color}, {width}x{height}")
 
     def data_received(self, data, datatype):
+        # Detect True color mode
+        if not self._true_color_event.is_set():
+            self._true_color_data += data
+            if b"\033\\" not in self._true_color_data:
+                return
+            header, data = self._true_color_data.split(b"\033\\", maxsplit=1)
+            self._true_color = b"P1$r0;48:2::1:2:3m" in header
+            self._true_color_event.set()
+        # Detect ctrl+C and ctrl+D
         if b"\x03" in data or b"\x04" in data:
             self.close_all_pipes()
+        # Forward traffic
         try:
             os.write(self._write_stdin_pipe, data)
         except OSError:
             pass
+
+    async def detect_true_color_support(self):
+        # Set unlikely RGB value
+        self._channel.write(b"\033[48:2:1:2:3m")
+        # Query current configuration
+        self._channel.write(b"\033P$qm")
+        # Reset
+        self._channel.write(b"\033\\")
+        # Wait for reply
+        await self._true_color_event.wait()
 
 
 class SSHServer(asyncssh.SSHServer):
