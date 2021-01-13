@@ -72,8 +72,7 @@ def run(
 
         # Tick the emulator
         gb.set_input(get_input())
-        offset, samples = gb.run_for(video, 160, audio, 60 * 35112)
-        assert offset > 0
+        offset, samples = gb.run_for(video, 160, audio, 35112)
 
         # Send audio
         if audio_out:
