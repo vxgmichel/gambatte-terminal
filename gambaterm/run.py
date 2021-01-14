@@ -34,20 +34,23 @@ def run(
     stdin,
     stdout,
     get_size,
-    true_color=False,
     audio_out=None,
+    color_mode=False,
     frame_advance=1,
     frame_limit=None,
     speed_factor=1.0,
     save_directory=None,
+    force_gameboy=False,
 ):
+    assert color_mode > 0
+
     # Set save_directory
     gb = GB()
     if save_directory:
         gb.set_save_directory(save_directory)
 
     # Load the rom
-    return_code = gb.load(romfile)
+    return_code = gb.load(romfile, 1 if force_gameboy else 0)
     if return_code != 0:
         return return_code
 
@@ -96,7 +99,7 @@ def run(
 
             # Render frame
             deltas1.append(time.time() - start)
-            data = paint_frame(video, last_frame, refx, refy, width, height, true_color)
+            data = paint_frame(video, last_frame, refx, refy, width, height, color_mode)
             last_frame = video.copy()
             deltas2.append(time.time() - start)
 

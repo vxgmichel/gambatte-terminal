@@ -83,17 +83,67 @@ cdef int scale_256_to_6_spread(int x):
     return x // 43
 
 
-cdef char* set_color(char* buff, int n, int true_color, int foreground):
+cdef int scale_rgb_to_16_colors(int r, int g, int b):
+    r >>= 6
+    g >>= 6
+    b >>= 6
+    # Dark grey
+    if r == g == b == 1:
+        return 90
+    # Light grey
+    if r == g == b == 2:
+        return 37
+    # Standard colors
+    if r < 2 and g < 2 and b < 2:
+        return 30 + (b << 2 | g << 1 | r)
+    # Lower resolution
+    r >>= 1
+    g >>= 1
+    b >>= 1
+    # Bright colors
+    return 90 + (b << 2 | g << 1 | r)
+
+
+cdef int scale_rgb_to_4_colors(int r, int g, int b):
+    # Square the values
+    r *= r
+    g *= g
+    b *= b
+    # Divide the values by 8
+    r >>= 3
+    g >>= 3
+    b >>= 3
+    # Apply coefficients
+    cdef int l = 2 * r + 5 * g + b
+    # Black color
+    if l <= (64 - 40) ** 2:
+        return 30
+    # Dark grey color
+    if l <= (128 - 64) ** 2:
+        return 90
+    # Light grey color
+    if l <= (64 + 128 - 42) ** 2:
+        return 37
+    # White color
+    return 97
+
+cdef char* set_color(char* buff, int n, int color_mode, int foreground):
     cdef int c
+    # Extract RGB components
     cdef int b = n & 0xff
     cdef int g = (n >> 8) & 0xff
     cdef int r = (n >> 16) & 0xff
-    if true_color:
-        if foreground:
-            buff += sprintf(buff, "\033[38;2;%d;%d;%dm", r, g, b)
-        else:
-            buff += sprintf(buff, "\033[48;2;%d;%d;%dm", r, g, b)
-    else:
+    # Standard colors
+    if color_mode <= 2:
+        if color_mode == 1:
+            c = scale_rgb_to_4_colors(r, g, b)
+        elif color_mode == 2:
+            c = scale_rgb_to_16_colors(r, g, b)
+        if not foreground:
+            c += 10
+        buff += sprintf(buff, "\033[%dm", c)
+    # 256 colors
+    elif color_mode == 3:
         b = scale_256_to_6_shift(b)
         g = scale_256_to_6_shift(g)
         r = scale_256_to_6_shift(r)
@@ -102,15 +152,21 @@ cdef char* set_color(char* buff, int n, int true_color, int foreground):
             buff += sprintf(buff, "\033[38;5;%dm", c)
         else:
             buff += sprintf(buff, "\033[48;5;%dm", c)
+    # True colors
+    elif color_mode == 4:
+        if foreground:
+            buff += sprintf(buff, "\033[38;2;%d;%d;%dm", r, g, b)
+        else:
+            buff += sprintf(buff, "\033[48;2;%d;%d;%dm", r, g, b)
     return buff
 
 
-cdef char* set_background(char* buff, int n, int true_color):
-    return set_color(buff, n, true_color, False)
+cdef char* set_background(char* buff, int n, int color_mode):
+    return set_color(buff, n, color_mode, False)
 
 
-cdef char* set_foreground(char* buff, int n, int true_color):
-    return set_color(buff, n, true_color, True)
+cdef char* set_foreground(char* buff, int n, int color_mode):
+    return set_color(buff, n, color_mode, True)
 
 
 cdef char* move_from_to(
@@ -123,7 +179,7 @@ def paint_frame(
     np.ndarray[np.int32_t, ndim=2] video,
     np.ndarray[np.int32_t, ndim=2] last,
     int refx, int refy, int width, int height,
-    int true_color,
+    int color_mode,
 ):
     cdef char[144*160*100] base
     cdef char* result = base
@@ -169,7 +225,7 @@ def paint_frame(
             # Print empty block (space)
             if color1 == color2:
                 if color1 != current_bg:
-                    result = set_background(result, color1, true_color)
+                    result = set_background(result, color1, color_mode)
                     current_bg = color1
                 result += sprintf(result, " ")
                 current_y += 1
@@ -187,10 +243,10 @@ def paint_frame(
 
             # Set background and foreground colors if necessary
             if current_fg != color1:
-                result = set_foreground(result, color1, true_color)
+                result = set_foreground(result, color1, color_mode)
                 current_fg = color1
             if current_bg != color2:
-                result = set_background(result, color2, true_color)
+                result = set_background(result, color2, color_mode)
                 current_bg = color2
 
             # Print lower half block

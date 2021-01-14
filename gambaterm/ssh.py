@@ -10,10 +10,8 @@ import asyncssh
 from .run import run
 from .inputs import read_input_file
 from .xinput import gb_input_context
+from .colors import ColorMode, detect_color_mode
 
-message = """\
-Please enable X11 forwarding using `-X` option.\r
-"""
 
 CSI = b"\033["
 
@@ -79,12 +77,25 @@ class SSHSession(asyncssh.SSHServerSession):
 
         # X11 is required
         if not display and self.kwargs["input_file"] is None:
+            message = "Please enable X11 forwarding using `-X` option.\r\n"
             self._channel.write(message.encode())
             print(f"< User `{username}` did not enable X11 forwarding")
             return
 
         # Detect true color support by interracting with the terminal
-        await self.detect_true_color_support()
+        if await self.detect_true_color_support():
+            self._color_mode = ColorMode.HAS_24_BIT_COLOR
+        else:
+            env = self._channel.get_environment()
+            env["TERM"] = self._channel.get_terminal_type()
+            self._color_mode = detect_color_mode(env)
+
+        if self._color_mode == ColorMode.NO_COLOR:
+            term = self._channel.get_terminal_type()
+            message = f"Your terminal `{term}` doesn't seem to support colors\r\n"
+            self._channel.write(message.encode())
+            print(f"< User `{username}` terminal `{term}` does not support colors")
+            return
 
         # Force size changed handler
         size = self._channel.get_terminal_size()
@@ -116,10 +127,11 @@ class SSHSession(asyncssh.SSHServerSession):
             "stdin": self._stdin,
             "stdout": self._stdout,
             "get_size": lambda: self._size,
-            "true_color": int(self._true_color),
+            "color_mode": int(self._color_mode),
             "frame_advance": self.kwargs["frame_advance"],
             "frame_limit": self.kwargs["frame_limit"],
             "speed_factor": self.kwargs["speed_factor"],
+            "force_gameboy": self.kwargs["force_gameboy"],
         }
         if self.kwargs["input_file"] is not None:
             run(
@@ -152,6 +164,7 @@ class SSHSession(asyncssh.SSHServerSession):
             if b"\033\\" not in self._true_color_data:
                 return
             header, data = self._true_color_data.split(b"\033\\", maxsplit=1)
+            print(header)
             self._true_color = b"P1$r0;48:2::1:2:3m" in header
             self._true_color_event.set()
         # Detect ctrl+C and ctrl+D
@@ -169,9 +182,11 @@ class SSHSession(asyncssh.SSHServerSession):
         # Query current configuration
         self._channel.write(b"\033P$qm")
         # Reset
-        self._channel.write(b"\033\\")
+        self._channel.write(b"\033\\\033[m")
         # Wait for reply
-        await self._true_color_event.wait()
+        await asyncio.wait_for(self._true_color_event.wait(), 1.0)
+        # Return whether true color is supported
+        return self._true_color
 
 
 class SSHServer(asyncssh.SSHServer):
@@ -218,6 +233,7 @@ def main(args=None):
     parser.add_argument("--port", "-p", type=int, default=8022)
     parser.add_argument("--password", "-w", type=str)
 
+    parser.add_argument("--force_gameboy", "-f", action="store_true")
     parser.add_argument("--input-file", "-i", default=None)
     parser.add_argument("--frame-advance", "-a", type=int, default=2)
     parser.add_argument("--frame-limit", "-l", type=int, default=None)
