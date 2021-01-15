@@ -180,9 +180,9 @@ class SSHSession(asyncssh.SSHServerSession):
         # Set unlikely RGB value
         self._channel.write(b"\033[48:2:1:2:3m")
         # Query current configuration
-        self._channel.write(b"\033P$qm")
+        self._channel.write(b"\033P$qm\033\\")
         # Reset
-        self._channel.write(b"\033\\\033[m")
+        self._channel.write(b"\033[m")
         # Wait for reply
         await asyncio.wait_for(self._true_color_event.wait(), 1.0)
         # Return whether true color is supported

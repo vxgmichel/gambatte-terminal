@@ -13,6 +13,7 @@ from ._gambatte import GB, paint_frame
 
 CSI = b"\033["
 CPR_PATTERN = re.compile(rb"\033\[\d+;\d+R")
+TICKS_IN_FRAME = 35112
 
 
 def wait_for_cpr(stdin, data=b""):
@@ -70,9 +71,10 @@ def run(
     deltas2 = deque(maxlen=average_over)
     deltas3 = deque(maxlen=average_over)
     data_length = deque(maxlen=average_over)
-    start = time.time()
+    start = real_start = time.time()
 
     # Loop over emulator frames
+    new_frame = False
     for i in count():
 
         # Break when frame limit is reach
@@ -81,14 +83,16 @@ def run(
 
         # Tick the emulator
         gb.set_input(get_input())
-        offset, samples = gb.run_for(video, 160, audio, 35112)
+        offset, samples = gb.run_for(video, 160, audio, TICKS_IN_FRAME)
+        new_frame = new_frame or offset > 0
 
         # Send audio
         if audio_out:
-            audio_out.send(audio[:samples], speed_factor)
+            audio_out.send(audio[:samples])
 
         # This frame is displayed
-        if i % frame_advance == 0:
+        if i % frame_advance == 0 and new_frame:
+            new_frame = False
 
             # Check terminal size
             new_size = get_size()
@@ -98,10 +102,10 @@ def run(
                 last_frame.fill(-1)
 
             # Render frame
-            deltas1.append(time.time() - start)
+            deltas1.append(time.time() - real_start)
             data = paint_frame(video, last_frame, refx, refy, width, height, color_mode)
             last_frame = video.copy()
-            deltas2.append(time.time() - start)
+            deltas2.append(time.time() - real_start)
 
             # Make sure that terminal is done rendring the previous frame
             if i != 0:
@@ -111,20 +115,25 @@ def run(
             stdout.write(data)
             stdout.write(CSI + b"6n")
             data_length.append(len(data))
-            deltas3.append(time.time() - start)
+            deltas3.append(time.time() - real_start)
 
         # This frame is not displayed
         else:
-            deltas2.append(time.time() - start)
-            deltas3.append(time.time() - start)
+            deltas2.append(time.time() - real_start)
+            deltas3.append(time.time() - real_start)
+
+        # Make sure we don't go faster than audio
+        if audio_out:
+            audio_out.sync()
 
         # Time control
-        stop = time.time()
-        deadline = start + (1 / 60) / speed_factor
-        if stop < deadline:
-            time.sleep(deadline - stop)
-            stop = time.time()
-        start, delta = stop, stop - start
+        increment = samples / TICKS_IN_FRAME / 60
+        deadline = start + increment / speed_factor
+        current = time.time()
+        if current < deadline - 1e-3:
+            time.sleep(deadline - current)
+            current = time.time()
+        start, real_start, delta = deadline, current, current - real_start
         deltas.append(delta)
 
         # Reporting

@@ -5,8 +5,8 @@ import tempfile
 import argparse
 
 from .run import run, purge
-from .audio import audio_player
 from .inputs import read_input_file
+from .audio import audio_player, no_audio
 from .colors import detect_local_color_mode
 from .xinput import gb_input_context, cbreak_mode
 
@@ -22,6 +22,7 @@ def main(args=None):
     parser.add_argument("--frame-limit", "-l", type=int, default=None)
     parser.add_argument("--speed-factor", "-s", type=float, default=1.0)
     parser.add_argument("--force-gameboy", "-f", action="store_true")
+    parser.add_argument("--disable-audio", "-d", action="store_true")
     args = parser.parse_args(args)
 
     if args.color_mode is None:
@@ -37,7 +38,8 @@ def main(args=None):
     if args.color_mode == 0:
         raise RuntimeError("No color mode seems to be supported")
 
-    with audio_player() as audio_out:
+    player = no_audio if args.disable_audio else audio_player
+    with player(args.speed_factor) as audio_out:
         with cbreak_mode() as (stdin, stdout):
             try:
                 stdout.write(CSI + b"2J")
