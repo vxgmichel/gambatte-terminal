@@ -9,10 +9,6 @@ from enum import IntEnum
 from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor
 
-from Xlib import XK
-from Xlib.ext import xinput
-from Xlib.display import Display
-
 
 class GBInput(IntEnum):
     A = 0x01
@@ -25,24 +21,30 @@ class GBInput(IntEnum):
     DOWN = 0x80
 
 
-MAPPING = {
-    XK.XK_Up: GBInput.UP,
-    XK.XK_Down: GBInput.DOWN,
-    XK.XK_Left: GBInput.LEFT,
-    XK.XK_Right: GBInput.RIGHT,
-    XK.XK_f: GBInput.A,
-    XK.XK_space: GBInput.A,
-    XK.XK_d: GBInput.B,
-    XK.XK_Alt_L: GBInput.B,
-    XK.XK_Return: GBInput.START,
-    XK.XK_Control_R: GBInput.START,
-    XK.XK_Shift_L: GBInput.SELECT,
-    XK.XK_Shift_R: GBInput.SELECT,
-}
+def get_mapping():
+    from Xlib import XK
+
+    return {
+        XK.XK_Up: GBInput.UP,
+        XK.XK_Down: GBInput.DOWN,
+        XK.XK_Left: GBInput.LEFT,
+        XK.XK_Right: GBInput.RIGHT,
+        XK.XK_f: GBInput.A,
+        XK.XK_space: GBInput.A,
+        XK.XK_d: GBInput.B,
+        XK.XK_Alt_L: GBInput.B,
+        XK.XK_Return: GBInput.START,
+        XK.XK_Control_R: GBInput.START,
+        XK.XK_Shift_L: GBInput.SELECT,
+        XK.XK_Shift_R: GBInput.SELECT,
+    }
 
 
 @contextmanager
 def key_pressed_context(display=None):
+    from Xlib.ext import xinput
+    from Xlib.display import Display
+
     def target():
         xdisplay = Display(display)
         try:
@@ -98,10 +100,12 @@ def key_pressed_context(display=None):
 
 @contextmanager
 def gb_input_context(display=None):
+    mapping = get_mapping()
+
     def get_gb_input():
         value = 0
         for keysym in get_pressed():
-            value |= MAPPING.get(keysym, 0)
+            value |= mapping.get(keysym, 0)
         return value
 
     with key_pressed_context(display=display) as get_pressed:
@@ -125,6 +129,8 @@ def cbreak_mode():
 
 
 def main():
+    from Xlib import XK
+
     reverse_lookup = {v: k[3:] for k, v in XK.__dict__.items() if k.startswith("XK_")}
     try:
         with cbreak_mode() as (_, stdout):
