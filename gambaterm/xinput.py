@@ -1,13 +1,16 @@
 import os
 import sys
 import time
-import tty
 import select
 import logging
-import termios
 from enum import IntEnum
 from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor
+
+if os.name == "nt":
+    from prompt_toolkit.input.win32 import raw_mode
+else:
+    from prompt_toolkit.input.vt100 import raw_mode
 
 
 class GBInput(IntEnum):
@@ -114,17 +117,16 @@ def gb_input_context(display=None):
 
 @contextmanager
 def cbreak_mode():
+    # Open stdin and stdout
     stdin_fd = sys.stdin.fileno()
     stdout_fd = sys.stdout.fileno()
     stdin = os.fdopen(stdin_fd, "rb", buffering=0)
     stdout = os.fdopen(stdout_fd, "wb", buffering=0)
-    backup_config = termios.tcgetattr(stdin_fd)
     try:
-        tty.setcbreak(stdin_fd)
-        stdout.write(b"\033[?25l")
-        yield (stdin, stdout)
+        with raw_mode(stdin_fd):
+            stdout.write(b"\033[?25l")
+            yield (stdin, stdout)
     finally:
-        termios.tcsetattr(stdin_fd, termios.TCSADRAIN, backup_config)
         stdout.write(b"\033[?25h")
 
 

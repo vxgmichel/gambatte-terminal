@@ -3,7 +3,6 @@
 import re
 import os
 import time
-import select
 from itertools import count
 from collections import deque
 
@@ -19,14 +18,12 @@ TICKS_IN_FRAME = 35112
 def wait_for_cpr(stdin, data=b""):
     while not CPR_PATTERN.search(data):
         data += stdin.read(1024)
-
-
-def purge(stdin):
-    while True:
-        r, _, _ = select.select([stdin], (), (), 0)
-        if not r:
-            return
-        stdin.read(1024)
+        if b"\x03" in data:
+            raise KeyboardInterrupt
+        if b"\x04" in data:
+            raise EOFError
+        if b"\033" not in data:
+            data = b""
 
 
 def run(

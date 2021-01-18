@@ -1,16 +1,25 @@
 #!/usr/bin/env python3
 
 import shutil
+import select
 import tempfile
 import argparse
 
-from .run import run, purge
+from .run import run
 from .inputs import read_input_file
 from .audio import audio_player, no_audio
 from .colors import detect_local_color_mode
 from .xinput import gb_input_context, cbreak_mode
 
 CSI = b"\033["
+
+
+def purge(stdin):
+    while True:
+        r, _, _ = select.select([stdin], (), (), 0)
+        if not r:
+            return
+        stdin.read(1024)
 
 
 def main(args=None):
@@ -60,7 +69,7 @@ def main(args=None):
                         save_directory=save_directory,
                         force_gameboy=args.force_gameboy,
                     )
-            except KeyboardInterrupt:
+            except (KeyboardInterrupt, EOFError):
                 pass
             else:
                 exit(return_code)

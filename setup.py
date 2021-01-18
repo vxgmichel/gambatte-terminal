@@ -1,15 +1,19 @@
 import os
 import glob
+import numpy
 from setuptools import Extension, setup
 
 # List libgambatte sources, excluding `file_zip.cpp`
-libgambatte_sources = glob.glob("libgambatte/**/*.cpp", recursive=True)
-libgambatte_sources.remove("libgambatte/src/file/file_zip.cpp")
+libgambatte_sources = [
+    path
+    for path in glob.glob("libgambatte/**/*.cpp", recursive=True)
+    if not path.endswith("file_zip.cpp")
+]
 
 # List all directories containing `.h` files
-include_dirs = list(
+libgambatte_include_dirs = list(
     set(
-        f"-I{os.path.dirname(path)}"
+        os.path.dirname(path)
         for path in glob.glob("libgambatte/**/*.h", recursive=True)
     )
 )
@@ -18,7 +22,8 @@ include_dirs = list(
 gambatte_extension = Extension(
     "gambaterm._gambatte",
     language="c++",
-    extra_compile_args=include_dirs + ["-DHAVE_STDINT_H"],
+    include_dirs=libgambatte_include_dirs + [numpy.get_include()],
+    extra_compile_args=["-DHAVE_STDINT_H"],
     sources=libgambatte_sources + ["ext/_gambatte.pyx"],
 )
 
@@ -27,17 +32,23 @@ setup(
     name="gambaterm",
     version="0.1.0",
     packages=["gambaterm"],
-    setup_requires=["setuptools>=18.0", "cython", "numpy"],
+    setup_requires=["setuptools", "cython", "numpy"],
     ext_modules=[gambatte_extension],
     install_requires=[
         "numpy",
         "asyncssh",
         "sounddevice",
         "samplerate",
+        "prompt_toolkit",
         "xlib; sys_platform == 'linux'",
     ],
-    tests_require=["pytest"],
     python_requires=">=3.6",
+    entry_points={
+        "console_scripts": [
+            "gambaterm = gambaterm:main",
+            "gambaterm-ssh = gambaterm.ssh:main",
+        ],
+    },
     description="A terminal frontend for gambatte game boy color emulator ",
     url="https://github.com/vxgmichel/gambatte-terminal",
     license="GPLv3",
