@@ -14,7 +14,9 @@ CSI = b"\033["
 
 
 def main(args=None):
-    parser = argparse.ArgumentParser(description="Gambatte terminal frontend")
+    parser = argparse.ArgumentParser(
+        prog="gambaterm", description="Gambatte terminal front-end"
+    )
     parser.add_argument("romfile", metavar="ROM", type=str)
     parser.add_argument("--input-file", "-i", default=None)
     parser.add_argument("--color-mode", "-c", type=int, default=None)
