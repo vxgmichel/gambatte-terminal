@@ -74,3 +74,6 @@ parsec/core/gui/rc/generated_misc/
 *~
 *#
 ext/*.cpp
+
+# Build artefacts
+*.o

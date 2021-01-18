@@ -1,13 +1,25 @@
+import os
+import glob
 from setuptools import Extension, setup
 
+# List libgambatte sources, excluding `file_zip.cpp`
+libgambatte_sources = glob.glob("libgambatte/**/*.cpp", recursive=True)
+libgambatte_sources.remove("libgambatte/src/file/file_zip.cpp")
 
+# List all directories containing `.h` files
+include_dirs = list(
+    set(
+        f"-I{os.path.dirname(path)}"
+        for path in glob.glob("libgambatte/**/*.h", recursive=True)
+    )
+)
+
+# The gambatte extension, including libgambatte with the Cython wrapper
 gambatte_extension = Extension(
     "gambaterm._gambatte",
     language="c++",
-    libraries=["gambatte"],
-    extra_compile_args=["-Ilibgambatte"],
-    extra_link_args=["-Llibgambatte"],
-    sources=["ext/_gambatte.pyx"],
+    extra_compile_args=include_dirs + ["-DHAVE_STDINT_H"],
+    sources=libgambatte_sources + ["ext/_gambatte.pyx"],
 )
 
 

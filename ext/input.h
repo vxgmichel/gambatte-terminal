@@ -1,5 +1,5 @@
 
-#include "include/gambatte.h"
+#include "gambatte.h"
 
 namespace gambatte {
     class GetInput : public InputGetter {
