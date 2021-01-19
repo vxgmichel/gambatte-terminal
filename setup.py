@@ -41,7 +41,7 @@ gambatte_extension = Extension(
 
 setup(
     name="gambaterm",
-    version="0.1.2",
+    version="0.2.0",
     packages=["gambaterm"],
     setup_requires=["setuptools", "cython", "numpy"],
     ext_modules=[gambatte_extension],
