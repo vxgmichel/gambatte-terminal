@@ -1,3 +1,4 @@
+from collections import deque
 from queue import Queue, Empty, Full
 from contextlib import contextmanager
 
@@ -14,11 +15,11 @@ class AudioOut:
 
     def __init__(self, speed=1.0):
         self.speed = speed
+        self.to_send = deque()
         self.queue = Queue(maxsize=2)
         self.resampler = samplerate.Resampler("linear", channels=2)
         self.buffer = np.full((self.buffer_size, 2), 0.0, np.int16)
         self.offset = 0
-        self.to_send = None
 
     @property
     def ratio(self):
@@ -31,32 +32,32 @@ class AudioOut:
         audio.shape = (length, 2)
         # Resample to output rate
         data = self.resampler.process(audio, self.ratio).astype(np.int16)
-        # Write the current buffer
-        stop = min(self.buffer_size, self.offset + len(data))
-        self.buffer[self.offset : stop] = data[: stop - self.offset]
-        # Current buffer is not full
-        if stop != self.buffer_size:
-            self.offset = stop
-            return
-        # Decrease volume
-        self.buffer //= 4
-        # Current buffer is full, send without blocking
-        try:
-            self.queue.put_nowait(self.buffer)
-        # Schedule blocking send for next call to sync
-        except Full:
-            self.to_send = self.buffer
-        # Create new buffer
-        self.buffer = np.full((self.buffer_size, 2), 0.0, np.int16)
-        # Fill the extra data
-        extra_data = data[stop - self.offset :]
-        self.offset = len(extra_data)
-        self.buffer[: self.offset] = extra_data
+        # Loop over data blocks
+        while True:
+            # Write the current buffer
+            stop = min(self.buffer_size, self.offset + len(data))
+            self.buffer[self.offset : stop] = data[: stop - self.offset]
+            # Current buffer is not full
+            if stop != self.buffer_size:
+                self.offset = stop
+                return
+            # Decrease volume
+            self.buffer //= 4
+            # Current buffer is full, send without blocking
+            try:
+                self.queue.put_nowait(self.buffer)
+            # Schedule blocking send for next call to sync
+            except Full:
+                self.to_send.append(self.buffer)
+            # Create new buffer
+            self.buffer = np.full((self.buffer_size, 2), 0.0, np.int16)
+            # Process remaining data
+            data = data[stop - self.offset :]
+            self.offset = 0
 
     def sync(self):
-        if self.to_send is not None:
-            self.queue.put(self.to_send)
-            self.to_send = None
+        while self.to_send:
+            self.queue.put(self.to_send.popleft())
 
     def stream_callback(self, output_buffer, *args):
         try:
