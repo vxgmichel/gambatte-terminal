@@ -3,6 +3,8 @@
 import re
 import os
 import time
+import select
+import contextlib
 from itertools import count
 from collections import deque
 
@@ -12,18 +14,39 @@ from ._gambatte import GB, paint_frame
 
 CSI = b"\033["
 CPR_PATTERN = re.compile(rb"\033\[\d+;\d+R")
-TICKS_IN_FRAME = 35112
+
+# Gameboy constants
+GB_FPS = 60
+GB_WIDTH = 160
+GB_HEIGHT = 144
+GB_TICKS_IN_FRAME = 35112
 
 
-def wait_for_cpr(stdin, data=b""):
-    while not CPR_PATTERN.search(data):
-        data += stdin.read(1024)
-        if b"\x03" in data:
-            raise KeyboardInterrupt
-        if b"\x04" in data:
-            raise EOFError
-        if b"\033" not in data:
-            data = b""
+def look_for_cpr(stdin):
+    data = non_blocking_read(stdin)
+    if b"\x03" in data:
+        raise KeyboardInterrupt
+    if b"\x04" in data:
+        raise EOFError
+    return CPR_PATTERN.search(data)
+
+
+def non_blocking_read(stdin):
+    result = b""
+    while True:
+        r, _, _ = select.select([stdin], (), (), 0)
+        if not r:
+            return result
+        result += stdin.read(1024)
+
+
+@contextlib.contextmanager
+def timing(deltas):
+    try:
+        start = time.time()
+        yield
+    finally:
+        deltas.append(time.time() - start)
 
 
 def run(
@@ -53,22 +76,25 @@ def run(
         return return_code
 
     # Prepare buffers with invalid data
-    video = np.full((144, 160), -1, np.int32)
-    audio = np.full(60 * 35112, -1, np.int32)
+    video = np.full((GB_HEIGHT, GB_WIDTH), -1, np.int32)
+    audio = np.full(2 * GB_TICKS_IN_FRAME, -1, np.int32)
     last_frame = video.copy()
 
     # Print area
-    refx, refy = 1, 1
     width, height = get_size()
+    refx = max(1, (height - GB_HEIGHT // 2) // 2)
+    refy = max(1, (width - GB_WIDTH) // 2)
 
     # Prepare reporting
-    average_over = 30  # frames
-    deltas = deque(maxlen=average_over)
-    deltas1 = deque(maxlen=average_over)
-    deltas2 = deque(maxlen=average_over)
-    deltas3 = deque(maxlen=average_over)
+    fps = GB_FPS * speed_factor
+    average_over = int(fps)  # frames
+    emu_deltas = deque(maxlen=average_over)
+    audio_deltas = deque(maxlen=average_over)
+    video_deltas = deque(maxlen=average_over)
+    sync_deltas = deque(maxlen=average_over)
+    shown_frames = deque(maxlen=average_over)
     data_length = deque(maxlen=average_over)
-    start = real_start = time.time()
+    start = time.time()
 
     # Loop over emulator frames
     new_frame = False
@@ -79,76 +105,69 @@ def run(
             return 0
 
         # Tick the emulator
-        gb.set_input(get_input())
-        offset, samples = gb.run_for(video, 160, audio, TICKS_IN_FRAME)
-        new_frame = new_frame or offset > 0
+        with timing(emu_deltas):
+            gb.set_input(get_input())
+            offset, samples = gb.run_for(video, GB_WIDTH, audio, GB_TICKS_IN_FRAME)
+            new_frame = new_frame or offset > 0
 
         # Send audio
-        if audio_out:
-            audio_out.send(audio[:samples])
+        with timing(audio_deltas):
+            if audio_out:
+                audio_out.send(audio[:samples])
 
-        # This frame is displayed
-        if i % frame_advance == 0 and new_frame:
-            new_frame = False
+        # Send video
+        with timing(video_deltas):
+            # Send the frame
+            if i == 0 or i % frame_advance == 0 and new_frame and look_for_cpr(stdin):
+                new_frame = False
+                # Check terminal size
+                new_size = get_size()
+                if new_size != (width, height):
+                    stdout.write(CSI + b"0m" + CSI + b"2J")
+                    width, height = new_size
+                    refx = max(1, (height - GB_HEIGHT // 2) // 2)
+                    refy = max(1, (width - GB_WIDTH) // 2)
+                    last_frame.fill(-1)
+                # Render frame
+                data = paint_frame(
+                    video, last_frame, refx, refy, width, height, color_mode
+                )
+                last_frame = video.copy()
+                # Write frame with CPR request
+                stdout.write(data)
+                stdout.write(CSI + b"6n")
+                data_length.append(len(data))
+                shown_frames.append(True)
+            # Ignore this video frame
+            else:
+                data_length.append(0)
+                shown_frames.append(False)
 
-            # Check terminal size
-            new_size = get_size()
-            if new_size != (width, height):
-                stdout.write(CSI + b"0m" + CSI + b"2J")
-                width, height = new_size
-                last_frame.fill(-1)
-
-            # Render frame
-            deltas1.append(time.time() - real_start)
-            data = paint_frame(video, last_frame, refx, refy, width, height, color_mode)
-            last_frame = video.copy()
-            deltas2.append(time.time() - real_start)
-
-            # Make sure that terminal is done rendring the previous frame
-            if i != 0:
-                wait_for_cpr(stdin)
-
-            # Write frame with CPR request
-            stdout.write(data)
-            stdout.write(CSI + b"6n")
-            data_length.append(len(data))
-            deltas3.append(time.time() - real_start)
-
-        # This frame is not displayed
-        else:
-            deltas2.append(time.time() - real_start)
-            deltas3.append(time.time() - real_start)
-
-        # Make sure we don't go faster than audio
-        if audio_out:
-            audio_out.sync()
-
-        # Time control
-        increment = samples / TICKS_IN_FRAME / 60
-        deadline = start + increment / speed_factor
-        current = time.time()
-        if current < deadline - 1e-3:
-            time.sleep(deadline - current)
+        with timing(sync_deltas):
+            # Audio sync
+            if audio_out:
+                audio_out.sync()
+            # Timing sync
+            increment = samples / GB_TICKS_IN_FRAME
+            deadline = start + increment / fps
             current = time.time()
-        start, real_start, delta = deadline, current, current - real_start
-        deltas.append(delta)
+            if current < deadline - 1e-3:
+                time.sleep(deadline - current)
+            # Use deadline as new reference to prevent shifting
+            start = deadline
 
         # Reporting
         if i % average_over == 0:
-            sum_deltas = sum(deltas)
-            sum_deltas1 = sum(deltas1)
-            sum_deltas2 = sum(deltas2)
-            sum_deltas3 = sum(deltas3)
-            avg = len(deltas) / sum_deltas
-            part1 = sum_deltas1 / sum_deltas * 100
-            part2 = (sum_deltas2 - sum_deltas1) / sum_deltas * 100
-            part3 = (sum_deltas3 - sum_deltas2) / sum_deltas * 100
-            cpu_percent, io_percent = part1 + part2, part3
-            data_rate = sum(data_length) / len(data_length) * avg / 1024
+            shown_fps = fps * sum(shown_frames) / len(shown_frames)
+            emu_percent = sum(emu_deltas) / len(emu_deltas) * fps * 100
+            audio_percent = sum(audio_deltas) / len(audio_deltas) * fps * 100
+            video_percent = sum(video_deltas) / len(video_deltas) * fps * 100
+            data_rate = sum(data_length) / len(data_length) * fps / 1024
             title = f"Gambaterm - "
             title += f"{os.path.basename(romfile)} - "
-            title += f"FPS: {avg / frame_advance:.0f} - "
-            title += f"CPU: {cpu_percent:.0f}% - "
-            title += f"IO: {io_percent:.0f}% - "
+            title += f"FPS: {shown_fps:.0f} - "
+            title += f"Emu: {emu_percent:.0f}% - "
+            title += f"Audio: {audio_percent:.0f}% - "
+            title += f"Video: {video_percent:.0f}% - "
             title += f"{data_rate:.0f}KB/s"
             stdout.write(b"\x1b]0;%s\x07" % title.encode())
