@@ -1,6 +1,5 @@
 import os
 import glob
-import numpy
 from setuptools import Extension, setup
 
 # List libgambatte sources, excluding `file_zip.cpp`
@@ -18,11 +17,23 @@ libgambatte_include_dirs = list(
     )
 )
 
+
+# Defer call to `numpy.get_include`
+class NumpyIncludePath(os.PathLike):
+    def __str__(self):
+        return self.__fspath__()
+
+    def __fspath__(self):
+        import numpy
+
+        return os.fspath(numpy.get_include())
+
+
 # The gambatte extension, including libgambatte with the Cython wrapper
 gambatte_extension = Extension(
     "gambaterm._gambatte",
     language="c++",
-    include_dirs=libgambatte_include_dirs + [numpy.get_include()],
+    include_dirs=libgambatte_include_dirs + [NumpyIncludePath()],
     extra_compile_args=["-DHAVE_STDINT_H"],
     sources=libgambatte_sources + ["ext/_gambatte.pyx"],
 )
