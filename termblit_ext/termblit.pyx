@@ -1,41 +1,5 @@
-# distutils: language = c++
-# distutils: libraries = gambatte
-
 cimport numpy as np
-from libcpp.string cimport string
-from libgambatte cimport GB as C_GB
-from libgambatte cimport GetInput as C_GetInput
 from libc.stdio cimport sprintf
-
-
-cdef class GB:
-    cdef C_GB c_gb
-    cdef C_GetInput c_getinput
-
-    def __cinit__(self):
-        self.c_gb.setInputGetter(&self.c_getinput)
-
-    def load(self, str rom_file, unsigned flags=0):
-        return self.c_gb.load(rom_file.encode(), flags)
-
-    def run_for(
-        self,
-        np.ndarray[np.int32_t, ndim=2] video,
-        ptrdiff_t pitch,
-        np.ndarray[np.int32_t, ndim=1] audio,
-        size_t samples,
-    ):
-        cdef unsigned int* video_buffer = <unsigned int*> video.data
-        cdef unsigned int* audio_buffer = <unsigned int*> audio.data
-        result = self.c_gb.runFor(video_buffer, pitch, audio_buffer, samples)
-        return result, samples
-
-    def set_input(self, unsigned int value):
-        self.c_getinput.value = value
-
-    def set_save_directory(self, str path):
-        self.c_gb.setSaveDir(path.encode())
-
 
 cdef char* move_absolute(char* buff, int x, int y):
     buff += sprintf(buff, "\033[%d;%dH", x, y)
@@ -175,8 +139,8 @@ cdef char* move_from_to(
     return move_relative(buff, to_x - from_x, to_y - from_y)
 
 
-def paint_frame(
-    np.ndarray[np.int32_t, ndim=2] video,
+def blit(
+    np.ndarray[np.int32_t, ndim=2] image,
     np.ndarray[np.int32_t, ndim=2] last,
     int refx, int refy, int width, int height,
     int color_mode,
@@ -200,8 +164,8 @@ def paint_frame(
         for column_index in range(min(width - refy, 160)):
 
             # Extract colors
-            color1 = video[2 * row_index + 0, column_index]
-            color2 = video[2 * row_index + 1, column_index]
+            color1 = image[2 * row_index + 0, column_index]
+            color2 = image[2 * row_index + 1, column_index]
 
             # Skip if identical to last printed frame
             if (

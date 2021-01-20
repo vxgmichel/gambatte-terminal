@@ -31,20 +31,28 @@ class NumpyIncludePath(os.PathLike):
 
 # The gambatte extension, including libgambatte with the Cython wrapper
 gambatte_extension = Extension(
-    "gambaterm._gambatte",
+    "gambaterm.libgambatte",
     language="c++",
     include_dirs=libgambatte_include_dirs + [NumpyIncludePath()],
     extra_compile_args=["-DHAVE_STDINT_H"],
-    sources=libgambatte_sources + ["ext/_gambatte.pyx"],
+    sources=libgambatte_sources + ["libgambatte_ext/libgambatte.pyx"],
 )
 
+
+# The termblit extension
+termblit_extension = Extension(
+    "gambaterm.termblit",
+    language="c",
+    include_dirs=[NumpyIncludePath()],
+    sources=["termblit_ext/termblit.pyx"],
+)
 
 setup(
     name="gambaterm",
     version="0.2.0",
     packages=["gambaterm"],
     setup_requires=["setuptools", "cython", "numpy"],
-    ext_modules=[gambatte_extension],
+    ext_modules=[gambatte_extension, termblit_extension],
     install_requires=[
         "numpy",
         "asyncssh",

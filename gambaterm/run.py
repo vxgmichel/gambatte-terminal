@@ -10,7 +10,8 @@ from collections import deque
 
 import numpy as np
 
-from ._gambatte import GB, paint_frame
+from .libgambatte import GB
+from .termblit import blit
 
 CSI = b"\033["
 CPR_PATTERN = re.compile(rb"\033\[\d+;\d+R")
@@ -131,9 +132,7 @@ def run(
                     refy = max(1, (width - GB_WIDTH) // 2)
                     last_frame.fill(-1)
                 # Render frame
-                data = paint_frame(
-                    video, last_frame, refx, refy, width, height, color_mode
-                )
+                data = blit(video, last_frame, refx, refy, width, height, color_mode)
                 last_frame = video.copy()
                 # Write frame with CPR request
                 stdout.write(data)
