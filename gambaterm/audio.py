@@ -6,10 +6,13 @@ import samplerate
 import sounddevice
 import numpy as np
 
+GB_FPS = 59.727500569606
+GB_TICKS_IN_FRAME = 35112
+
 
 class AudioOut:
 
-    input_rate = 60 * 35112
+    input_rate = GB_FPS * GB_TICKS_IN_FRAME
     output_rate = 48000
     buffer_size = output_rate // 60
 
@@ -37,14 +40,16 @@ class AudioOut:
             # Write the current buffer
             stop = min(self.buffer_size, self.offset + len(data))
             self.buffer[self.offset : stop] = data[: stop - self.offset]
-            # Current buffer is not full
+            # Current buffer is not complete
             if stop != self.buffer_size:
                 self.offset = stop
                 return
-            # Decrease volume
+            # Current buffer is complete, decrease volume
             self.buffer //= 4
-            # Current buffer is full, send without blocking
+            # Send without blocking if possible
             try:
+                if self.to_send:
+                    raise Full
                 self.queue.put_nowait(self.buffer)
             # Schedule blocking send for next call to sync
             except Full:

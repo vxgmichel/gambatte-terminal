@@ -10,6 +10,7 @@ import asyncssh
 from .run import run
 from .inputs import read_input_file
 from .xinput import gb_input_context
+from .main import add_base_arguments
 from .colors import ColorMode, detect_color_mode
 
 
@@ -57,6 +58,10 @@ class SSHSession(asyncssh.SSHServerSession):
     async def safe_interact(self):
         try:
             await self.interact()
+        except KeyboardInterrupt:
+            pass
+        except SystemExit:
+            pass
         except BaseException:
             traceback.print_exc()
         finally:
@@ -110,14 +115,14 @@ class SSHSession(asyncssh.SSHServerSession):
 
         loop = asyncio.get_event_loop()
         try:
-            self._channel.write(b"\033[?25l")
+            # Hide cursor and clear screen
+            self._channel.write(CSI + b"?25l" + CSI + b"2J")
             loop.add_reader(self._read_stdout_pipe, _data_received)
             await loop.run_in_executor(None, self.thread_target, display)
-        except OSError:
-            self._channel.write(CSI + b"0m" + CSI + b"2J" + b"\r\n")
         finally:
             loop.remove_reader(self._read_stdout_pipe)
-            self._channel.write(b"\033[?25h")
+            # Show cursor, clear attributes and clear screen
+            self._channel.write(CSI + b"?25h" + CSI + b"0m" + CSI + b"2J" + b"\r\n")
             print(f"< User `{username}` left ({peername}:{port})")
 
     def thread_target(self, display):
@@ -129,13 +134,16 @@ class SSHSession(asyncssh.SSHServerSession):
             "get_size": lambda: self._size,
             "color_mode": int(self._color_mode),
             "frame_advance": self.kwargs["frame_advance"],
-            "frame_limit": self.kwargs["frame_limit"],
+            "break_after": self.kwargs["break_after"],
             "speed_factor": self.kwargs["speed_factor"],
             "force_gameboy": self.kwargs["force_gameboy"],
         }
         if self.kwargs["input_file"] is not None:
+            get_input = read_input_file(
+                self.kwargs["input_file"], self.kwargs["skip_inputs"]
+            )
             run(
-                get_input=read_input_file(self.kwargs["input_file"]),
+                get_input=get_input,
                 save_directory=tempfile.mkdtemp(),
                 **kwargs,
             )
@@ -164,12 +172,8 @@ class SSHSession(asyncssh.SSHServerSession):
             if b"\033\\" not in self._true_color_data:
                 return
             header, data = self._true_color_data.split(b"\033\\", maxsplit=1)
-            print(header)
             self._true_color = b"P1$r0;48:2::1:2:3m" in header
             self._true_color_event.set()
-        # Detect ctrl+C and ctrl+D
-        if b"\x03" in data or b"\x04" in data:
-            self.close_all_pipes()
         # Forward traffic
         try:
             os.write(self._write_stdin_pipe, data)
@@ -178,13 +182,16 @@ class SSHSession(asyncssh.SSHServerSession):
 
     async def detect_true_color_support(self):
         # Set unlikely RGB value
-        self._channel.write(b"\033[48:2:1:2:3m")
+        self._channel.write(CSI + b"48:2:1:2:3m")
         # Query current configuration
         self._channel.write(b"\033P$qm\033\\")
         # Reset
-        self._channel.write(b"\033[m")
+        self._channel.write(CSI + b"m")
         # Wait for reply
-        await asyncio.wait_for(self._true_color_event.wait(), 1.0)
+        try:
+            await asyncio.wait_for(self._true_color_event.wait(), 0.5)
+        except asyncio.TimeoutError:
+            pass
         # Return whether true color is supported
         return self._true_color
 
@@ -227,17 +234,11 @@ async def run_server(bind="localhost", port=8022, **kwargs):
 
 
 def main(args=None):
-    parser = argparse.ArgumentParser(description="Gambatte terminal frontend over ssh")
-    parser.add_argument("romfile", metavar="ROM", type=str)
+    parser = argparse.ArgumentParser(description="Gambatte terminal front-end over ssh")
+    add_base_arguments(parser)
     parser.add_argument("--bind", "-b", type=str, default="localhost")
     parser.add_argument("--port", "-p", type=int, default=8022)
-    parser.add_argument("--password", "-w", type=str)
-
-    parser.add_argument("--force_gameboy", "-f", action="store_true")
-    parser.add_argument("--input-file", "-i", default=None)
-    parser.add_argument("--frame-advance", "-a", type=int, default=2)
-    parser.add_argument("--frame-limit", "-l", type=int, default=None)
-    parser.add_argument("--speed-factor", "-s", type=float, default=1.0)
+    parser.add_argument("--password", "-pw", type=str)
 
     args = parser.parse_args(args)
     kwargs = dict(args._get_kwargs())

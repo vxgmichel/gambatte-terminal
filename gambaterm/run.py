@@ -16,9 +16,9 @@ CSI = b"\033["
 CPR_PATTERN = re.compile(rb"\033\[\d+;\d+R")
 
 # Gameboy constants
-GB_FPS = 60
 GB_WIDTH = 160
 GB_HEIGHT = 144
+GB_FPS = 59.727500569606
 GB_TICKS_IN_FRAME = 35112
 
 
@@ -58,7 +58,7 @@ def run(
     audio_out=None,
     color_mode=False,
     frame_advance=1,
-    frame_limit=None,
+    break_after=None,
     speed_factor=1.0,
     save_directory=None,
     force_gameboy=False,
@@ -87,7 +87,8 @@ def run(
 
     # Prepare reporting
     fps = GB_FPS * speed_factor
-    average_over = int(fps)  # frames
+    average_over = int(round(fps))  # frames
+    ticks = deque(maxlen=average_over)
     emu_deltas = deque(maxlen=average_over)
     audio_deltas = deque(maxlen=average_over)
     video_deltas = deque(maxlen=average_over)
@@ -101,7 +102,7 @@ def run(
     for i in count():
 
         # Break when frame limit is reach
-        if frame_limit is not None and i >= frame_limit:
+        if break_after is not None and i >= break_after:
             return 0
 
         # Tick the emulator
@@ -109,6 +110,7 @@ def run(
             gb.set_input(get_input())
             offset, samples = gb.run_for(video, GB_WIDTH, audio, GB_TICKS_IN_FRAME)
             new_frame = new_frame or offset > 0
+            ticks.append(samples)
 
         # Send audio
         with timing(audio_deltas):
@@ -158,16 +160,16 @@ def run(
 
         # Reporting
         if i % average_over == 0:
-            shown_fps = fps * sum(shown_frames) / len(shown_frames)
-            emu_percent = sum(emu_deltas) / len(emu_deltas) * fps * 100
-            audio_percent = sum(audio_deltas) / len(audio_deltas) * fps * 100
-            video_percent = sum(video_deltas) / len(video_deltas) * fps * 100
-            data_rate = sum(data_length) / len(data_length) * fps / 1024
-            title = f"Gambaterm - "
-            title += f"{os.path.basename(romfile)} - "
-            title += f"FPS: {shown_fps:.0f} - "
-            title += f"Emu: {emu_percent:.0f}% - "
-            title += f"Audio: {audio_percent:.0f}% - "
-            title += f"Video: {video_percent:.0f}% - "
-            title += f"{data_rate:.0f}KB/s"
+            tps = fps * GB_TICKS_IN_FRAME
+            emu_fps = tps * len(ticks) / sum(ticks)
+            video_fps = emu_fps * sum(shown_frames) / len(shown_frames)
+            emu_percent = sum(emu_deltas) / len(emu_deltas) * emu_fps * 100
+            audio_percent = sum(audio_deltas) / len(audio_deltas) * emu_fps * 100
+            video_percent = sum(video_deltas) / len(video_deltas) * emu_fps * 100
+            data_rate = sum(data_length) / len(data_length) * emu_fps / 1024
+            title = f"Gambaterm | "
+            title += f"{os.path.basename(romfile)} | "
+            title += f"Emu: {emu_fps:.0f} FPS - {emu_percent:.0f}% CPU | "
+            title += f"Video: {video_fps:.0f} FPS - {video_percent:.0f}% CPU - {data_rate:.0f} KB/s | "
+            title += f"Audio: {audio_percent:.0f}% CPU"
             stdout.write(b"\x1b]0;%s\x07" % title.encode())

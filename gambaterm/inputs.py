@@ -26,7 +26,7 @@ INPUTS = [
 ]
 
 
-def read_input_file(path):
+def read_input_file(path, skip_first_frames=188):
     try:
         with ZipFile(path) as myzip:
             with myzip.open("Input Log.txt") as myfile:
@@ -38,7 +38,7 @@ def read_input_file(path):
         for i, line in enumerate(data.splitlines()):
             if not line.startswith("|"):
                 continue
-            if i < 188:
+            if i < skip_first_frames:
                 continue
             c = sum(v for c, v in zip(line[1:9], INPUTS) if c != ".")
             yield c
