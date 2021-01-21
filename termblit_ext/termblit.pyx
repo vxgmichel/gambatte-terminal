@@ -1,5 +1,6 @@
 cimport numpy as np
 from libc.stdio cimport sprintf
+from libc.stdlib cimport malloc, free
 
 cdef char* move_absolute(char* buff, int x, int y):
     buff += sprintf(buff, "\033[%d;%dH", x, y)
@@ -145,8 +146,7 @@ def blit(
     int refx, int refy, int width, int height,
     int color_mode,
 ):
-    cdef char[144*160*100] base
-    cdef char* result = base
+
     cdef int current_x = refx
     cdef int current_y = refy
     cdef int current_fg = -1
@@ -155,13 +155,17 @@ def blit(
     cdef int color1, color2
     cdef int new_x, new_y
     cdef int invert_print
+    cdef int image_height = image.shape[0]
+    cdef int image_width = image.shape[1]
+    cdef char* base = <char *> malloc(image_height * image_width * 30)
+    cdef char* result = base
 
     # Move at reference point
     result = move_absolute(result, refx, refy)
 
     # Loop over terminal cells
-    for row_index in range(min(height - refx, 144 // 2)):
-        for column_index in range(min(width - refy, 160)):
+    for row_index in range(min(height - refx, image_height // 2)):
+        for column_index in range(min(width - refy, image_width)):
 
             # Extract colors
             color1 = image[2 * row_index + 0, column_index]
@@ -223,4 +227,6 @@ def blit(
                 result += sprintf(result, "\xe2\x96\x80")
                 current_y += 1
 
+    # Reset attributes before returning the buffer
+    result += sprintf(result, "\033[0m")
     return base[:result-base]
