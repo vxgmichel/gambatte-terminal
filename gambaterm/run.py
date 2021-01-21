@@ -50,6 +50,12 @@ def timing(deltas):
         deltas.append(time.time() - start)
 
 
+def get_ref(width, height):
+    refx = 1 + max(0, (height - GB_HEIGHT // 2) // 2)
+    refy = 1 + max(0, (width - GB_WIDTH) // 2)
+    return refx, refy
+
+
 def run(
     romfile,
     get_input,
@@ -83,8 +89,7 @@ def run(
 
     # Print area
     width, height = get_size()
-    refx = max(1, (height - GB_HEIGHT // 2) // 2)
-    refy = max(1, (width - GB_WIDTH) // 2)
+    refx, refy = get_ref(width, height)
 
     # Prepare reporting
     fps = GB_FPS * speed_factor
@@ -128,8 +133,7 @@ def run(
                 if new_size != (width, height):
                     stdout.write(CSI + b"0m" + CSI + b"2J")
                     width, height = new_size
-                    refx = max(1, (height - GB_HEIGHT // 2) // 2)
-                    refy = max(1, (width - GB_WIDTH) // 2)
+                    refx, refy = get_ref(width, height)
                     last_frame.fill(-1)
                 # Render frame
                 data = blit(video, last_frame, refx, refy, width, height, color_mode)
