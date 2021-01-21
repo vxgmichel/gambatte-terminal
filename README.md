@@ -28,23 +28,32 @@ More information using the `--help` command:
 
 ```shell
 $ python -m gambaterm --help
-usage: gambaterm [-h] [--input-file INPUT_FILE] [--color-mode COLOR_MODE]
-                 [--frame-advance FRAME_ADVANCE] [--frame-limit FRAME_LIMIT]
-                 [--speed-factor SPEED_FACTOR] [--force-gameboy] [--disable-audio]
+usage: gambaterm [-h] [--input-file INPUT_FILE] [--frame-advance FRAME_ADVANCE]
+                 [--break-after BREAK_AFTER] [--speed-factor SPEED_FACTOR] [--force-gameboy]
+                 [--skip-inputs SKIP_INPUTS] [--disable-audio] [--color-mode COLOR_MODE]
                  ROM
 
-Gambatte terminal frontend
+Gambatte terminal front-end
 
 positional arguments:
-  ROM
+  ROM                   Path to a GB or GBC rom file
 
 optional arguments:
   -h, --help            show this help message and exit
   --input-file INPUT_FILE, -i INPUT_FILE
+                        Path to a bizhawk BK2 file
+  --frame-advance FRAME_ADVANCE, -fa FRAME_ADVANCE
+                        Number of frames to run before showing the next one
+  --break-after BREAK_AFTER, -ba BREAK_AFTER
+                        Number of frames to run before forcing the emulator to stop
+  --speed-factor SPEED_FACTOR, -sf SPEED_FACTOR
+                        Speed factor to apply to the emulation
+  --force-gameboy, -fg  Force the emulator to treat the rom as a GB file
+  --skip-inputs SKIP_INPUTS, -si SKIP_INPUTS
+                        Number of frame inputs to skip in order to compensate for the lack
+                        of BIOS
+  --disable-audio, -d   Disable audio entirely
   --color-mode COLOR_MODE, -c COLOR_MODE
-  --frame-advance FRAME_ADVANCE, -a FRAME_ADVANCE
-  --frame-limit FRAME_LIMIT, -l FRAME_LIMIT
-  --speed-factor SPEED_FACTOR, -s SPEED_FACTOR
-  --force-gameboy, -f
-  --disable-audio, -d
+                        Force a color mode (1: Greyscale, 2: 16 colors, 3: 256 colors, 4:
+                        24-bit colors)
 ```

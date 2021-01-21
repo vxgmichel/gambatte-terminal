@@ -236,9 +236,26 @@ async def run_server(bind="localhost", port=8022, **kwargs):
 def main(args=None):
     parser = argparse.ArgumentParser(description="Gambatte terminal front-end over ssh")
     add_base_arguments(parser)
-    parser.add_argument("--bind", "-b", type=str, default="localhost")
-    parser.add_argument("--port", "-p", type=int, default=8022)
-    parser.add_argument("--password", "-pw", type=str)
+    parser.add_argument(
+        "--bind",
+        "-b",
+        type=str,
+        default="localhost",
+        help="Bind adress of the SSH server, use `0.0.0.0` for all interfaces",
+    )
+    parser.add_argument(
+        "--port",
+        "-p",
+        type=int,
+        default=8022,
+        help="Port of the SSH server, default to 8022",
+    )
+    parser.add_argument(
+        "--password",
+        "-pw",
+        type=str,
+        help="Enable password authentification with the given global password",
+    )
 
     args = parser.parse_args(args)
     kwargs = dict(args._get_kwargs())

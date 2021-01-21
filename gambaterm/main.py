@@ -23,13 +23,46 @@ def purge(stdin):
 
 
 def add_base_arguments(parser):
-    parser.add_argument("romfile", metavar="ROM", type=str)
-    parser.add_argument("--input-file", "-i", default=None)
-    parser.add_argument("--frame-advance", "-fa", type=int, default=2)
-    parser.add_argument("--break-after", "-ba", type=int, default=None)
-    parser.add_argument("--speed-factor", "-sf", type=float, default=1.0)
-    parser.add_argument("--force-gameboy", "-fg", action="store_true")
-    parser.add_argument("--skip-inputs", "-si", type=int, default=188)
+    parser.add_argument(
+        "romfile", metavar="ROM", type=str, help="Path to a GB or GBC rom file"
+    )
+    parser.add_argument(
+        "--input-file", "-i", default=None, help="Path to a bizhawk BK2 file"
+    )
+    parser.add_argument(
+        "--frame-advance",
+        "-fa",
+        type=int,
+        default=2,
+        help="Number of frames to run before showing the next one",
+    )
+    parser.add_argument(
+        "--break-after",
+        "-ba",
+        type=int,
+        default=None,
+        help="Number of frames to run before forcing the emulator to stop",
+    )
+    parser.add_argument(
+        "--speed-factor",
+        "-sf",
+        type=float,
+        default=1.0,
+        help="Speed factor to apply to the emulation",
+    )
+    parser.add_argument(
+        "--force-gameboy",
+        "-fg",
+        action="store_true",
+        help="Force the emulator to treat the rom as a GB file",
+    )
+    parser.add_argument(
+        "--skip-inputs",
+        "-si",
+        type=int,
+        default=188,
+        help="Number of frame inputs to skip in order to compensate for the lack of BIOS",
+    )
     return parser
 
 
@@ -38,8 +71,16 @@ def main(args=None):
         prog="gambaterm", description="Gambatte terminal front-end"
     )
     add_base_arguments(parser)
-    parser.add_argument("--disable-audio", "-d", action="store_true")
-    parser.add_argument("--color-mode", "-c", type=int, default=None)
+    parser.add_argument(
+        "--disable-audio", "-d", action="store_true", help="Disable audio entirely"
+    )
+    parser.add_argument(
+        "--color-mode",
+        "-c",
+        type=int,
+        default=None,
+        help="Force a color mode (1: Greyscale, 2: 16 colors, 3: 256 colors, 4: 24-bit colors)",
+    )
     args = parser.parse_args(args)
 
     if args.color_mode is None:
