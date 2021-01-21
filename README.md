@@ -3,11 +3,26 @@ gambatte-terminal
 
 A terminal front-end for gambatte, the gameboy color emulator.
 
+![](demo.gif)
+
+
 It supports:
 - 16 colors, 256 colors and 24-bit colors terminal
 - Playing audio from the emulator
 - Using TAS input files as game input
 - Using keyboard inputs via X11 as game input
+
+Installation
+------------
+
+Wheels are available for linux, windows and osx and python 3.6, 3.7 and 3.8:
+
+```shell
+$ pip install gambaterm
+```
+
+Usage
+-----
 
 More information using the `--help` command:
 
