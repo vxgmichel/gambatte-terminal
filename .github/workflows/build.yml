@@ -10,7 +10,7 @@ jobs:
       matrix:
         os: [ubuntu-18.04, windows-latest, macos-latest]
     env:
-      CIBW_BUILD: cp36-* cp37-* cp38-*
+      CIBW_BUILD: cp36-* cp37-* cp38-* cp-39*
       CIBW_SKIP: "*-win32 *-manylinux_i686"
       CIBW_TEST_COMMAND: python -m gambaterm --help
       CIBW_BEFORE_ALL_LINUX: yum install -y libsamplerate portaudio
