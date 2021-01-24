@@ -51,8 +51,8 @@ def timing(deltas):
 
 
 def get_ref(width, height):
-    refx = 1 + max(0, (height - GB_HEIGHT // 2) // 2)
-    refy = 1 + max(0, (width - GB_WIDTH) // 2)
+    refx = 2 + max(0, (height - GB_HEIGHT // 2) // 2)
+    refy = 3 + max(0, (width - GB_WIDTH) // 2)
     return refx, refy
 
 
@@ -136,7 +136,9 @@ def run(
                     refx, refy = get_ref(width, height)
                     last_frame.fill(-1)
                 # Render frame
-                data = blit(video, last_frame, refx, refy, width, height, color_mode)
+                data = blit(
+                    video, last_frame, refx, refy, width - 1, height, color_mode
+                )
                 last_frame = video.copy()
                 # Write frame with CPR request
                 stdout.write(data)
