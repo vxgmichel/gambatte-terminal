@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 
-import re
 import os
 import time
-import select
 import contextlib
 from itertools import count
 from collections import deque
@@ -13,32 +11,11 @@ import numpy as np
 from .libgambatte import GB
 from .termblit import blit
 
-CSI = b"\033["
-CPR_PATTERN = re.compile(rb"\033\[\d+;\d+R")
-
 # Gameboy constants
 GB_WIDTH = 160
 GB_HEIGHT = 144
 GB_FPS = 59.727500569606
 GB_TICKS_IN_FRAME = 35112
-
-
-def look_for_cpr(stdin):
-    data = non_blocking_read(stdin)
-    if b"\x03" in data:
-        raise KeyboardInterrupt
-    if b"\x04" in data:
-        raise EOFError
-    return CPR_PATTERN.search(data)
-
-
-def non_blocking_read(stdin):
-    result = b""
-    while True:
-        r, _, _ = select.select([stdin], (), (), 0)
-        if not r:
-            return result
-        result += stdin.read(1024)
 
 
 @contextlib.contextmanager
@@ -59,9 +36,7 @@ def get_ref(width, height):
 def run(
     romfile,
     get_input,
-    stdin,
-    stdout,
-    get_size,
+    app_session,
     audio_out=None,
     color_mode=False,
     frame_advance=1,
@@ -88,7 +63,7 @@ def run(
     last_frame = video.copy()
 
     # Print area
-    width, height = get_size()
+    height, width = app_session.output.get_size()
     refx, refy = get_ref(width, height)
 
     # Prepare reporting
@@ -102,6 +77,9 @@ def run(
     shown_frames = deque(maxlen=average_over)
     data_length = deque(maxlen=average_over)
     start = time.time()
+
+    # Prepare CPR handling
+    got_cpr_response = True
 
     # Loop over emulator frames
     new_frame = False
@@ -123,16 +101,26 @@ def run(
             if audio_out:
                 audio_out.send(audio[:samples])
 
+        # Read keys
+        for event in app_session.input.read_keys():
+            if event.key == "c-c":
+                raise KeyboardInterrupt
+            if event.key == "c-d":
+                raise OSError
+            if event.key == "<cursor-position-response>":
+                got_cpr_response = True
+
         # Send video
         with timing(video_deltas):
             # Send the frame
-            if i == 0 or i % frame_advance == 0 and new_frame and look_for_cpr(stdin):
+            if i % frame_advance == 0 and new_frame and got_cpr_response:
                 new_frame = False
                 # Check terminal size
-                new_size = get_size()
-                if new_size != (width, height):
-                    stdout.write(CSI + b"0m" + CSI + b"2J")
-                    width, height = new_size
+                new_size = app_session.output.get_size()
+                if new_size != (height, width):
+                    app_session.output.erase_screen()
+                    app_session.output.flush()
+                    height, width = new_size
                     refx, refy = get_ref(width, height)
                     last_frame.fill(-1)
                 # Render frame
@@ -141,8 +129,9 @@ def run(
                 )
                 last_frame = video.copy()
                 # Write frame with CPR request
-                stdout.write(data)
-                stdout.write(CSI + b"6n")
+                os.write(app_session.output.fileno(), data)
+                app_session.output.ask_for_cpr()
+                got_cpr_response = False
                 data_length.append(len(data))
                 shown_frames.append(True)
             # Ignore this video frame
@@ -177,4 +166,5 @@ def run(
             title += f"Emu: {emu_fps:.0f} FPS - {emu_percent:.0f}% CPU | "
             title += f"Video: {video_fps:.0f} FPS - {video_percent:.0f}% CPU - {data_rate:.0f} KB/s | "
             title += f"Audio: {audio_percent:.0f}% CPU"
-            stdout.write(b"\x1b]0;%s\x07" % title.encode())
+            app_session.output.set_title(title)
+            app_session.output.flush()

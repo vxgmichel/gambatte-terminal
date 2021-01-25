@@ -1,16 +1,10 @@
-import os
-import sys
 import time
 import select
 import logging
 from enum import IntEnum
 from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor
-
-if os.name == "nt":
-    from prompt_toolkit.input.win32 import raw_mode
-else:
-    from prompt_toolkit.input.vt100 import raw_mode
+from prompt_toolkit.application import create_app_session
 
 
 class GBInput(IntEnum):
@@ -102,7 +96,7 @@ def key_pressed_context(display=None):
 
 
 @contextmanager
-def gb_input_context(display=None):
+def gb_input_from_keyboard_context(display=None):
     mapping = get_mapping()
 
     def get_gb_input():
@@ -115,39 +109,38 @@ def gb_input_context(display=None):
         yield get_gb_input
 
 
-@contextmanager
-def cbreak_mode():
-    # Open stdin and stdout
-    stdin_fd = sys.stdin.fileno()
-    stdout_fd = sys.stdout.fileno()
-    stdin = os.fdopen(stdin_fd, "rb", buffering=0)
-    stdout = os.fdopen(stdout_fd, "wb", buffering=0)
-    try:
-        with raw_mode(stdin_fd):
-            stdout.write(b"\033[?25l")
-            yield (stdin, stdout)
-    finally:
-        stdout.write(b"\033[?25h")
-
-
 def main():
     from Xlib import XK
 
     reverse_lookup = {v: k[3:] for k, v in XK.__dict__.items() if k.startswith("XK_")}
-    try:
-        with cbreak_mode() as (_, stdout):
-            with key_pressed_context() as get_pressed:
-                while True:
-                    # Get codes
-                    codes = list(map(reverse_lookup.get, get_pressed()))
-                    # Print pressed key codes
-                    print(*codes, flush=True, end="")
-                    # Tick
-                    time.sleep(1 / 30)
-                    # Clear line and hide cursor
-                    stdout.write(b"\033[2K\r")
-    except KeyboardInterrupt:
-        print()
+    with create_app_session() as session:
+        with session.input.raw_mode():
+            try:
+                session.output.hide_cursor()
+                with key_pressed_context() as get_pressed:
+                    while True:
+                        # Read keys
+                        for key in session.input.read_keys():
+                            if key.key == "c-c":
+                                raise KeyboardInterrupt
+                            if key.key == "c-d":
+                                raise EOFError
+                        # Get codes
+                        codes = list(map(reverse_lookup.get, get_pressed()))
+                        # Print pressed key codes
+                        print(*codes, flush=True, end="")
+                        # Tick
+                        time.sleep(1 / 30)
+                        # Clear line and hide cursor
+                        session.output.write_raw("\r")
+                        # Flush output
+                        session.output.flush()
+            except (KeyboardInterrupt, EOFError):
+                pass
+            finally:
+                session.output.show_cursor()
+                session.output.flush()
+                print()
 
 
 if __name__ == "__main__":

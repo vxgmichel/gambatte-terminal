@@ -1,5 +1,6 @@
 from enum import IntEnum
-from pathlib import Path
+from io import TextIOWrapper
+from contextlib import contextmanager
 from zipfile import ZipFile, BadZipFile
 
 
@@ -26,23 +27,31 @@ INPUTS = [
 ]
 
 
-def read_input_file(path, skip_first_frames=188):
+@contextmanager
+def open_input_log_file(path):
     try:
         with ZipFile(path) as myzip:
             with myzip.open("Input Log.txt") as myfile:
-                data = myfile.read().decode("utf-8")
+                yield TextIOWrapper(myfile, "utf-8")
     except BadZipFile:
-        data = Path(path).read_text()
+        with open(path) as myfile:
+            yield myfile
 
-    def gen():
-        for i, line in enumerate(data.splitlines()):
-            if not line.startswith("|"):
-                continue
-            if i < skip_first_frames:
-                continue
-            c = sum(v for c, v in zip(line[1:9], INPUTS) if c != ".")
-            yield c
-        while True:
-            yield 0
 
-    return gen().__next__
+@contextmanager
+def gb_input_from_file_context(path, skip_first_frames=188):
+    with open_input_log_file(path) as f:
+
+        def gen():
+            for i, line in enumerate(f):
+                if not line.startswith("|"):
+                    continue
+                if i < skip_first_frames:
+                    continue
+                c = sum(v for c, v in zip(line[1:9], INPUTS) if c != ".")
+                yield c
+            while True:
+                yield 0
+
+        input_generator = gen()
+        yield lambda: next(input_generator)

@@ -1,4 +1,4 @@
-import os
+import time
 import asyncio
 import argparse
 import tempfile
@@ -8,229 +8,195 @@ from pathlib import Path
 import asyncssh
 
 from .run import run
-from .inputs import read_input_file
-from .xinput import gb_input_context
+from .inputs import gb_input_from_file_context
+from .xinput import gb_input_from_keyboard_context
 from .main import add_base_arguments
 from .colors import ColorMode, detect_color_mode
 
+from .ssh_app_session import process_to_app_session
 
-CSI = b"\033["
 
-
-class SSHSession(asyncssh.SSHServerSession):
-    def __init__(self, **kwargs):
-        self.kwargs = kwargs
-
-    def connection_made(self, chan):
-        self._read_stdin_pipe, self._write_stdin_pipe = os.pipe()
-        self._read_stdout_pipe, self._write_stdout_pipe = os.pipe()
-        self._stdin = os.fdopen(self._read_stdin_pipe, "rb", buffering=0)
-        self._stdout = os.fdopen(self._write_stdout_pipe, "wb", buffering=0)
-        self._channel = chan
-        self._size = 10, 10
-
-        # True color detection state
-        self._true_color = False
-        self._true_color_data = b""
-        self._true_color_event = asyncio.Event()
-
-    def close_all_pipes(self):
-        for pipe in (
-            self._read_stdin_pipe,
-            self._write_stdin_pipe,
-            self._read_stdout_pipe,
-            self._write_stdout_pipe,
-        ):
-            try:
-                os.close(pipe)
-            except OSError:
-                pass
-
-    def shell_requested(self):
-        return True
-
-    def exec_requested(self, command):
-        return True
-
-    def session_started(self):
-        asyncio.get_event_loop().create_task(self.safe_interact())
-
-    async def safe_interact(self):
+async def detect_true_color_support(process, timeout=0.5):
+    # Disable line mode
+    process.channel.set_line_mode(False)
+    # Set unlikely RGB value
+    process.stdout.write("\033[48:2:1:2:3m")
+    # Query current configuration
+    process.stdout.write("\033P$qm\033\\")
+    # Reset
+    process.stdout.write("\033[m")
+    # Wait for reply
+    while True:
         try:
-            await self.interact()
-        except KeyboardInterrupt:
+            header = await asyncio.wait_for(process.stdin.readuntil("\033\\"), timeout)
+        except asyncssh.TerminalSizeChanged:
             pass
-        except SystemExit:
-            pass
-        except BaseException:
-            traceback.print_exc()
-        finally:
-            self.close_all_pipes()
-            self._channel.close()
+        except asyncio.TimeoutError:
+            return False
+    # Return whether true color is supported
+    return "P1$r0;48:2::1:2:3m" in header
 
-    async def interact(self):
-        display = self._channel.get_x11_display()
-        command = self._channel.get_command()
-        connection = self._channel.get_extra_info("connection")
-        username = self._channel.get_extra_info("username")
-        peername, port = connection._transport.get_extra_info("peername")
-        print(f"> User `{username}` is connected ({peername}:{port})")
 
-        if command:
-            romfile, *_ = command.split()
-            self.kwargs["romfile"] = command
+async def safe_ssh_process_handler(process):
+    try:
+        result = await ssh_process_handler(process)
+    except KeyboardInterrupt:
+        result = 1
+    except SystemExit as e:
+        result = e.code or 0
+    except BaseException:
+        traceback.print_exc()
+        result = 1
+    return process.exit(result or 0)
 
-        # X11 is required
-        if not display and self.kwargs["input_file"] is None:
-            message = "Please enable X11 forwarding using `-X` option.\r\n"
-            self._channel.write(message.encode())
-            print(f"< User `{username}` did not enable X11 forwarding")
-            return
 
-        # Detect true color support by interracting with the terminal
-        if await self.detect_true_color_support():
-            self._color_mode = ColorMode.HAS_24_BIT_COLOR
-        else:
-            env = self._channel.get_environment()
-            env["TERM"] = self._channel.get_terminal_type()
-            self._color_mode = detect_color_mode(env)
+async def ssh_process_handler(process):
+    app_config = process.get_extra_info("app_config")
+    display = process.channel.get_x11_display()
+    command = process.channel.get_command()
+    environment = process.channel.get_environment()
+    terminal_type = process.get_terminal_type()
+    connection = process.get_extra_info("connection")
+    username = process.get_extra_info("username")
+    peername, port = connection.get_extra_info("peername")
+    print(f"> User `{username}` is connected ({peername}:{port})")
 
-        if self._color_mode == ColorMode.NO_COLOR:
-            term = self._channel.get_terminal_type()
-            message = f"Your terminal `{term}` doesn't seem to support colors\r\n"
-            self._channel.write(message.encode())
-            print(f"< User `{username}` terminal `{term}` does not support colors")
-            return
+    # Check command
+    if command is not None:
+        print(
+            "Commands are not supported",
+            file=process.stdout,
+        )
+        print(f"< User `{username}` provided an unsupported command")
+        return 1
 
-        # Force size changed handler
-        size = self._channel.get_terminal_size()
-        self.terminal_size_changed(*size)
+    # Check terminal
+    if terminal_type is None:
+        print(
+            "Please use a terminal to access the interactive interface.",
+            file=process.stdout,
+        )
+        print(f"< User `{username}` did not use an interactive terminal")
+        return 1
 
-        def _data_received():
-            try:
-                data = os.read(self._read_stdout_pipe, 2 * 1024 * 1024)
-            except OSError:
-                return
-            self._channel.write(data)
+    # X11 is required
+    if not display and app_config.input_file is None:
+        print(
+            "Please enable X11 forwarding using `-X` option.",
+            file=process.stdout,
+        )
+        print(f"< User `{username}` did not enable X11 forwarding")
+        return 1
 
+    # Detect true color support by interracting with the terminal
+    if await detect_true_color_support(process):
+        color_mode = ColorMode.HAS_24_BIT_COLOR
+    else:
+        environment["TERM"] = terminal_type
+        color_mode = detect_color_mode(environment)
+
+    if color_mode == ColorMode.NO_COLOR:
+        print(
+            "Your terminal `{terminal_type}` doesn't seem to support colors.",
+            file=process.stdout,
+        )
+        print(f"< User `{username}`terminal `{terminal_type}` does not support colors")
+        return 1
+
+    async with process_to_app_session(process) as app_session:
         loop = asyncio.get_event_loop()
-        try:
-            # Hide cursor and clear screen
-            self._channel.write(CSI + b"?25l" + CSI + b"2J")
-            loop.add_reader(self._read_stdout_pipe, _data_received)
-            await loop.run_in_executor(None, self.thread_target, display)
-        finally:
-            loop.remove_reader(self._read_stdout_pipe)
-            # Show cursor, clear attributes and clear screen
-            self._channel.write(CSI + b"?25h" + CSI + b"0m" + CSI + b"2J" + b"\r\n")
-            print(f"< User `{username}` left ({peername}:{port})")
+        height, width = app_session.output.get_size()
+        print(
+            f"[Terminal Info] {username}: {terminal_type}, {color_mode}, {width}x{height}"
+        )
+        await loop.run_in_executor(
+            None, thread_target, app_session, app_config, username, display, color_mode
+        )
 
-    def thread_target(self, display):
 
-        kwargs = {
-            "romfile": self.kwargs["romfile"],
-            "stdin": self._stdin,
-            "stdout": self._stdout,
-            "get_size": lambda: self._size,
-            "color_mode": int(self._color_mode),
-            "frame_advance": self.kwargs["frame_advance"],
-            "break_after": self.kwargs["break_after"],
-            "speed_factor": self.kwargs["speed_factor"],
-            "force_gameboy": self.kwargs["force_gameboy"],
-        }
-        if self.kwargs["input_file"] is not None:
-            get_input = read_input_file(
-                self.kwargs["input_file"], self.kwargs["skip_inputs"]
-            )
-            run(
-                get_input=get_input,
-                save_directory=tempfile.mkdtemp(),
-                **kwargs,
-            )
-        else:
-            username = self._channel.get_extra_info("username")
-            save_directory = Path("ssh_save") / username
-            save_directory.mkdir(parents=True, exist_ok=True)
-            with gb_input_context(display=display) as get_gb_input:
-                run(
+def thread_target(app_session, app_config, username, display, color_mode):
+    if app_config.input_file is not None:
+        gb_input_context = gb_input_from_file_context(
+            app_config.input_file, app_config.skip_inputs
+        )
+        save_directory = tempfile.mkdtemp()
+    else:
+        gb_input_context = gb_input_from_keyboard_context()
+        save_directory = Path("ssh_save") / username
+        save_directory.mkdir(parents=True, exist_ok=True)
+
+    with gb_input_context as get_gb_input:
+        with app_session.input.raw_mode():
+            try:
+                # Prepare alternate screen
+                app_session.output.enter_alternate_screen()
+                app_session.output.erase_screen()
+                app_session.output.hide_cursor()
+                app_session.output.flush()
+
+                # Run the emulator
+                return_code = run(
+                    romfile=app_config.romfile,
+                    app_session=app_session,
                     get_input=get_gb_input,
                     save_directory=str(save_directory),
-                    **kwargs,
+                    color_mode=color_mode,
+                    frame_advance=app_config.frame_advance,
+                    break_after=app_config.break_after,
+                    speed_factor=app_config.speed_factor,
+                    force_gameboy=app_config.force_gameboy,
                 )
-
-    def terminal_size_changed(self, width, height, pixwidth, pixheight):
-        self._size = width, height
-        term = self._channel.get_terminal_type()
-        username = self._channel.get_extra_info("username")
-        color = "True color" if self._true_color else "256 colors"
-        print(f"[Terminal Info] {username}: {term}, {color}, {width}x{height}")
-
-    def data_received(self, data, datatype):
-        # Detect True color mode
-        if not self._true_color_event.is_set():
-            self._true_color_data += data
-            if b"\033\\" not in self._true_color_data:
-                return
-            header, data = self._true_color_data.split(b"\033\\", maxsplit=1)
-            self._true_color = b"P1$r0;48:2::1:2:3m" in header
-            self._true_color_event.set()
-        # Forward traffic
-        try:
-            os.write(self._write_stdin_pipe, data)
-        except OSError:
-            pass
-
-    async def detect_true_color_support(self):
-        # Set unlikely RGB value
-        self._channel.write(CSI + b"48:2:1:2:3m")
-        # Query current configuration
-        self._channel.write(b"\033P$qm\033\\")
-        # Reset
-        self._channel.write(CSI + b"m")
-        # Wait for reply
-        try:
-            await asyncio.wait_for(self._true_color_event.wait(), 0.5)
-        except asyncio.TimeoutError:
-            pass
-        # Return whether true color is supported
-        return self._true_color
+            except (KeyboardInterrupt, EOFError):
+                return 0
+            else:
+                return return_code
+            finally:
+                # Wait for CPR
+                time.sleep(0.1)
+                # Clear alternate screen
+                app_session.input.read_keys()
+                app_session.output.erase_screen()
+                app_session.output.quit_alternate_screen()
+                app_session.output.show_cursor()
+                app_session.output.flush()
 
 
 class SSHServer(asyncssh.SSHServer):
-    def __init__(self, **kwargs):
-        self.kwargs = kwargs
+    def __init__(self, app_config):
+        self._app_config = app_config
+
+    def connection_made(self, conn):
+        conn.set_extra_info(app_config=self._app_config)
 
     def begin_auth(self, username):
         return True
 
     def session_requested(self):
-        return SSHSession(**self.kwargs)
+        return asyncssh.SSHServerProcess(safe_ssh_process_handler, None, None)
 
     def password_auth_supported(self):
-        return self.kwargs.get("password")
+        return self._app_config.password
 
     def validate_password(self, username, password):
-        return password == self.kwargs.get("password")
+        return password == self._app_config.password
 
 
-async def run_server(bind="localhost", port=8022, **kwargs):
+async def run_server(app_config):
     user_private_key = str(Path("~/.ssh/id_rsa").expanduser())
     user_public_key = str(Path("~/.ssh/id_rsa.pub").expanduser())
 
     server = await asyncssh.create_server(
-        lambda: SSHServer(**kwargs),
-        bind,
-        port,
+        lambda: SSHServer(app_config),
+        app_config.bind,
+        app_config.port,
         server_host_keys=[user_private_key],
         authorized_client_keys=user_public_key,
         x11_forwarding=True,
-        encoding=None,
     )
     bind, port = server.sockets[0].getsockname()
     print(f"Running ssh server on {bind}:{port}...")
 
-    while True:
-        await asyncio.sleep(60)
+    await server.wait_closed()
 
 
 def main(args=None):
@@ -257,9 +223,8 @@ def main(args=None):
         help="Enable password authentification with the given global password",
     )
 
-    args = parser.parse_args(args)
-    kwargs = dict(args._get_kwargs())
-    asyncio.run(run_server(**kwargs))
+    app_config = parser.parse_args(args)
+    asyncio.run(run_server(app_config))
 
 
 if __name__ == "__main__":
