@@ -49,7 +49,7 @@ termblit_extension = Extension(
 
 setup(
     name="gambaterm",
-    version="0.4.1",
+    version="0.5.0",
     packages=["gambaterm"],
     setup_requires=["setuptools", "cython", "numpy"],
     ext_modules=[gambatte_extension, termblit_extension],
@@ -58,7 +58,7 @@ setup(
         "asyncssh",
         "sounddevice",
         "samplerate",
-        "prompt_toolkit",
+        "prompt_toolkit>=3",
         "xlib; sys_platform == 'linux'",
     ],
     python_requires=">=3.6",
