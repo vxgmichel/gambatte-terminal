@@ -126,39 +126,38 @@ def thread_target(app_session, app_config, username, display, color_mode):
         save_directory.mkdir(parents=True, exist_ok=True)
 
     with gb_input_context as get_gb_input:
-        with app_session.input.raw_mode():
-            try:
-                # Prepare alternate screen
-                app_session.output.enter_alternate_screen()
-                app_session.output.erase_screen()
-                app_session.output.hide_cursor()
-                app_session.output.flush()
+        try:
+            # Prepare alternate screen
+            app_session.output.enter_alternate_screen()
+            app_session.output.erase_screen()
+            app_session.output.hide_cursor()
+            app_session.output.flush()
 
-                # Run the emulator
-                return_code = run(
-                    romfile=app_config.romfile,
-                    app_session=app_session,
-                    get_input=get_gb_input,
-                    save_directory=str(save_directory),
-                    color_mode=color_mode,
-                    frame_advance=app_config.frame_advance,
-                    break_after=app_config.break_after,
-                    speed_factor=app_config.speed_factor,
-                    force_gameboy=app_config.force_gameboy,
-                )
-            except (KeyboardInterrupt, EOFError):
-                return 0
-            else:
-                return return_code
-            finally:
-                # Wait for CPR
-                time.sleep(0.1)
-                # Clear alternate screen
-                app_session.input.read_keys()
-                app_session.output.erase_screen()
-                app_session.output.quit_alternate_screen()
-                app_session.output.show_cursor()
-                app_session.output.flush()
+            # Run the emulator
+            return_code = run(
+                romfile=app_config.romfile,
+                app_session=app_session,
+                get_input=get_gb_input,
+                save_directory=str(save_directory),
+                color_mode=color_mode,
+                frame_advance=app_config.frame_advance,
+                break_after=app_config.break_after,
+                speed_factor=app_config.speed_factor,
+                force_gameboy=app_config.force_gameboy,
+            )
+        except (KeyboardInterrupt, OSError):
+            return 0
+        else:
+            return return_code
+        finally:
+            # Wait for CPR
+            time.sleep(0.1)
+            # Clear alternate screen
+            app_session.input.read_keys()
+            app_session.output.erase_screen()
+            app_session.output.quit_alternate_screen()
+            app_session.output.show_cursor()
+            app_session.output.flush()
 
 
 class SSHServer(asyncssh.SSHServer):

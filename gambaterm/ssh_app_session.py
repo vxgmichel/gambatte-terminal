@@ -18,10 +18,7 @@ class StdoutFromProcess:
         self.process = process
 
     def write(self, data):
-        try:
-            os.write(self._w, data.replace(b"\n", b"\r\n"))
-        except BrokenPipeError:
-            raise EOFError
+        os.write(self._w, data.replace(b"\n", b"\r\n"))
 
     def isatty(self) -> bool:
         return True
