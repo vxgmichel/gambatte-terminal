@@ -55,7 +55,9 @@ def run(
     # Load the rom
     return_code = gb.load(romfile, 1 if force_gameboy else 0)
     if return_code != 0:
-        return return_code
+        # Make sure it exists
+        open(romfile).close()
+        raise RuntimeError(return_code)
 
     # Prepare buffers with invalid data
     video = np.full((GB_HEIGHT, GB_WIDTH), -1, np.int32)
