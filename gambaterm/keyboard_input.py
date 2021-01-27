@@ -1,7 +1,6 @@
 import sys
 import time
 import logging
-import keyboard
 from enum import IntEnum
 from contextlib import contextmanager, closing
 from prompt_toolkit.application import create_app_session
@@ -117,6 +116,8 @@ def xlib_key_pressed_context(display=None):
 
 @contextmanager
 def keyboard_key_pressed_context(display=None):
+    import keyboard
+
     keyboard.get_hotkey_name()
     yield lambda: keyboard.get_hotkey_name().split("+")
 
