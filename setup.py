@@ -54,12 +54,13 @@ setup(
     setup_requires=["setuptools", "cython", "numpy"],
     ext_modules=[gambatte_extension, termblit_extension],
     install_requires=[
-        "numpy",
-        "asyncssh",
+        "numpy>=1",
+        "asyncssh>=2",
+        "prompt_toolkit>=3",
         "sounddevice",
         "samplerate",
-        "prompt_toolkit>=3",
         "xlib; sys_platform == 'linux'",
+        "keyboard; sys_platform != 'linux'",
     ],
     python_requires=">=3.6",
     entry_points={

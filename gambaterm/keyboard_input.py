@@ -1,4 +1,4 @@
-import os
+import sys
 import time
 import logging
 import keyboard
@@ -123,7 +123,7 @@ def keyboard_key_pressed_context(display=None):
 
 @contextmanager
 def gb_input_from_keyboard_context(display=None):
-    if os.name == "posix":
+    if sys.platform == "linux":
         mapping = get_xlib_mapping()
         key_pressed_context = xlib_key_pressed_context
     else:
@@ -141,7 +141,7 @@ def gb_input_from_keyboard_context(display=None):
 
 
 def main():
-    if os.name == "posix":
+    if sys.platform == "linux":
         from Xlib import XK
 
         mapping = get_xlib_mapping()
