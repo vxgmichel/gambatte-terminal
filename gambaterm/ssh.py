@@ -8,10 +8,10 @@ from pathlib import Path
 import asyncssh
 
 from .run import run
-from .inputs import gb_input_from_file_context
-from .xinput import gb_input_from_keyboard_context
 from .main import add_base_arguments
 from .colors import ColorMode, detect_color_mode
+from .file_input import gb_input_from_file_context
+from .keyboard_input import gb_input_from_keyboard_context
 
 from .ssh_app_session import process_to_app_session
 

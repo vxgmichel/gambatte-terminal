@@ -7,10 +7,10 @@ import argparse
 from prompt_toolkit.application import create_app_session
 
 from .run import run
-from .inputs import gb_input_from_file_context
 from .audio import audio_player, no_audio
 from .colors import detect_local_color_mode
-from .xinput import gb_input_from_keyboard_context
+from .file_input import gb_input_from_file_context
+from .keyboard_input import gb_input_from_keyboard_context
 
 
 def add_base_arguments(parser):

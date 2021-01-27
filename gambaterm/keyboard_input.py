@@ -123,7 +123,7 @@ def keyboard_key_pressed_context(display=None):
 
 @contextmanager
 def gb_input_from_keyboard_context(display=None):
-    if os.name == "posix" and False:
+    if os.name == "posix":
         mapping = get_xlib_mapping()
         key_pressed_context = xlib_key_pressed_context
     else:
