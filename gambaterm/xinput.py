@@ -1,9 +1,9 @@
+import os
 import time
-import select
 import logging
+import keyboard
 from enum import IntEnum
-from contextlib import contextmanager
-from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager, closing
 from prompt_toolkit.application import create_app_session
 
 
@@ -18,7 +18,7 @@ class GBInput(IntEnum):
     DOWN = 0x80
 
 
-def get_mapping():
+def get_xlib_mapping():
     from Xlib import XK
 
     return {
@@ -37,31 +37,55 @@ def get_mapping():
     }
 
 
+def get_keyboard_mapping():
+    return {
+        "up": GBInput.UP,
+        "down": GBInput.DOWN,
+        "left": GBInput.LEFT,
+        "right": GBInput.RIGHT,
+        "f": GBInput.A,
+        "space": GBInput.A,
+        "d": GBInput.B,
+        "alt": GBInput.B,
+        "enter": GBInput.START,
+        "ctrl": GBInput.START,
+        "shift": GBInput.SELECT,
+    }
+
+
 @contextmanager
-def key_pressed_context(display=None):
+def xlib_key_pressed_context(display=None):
     from Xlib.ext import xinput
     from Xlib.display import Display
 
-    def target():
-        xdisplay = Display(display)
-        try:
-            extension_info = xdisplay.query_extension("XInputExtension")
-            xinput_major = extension_info.major_opcode
-            window = xdisplay.get_input_focus().focus
-            if isinstance(window, int):
-                window = xdisplay.screen().root
-            window.xinput_select_events(
-                [
-                    (xinput.AllDevices, xinput.KeyPressMask | xinput.KeyReleaseMask),
-                ]
-            )
-            while running:
-                # Check running
-                if not xdisplay.pending_events():
-                    select.select([xdisplay], [], [], 0.1)
-                    continue
+    with closing(Display(display)) as xdisplay:
+        pressed = set()
+        extension_info = xdisplay.query_extension("XInputExtension")
+        xinput_major = extension_info.major_opcode
+        window = xdisplay.get_input_focus().focus
+        if isinstance(window, int):
+            window = xdisplay.screen().root
+        window.xinput_select_events(
+            [
+                (
+                    xinput.AllDevices,
+                    xinput.KeyPressMask
+                    | xinput.KeyReleaseMask
+                    | xinput.FocusInMask
+                    | xinput.FocusOutMask,
+                ),
+            ]
+        )
+
+        def get_pressed():
+            # Loop over pending events
+            while xdisplay.pending_events():
                 event = xdisplay.next_event()
                 assert event.extension == xinput_major, event
+                # Focus change
+                if event.evtype in [xinput.FocusIn, xinput.FocusOut]:
+                    pressed.clear()
+                    continue
                 # Extract information
                 keycode = event.data.detail
                 mods = event.data.mods.effective_mods
@@ -74,30 +98,37 @@ def key_pressed_context(display=None):
                 # Prepare info string
                 info_string = f"keycode={keycode}, keysym={keysym}, "
                 info_string += f"modkeysym={modkeysym}, keystr={keystr}"
-                # Update the `pressed` accordingly
+                # Update the `pressed` set accordingly
                 if is_key_pressed:
                     pressed.add(keysym)
                     logging.info("Key pressed: " + info_string)
                 if is_key_released:
                     pressed.discard(keysym)
                     logging.info("Key released: " + info_string)
-        finally:
-            xdisplay.close()
 
-    with ThreadPoolExecutor() as executor:
-        running = True
-        pressed = set()
+            # Return the currently pressed keys
+            return pressed
+
         try:
-            executor.submit(target)
-            yield lambda: pressed
+            yield get_pressed
         finally:
-            running = False
             pressed.clear()
 
 
 @contextmanager
+def keyboard_key_pressed_context(display=None):
+    keyboard.get_hotkey_name()
+    yield lambda: keyboard.get_hotkey_name().split("+")
+
+
+@contextmanager
 def gb_input_from_keyboard_context(display=None):
-    mapping = get_mapping()
+    if os.name == "posix" and False:
+        mapping = get_xlib_mapping()
+        key_pressed_context = xlib_key_pressed_context
+    else:
+        mapping = get_keyboard_mapping()
+        key_pressed_context = keyboard_key_pressed_context
 
     def get_gb_input():
         value = 0
@@ -110,9 +141,20 @@ def gb_input_from_keyboard_context(display=None):
 
 
 def main():
-    from Xlib import XK
+    if os.name == "posix":
+        from Xlib import XK
 
-    reverse_lookup = {v: k[3:] for k, v in XK.__dict__.items() if k.startswith("XK_")}
+        mapping = get_xlib_mapping()
+        key_pressed_context = xlib_key_pressed_context
+        reverse_lookup = {
+            v: k[3:] for k, v in XK.__dict__.items() if k.startswith("XK_")
+        }
+        mapping = reverse_lookup.get
+    else:
+        mapping = get_keyboard_mapping()
+        key_pressed_context = keyboard_key_pressed_context
+        mapping = str
+
     with create_app_session() as session:
         with session.input.raw_mode():
             try:
@@ -126,13 +168,14 @@ def main():
                             if key.key == "c-d":
                                 raise EOFError
                         # Get codes
-                        codes = list(map(reverse_lookup.get, get_pressed()))
+                        codes = list(map(mapping, get_pressed()))
                         # Print pressed key codes
                         print(*codes, flush=True, end="")
                         # Tick
                         time.sleep(1 / 30)
                         # Clear line and hide cursor
                         session.output.write_raw("\r")
+                        session.output.erase_down()
                         # Flush output
                         session.output.flush()
             except (KeyboardInterrupt, EOFError):
