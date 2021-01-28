@@ -169,10 +169,11 @@ def run(
             audio_percent = sum(audio_deltas) / len(audio_deltas) * emu_fps * 100
             video_percent = sum(video_deltas) / len(video_deltas) * emu_fps * 100
             data_rate = sum(data_length) / len(data_length) * emu_fps / 1024
+            sync = "" if got_first_cpr_response else "*"
             title = f"Gambaterm | "
             title += f"{os.path.basename(romfile)} | "
             title += f"Emu: {emu_fps:.0f} FPS - {emu_percent:.0f}% CPU | "
-            title += f"Video: {video_fps:.0f} FPS - {video_percent:.0f}% CPU - {data_rate:.0f} KB/s | "
+            title += f"Video: {video_fps:.0f}{sync} FPS - {video_percent:.0f}% CPU - {data_rate:.0f} KB/s | "
             title += f"Audio: {audio_percent:.0f}% CPU"
             app_session.output.set_title(title)
             app_session.output.flush()
