@@ -81,7 +81,9 @@ def run(
     start = time.time()
 
     # Prepare CPR handling
-    got_cpr_response = True
+    app_session.output.ask_for_cpr()
+    got_first_cpr_response = False
+    got_current_cpr_response = False
 
     # Loop over emulator frames
     new_frame = False
@@ -110,12 +112,13 @@ def run(
             if event.key == "c-d":
                 raise OSError
             if event.key == "<cursor-position-response>":
-                got_cpr_response = True
+                got_first_cpr_response = got_current_cpr_response = True
 
         # Send video
         with timing(video_deltas):
             # Send the frame
-            if i % frame_advance == 0 and new_frame and got_cpr_response:
+            screen_ready = not got_first_cpr_response or got_current_cpr_response
+            if i % frame_advance == 0 and new_frame and screen_ready:
                 new_frame = False
                 # Check terminal size
                 new_size = app_session.output.get_size()
@@ -130,10 +133,13 @@ def run(
                     video, last_frame, refx, refy, width - 1, height, color_mode
                 )
                 last_frame = video.copy()
-                # Write frame with CPR request
+                # Write frame
                 os.write(app_session.output.fileno(), data)
-                app_session.output.ask_for_cpr()
-                got_cpr_response = False
+                # Send CPR request
+                if got_current_cpr_response:
+                    app_session.output.ask_for_cpr()
+                    got_current_cpr_response = False
+                # Update reporting
                 data_length.append(len(data))
                 shown_frames.append(True)
             # Ignore this video frame
