@@ -150,7 +150,7 @@ def blit(
     cdef int current_x = refx
     cdef int current_y = refy
     cdef int current_fg = -1
-    cdef int current_bg = -1
+    cdef int current_bg = -2
     cdef int row_index, column_index
     cdef int color1, color2
     cdef int new_x, new_y
@@ -200,10 +200,7 @@ def blit(
                 continue
 
             # Detect print type
-            invert_print = (
-                current_fg == color1 or current_bg == color2 or
-                current_fg != color2 and current_bg != color1
-            )
+            invert_print = (current_fg == color2 or current_bg == color1)
 
             # Inverted print
             if invert_print:
