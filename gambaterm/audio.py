@@ -1,4 +1,3 @@
-from collections import deque
 from queue import Queue, Empty, Full
 from contextlib import contextmanager
 
@@ -18,8 +17,7 @@ class AudioOut:
 
     def __init__(self, speed=1.0):
         self.speed = speed
-        self.to_send = deque()
-        self.queue = Queue(maxsize=2)
+        self.queue = Queue(maxsize=3)
         self.resampler = samplerate.Resampler("linear", channels=2)
         self.buffer = np.full((self.buffer_size, 2), 0.0, np.int16)
         self.offset = 0
@@ -48,27 +46,21 @@ class AudioOut:
             self.buffer //= 4
             # Send without blocking if possible
             try:
-                if self.to_send:
-                    raise Full
                 self.queue.put_nowait(self.buffer)
-            # Schedule blocking send for next call to sync
+            # Synchronization issue, let it regulate itself
             except Full:
-                self.to_send.append(self.buffer)
+                pass
             # Create new buffer
             self.buffer = np.full((self.buffer_size, 2), 0.0, np.int16)
             # Process remaining data
             data = data[stop - self.offset :]
             self.offset = 0
 
-    def sync(self):
-        while self.to_send:
-            self.queue.put(self.to_send.popleft())
-
     def stream_callback(self, output_buffer, *args):
         try:
             output_buffer[:] = self.queue.get_nowait()
         except Empty:
-            output_buffer.fill(0.0)
+            output_buffer.fill(0)
 
 
 @contextmanager

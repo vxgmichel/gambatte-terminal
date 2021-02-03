@@ -151,9 +151,6 @@ def run(
                 if use_cpr_sync:
                     app_session.output.ask_for_cpr()
                     screen_ready = False
-            # Audio sync
-            if audio_out:
-                audio_out.sync()
             # Timing sync
             increment = samples / GB_TICKS_IN_FRAME
             deadline = start + increment / fps
