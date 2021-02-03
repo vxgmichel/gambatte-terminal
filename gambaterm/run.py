@@ -82,6 +82,10 @@ def run(
     shifting = deque(maxlen=average_over)
     start = time.time()
 
+    # Create a 100 ms time shift to fill up audio buffer
+    if audio_out:
+        start -= 0.1
+
     # Prepare state
     new_frame = False
     screen_ready = True

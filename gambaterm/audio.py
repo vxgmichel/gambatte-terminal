@@ -17,7 +17,7 @@ class AudioOut:
 
     def __init__(self, speed=1.0):
         self.speed = speed
-        self.queue = Queue(maxsize=3)
+        self.queue = Queue(maxsize=6)  # 100 ms delay
         self.resampler = samplerate.Resampler("linear", channels=2)
         self.buffer = np.full((self.buffer_size, 2), 0.0, np.int16)
         self.offset = 0
