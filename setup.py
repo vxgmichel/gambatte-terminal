@@ -51,7 +51,7 @@ setup(
     name="gambaterm",
     version="0.6.2",
     packages=["gambaterm"],
-    setup_requires=["setuptools", "cython", "numpy"],
+    setup_requires=["setuptools>=42", "Cython", "numpy"],
     ext_modules=[gambatte_extension, termblit_extension],
     install_requires=[
         "numpy>=1",
