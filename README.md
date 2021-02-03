@@ -15,7 +15,7 @@ It supports:
 Installation
 ------------
 
-Wheels are available for linux, windows and osx and python 3.6, 3.7 and 3.8:
+Wheels are available for linux, windows and osx and python 3.6, 3.7, 3.8 and 3.9:
 
 ```shell
 $ pip install gambaterm
@@ -28,9 +28,8 @@ More information using the `--help` command:
 
 ```shell
 $ python -m gambaterm --help
-usage: gambaterm [-h] [--input-file INPUT_FILE] [--frame-advance FRAME_ADVANCE]
-                 [--break-after BREAK_AFTER] [--speed-factor SPEED_FACTOR] [--force-gameboy]
-                 [--skip-inputs SKIP_INPUTS] [--disable-audio] [--color-mode COLOR_MODE]
+usage: gambaterm [-h] [--input-file INPUT_FILE] [--frame-advance FRAME_ADVANCE] [--break-after BREAK_AFTER] [--speed-factor SPEED_FACTOR] [--force-gameboy]
+                 [--skip-inputs SKIP_INPUTS] [--cpr-sync] [--disable-audio] [--color-mode COLOR_MODE]
                  ROM
 
 Gambatte terminal front-end
@@ -50,10 +49,9 @@ optional arguments:
                         Speed factor to apply to the emulation
   --force-gameboy, -fg  Force the emulator to treat the rom as a GB file
   --skip-inputs SKIP_INPUTS, -si SKIP_INPUTS
-                        Number of frame inputs to skip in order to compensate for the lack
-                        of BIOS
+                        Number of frame inputs to skip in order to compensate for the lack of BIOS
+  --cpr-sync, -cs       Use CPR synchronization to prevent video buffering
   --disable-audio, -d   Disable audio entirely
   --color-mode COLOR_MODE, -c COLOR_MODE
-                        Force a color mode (1: Greyscale, 2: 16 colors, 3: 256 colors, 4:
-                        24-bit colors)
+                        Force a color mode (1: Greyscale, 2: 16 colors, 3: 256 colors, 4: 24-bit colors)
 ```
