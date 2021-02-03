@@ -58,22 +58,17 @@ def xlib_key_pressed_context(display=None):
     from Xlib.display import Display
 
     with closing(Display(display)) as xdisplay:
-        pressed = set()
         extension_info = xdisplay.query_extension("XInputExtension")
         xinput_major = extension_info.major_opcode
-        window = xdisplay.get_input_focus().focus
-        if isinstance(window, int):
-            window = xdisplay.screen().root
-        window.xinput_select_events(
-            [
-                (
-                    xinput.AllDevices,
-                    xinput.KeyPressMask
-                    | xinput.KeyReleaseMask
-                    | xinput.FocusInMask
-                    | xinput.FocusOutMask,
-                ),
-            ]
+        # Set of currently pressed keys
+        pressed = set()
+        # Save current focus, as it is likely to be the terminal window
+        term_window = xdisplay.get_input_focus().focus
+        # It is possible the select events directly on the terminal window,
+        # but for some reasons, the events won't be propagated for some terminals like kitty.
+        # Instead, we select the events on the root windows and then perform some filtering.
+        xdisplay.screen().root.xinput_select_events(
+            [(xinput.AllDevices, xinput.KeyPressMask | xinput.KeyReleaseMask)]
         )
 
         def get_pressed():
@@ -81,8 +76,8 @@ def xlib_key_pressed_context(display=None):
             while xdisplay.pending_events():
                 event = xdisplay.next_event()
                 assert event.extension == xinput_major, event
-                # Focus change
-                if event.evtype in [xinput.FocusIn, xinput.FocusOut]:
+                # Check whether the focus is currently on the terminal window
+                if xdisplay.get_input_focus().focus != term_window:
                     pressed.clear()
                     continue
                 # Extract information
