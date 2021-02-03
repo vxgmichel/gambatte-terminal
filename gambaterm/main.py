@@ -24,7 +24,7 @@ def add_base_arguments(parser):
         "--frame-advance",
         "-fa",
         type=int,
-        default=2,
+        default=1,
         help="Number of frames to run before showing the next one",
     )
     parser.add_argument(
