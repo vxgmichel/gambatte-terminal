@@ -138,13 +138,14 @@ def thread_target(app_session, app_config, username, display, color_mode):
             # Run the emulator
             return_code = run(
                 romfile=app_config.romfile,
-                app_session=app_session,
                 get_input=get_gb_input,
-                save_directory=str(save_directory),
-                color_mode=color_mode,
+                app_session=app_session,
                 frame_advance=app_config.frame_advance,
+                color_mode=color_mode,
                 break_after=app_config.break_after,
                 speed_factor=app_config.speed_factor,
+                use_cpr_sync=app_config.cpr_sync,
+                save_directory=str(save_directory),
                 force_gameboy=app_config.force_gameboy,
             )
         except (KeyboardInterrupt, OSError):

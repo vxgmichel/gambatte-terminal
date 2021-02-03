@@ -38,10 +38,11 @@ def run(
     get_input,
     app_session,
     audio_out=None,
-    color_mode=False,
     frame_advance=1,
+    color_mode=False,
     break_after=None,
     speed_factor=1.0,
+    use_cpr_sync=False,
     save_directory=None,
     force_gameboy=False,
 ):
@@ -78,15 +79,14 @@ def run(
     sync_deltas = deque(maxlen=average_over)
     shown_frames = deque(maxlen=average_over)
     data_length = deque(maxlen=average_over)
+    shifting = deque(maxlen=average_over)
     start = time.time()
 
-    # Prepare CPR handling
-    app_session.output.ask_for_cpr()
-    got_first_cpr_response = False
-    got_current_cpr_response = False
+    # Prepare state
+    new_frame = False
+    screen_ready = True
 
     # Loop over emulator frames
-    new_frame = False
     for i in count():
 
         # Break when frame limit is reach
@@ -112,13 +112,13 @@ def run(
             if event.key == "c-d":
                 raise OSError
             if event.key == "<cursor-position-response>":
-                got_first_cpr_response = got_current_cpr_response = True
+                screen_ready = True
 
-        # Send video
+        # Render video
         with timing(video_deltas):
             # Send the frame
-            screen_ready = not got_first_cpr_response or got_current_cpr_response
-            if i % frame_advance == 0 and new_frame and screen_ready:
+            shift = shifting and shifting[-1] > 1 / fps
+            if i % frame_advance == 0 and new_frame and screen_ready and not shift:
                 new_frame = False
                 # Check terminal size
                 new_size = app_session.output.get_size()
@@ -129,25 +129,28 @@ def run(
                     refx, refy = get_ref(width, height)
                     last_frame.fill(-1)
                 # Render frame
-                data = blit(
+                video_data = blit(
                     video, last_frame, refx, refy, width - 1, height, color_mode
                 )
                 last_frame = video.copy()
-                # Write frame
-                os.write(app_session.output.fileno(), data)
-                # Send CPR request
-                if got_current_cpr_response:
-                    app_session.output.ask_for_cpr()
-                    got_current_cpr_response = False
                 # Update reporting
-                data_length.append(len(data))
+                data_length.append(len(video_data))
                 shown_frames.append(True)
             # Ignore this video frame
             else:
+                video_data = None
                 data_length.append(0)
                 shown_frames.append(False)
 
         with timing(sync_deltas):
+            # Video sync
+            if video_data:
+                # Write video frame, might block
+                os.write(app_session.output.fileno(), video_data)
+                # Send CPR request
+                if use_cpr_sync:
+                    app_session.output.ask_for_cpr()
+                    screen_ready = False
             # Audio sync
             if audio_out:
                 audio_out.sync()
@@ -158,6 +161,7 @@ def run(
             if current < deadline - 1e-3:
                 time.sleep(deadline - current)
             # Use deadline as new reference to prevent shifting
+            shifting.append(time.time() - deadline)
             start = deadline
 
         # Reporting
@@ -169,11 +173,10 @@ def run(
             audio_percent = sum(audio_deltas) / len(audio_deltas) * emu_fps * 100
             video_percent = sum(video_deltas) / len(video_deltas) * emu_fps * 100
             data_rate = sum(data_length) / len(data_length) * emu_fps / 1024
-            sync = "" if got_first_cpr_response else "*"
             title = f"Gambaterm | "
             title += f"{os.path.basename(romfile)} | "
             title += f"Emu: {emu_fps:.0f} FPS - {emu_percent:.0f}% CPU | "
-            title += f"Video: {video_fps:.0f}{sync} FPS - {video_percent:.0f}% CPU - {data_rate:.0f} KB/s | "
+            title += f"Video: {video_fps:.0f} FPS - {video_percent:.0f}% CPU - {data_rate:.0f} KB/s | "
             title += f"Audio: {audio_percent:.0f}% CPU"
             app_session.output.set_title(title)
             app_session.output.flush()

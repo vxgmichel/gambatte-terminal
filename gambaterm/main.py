@@ -54,6 +54,12 @@ def add_base_arguments(parser):
         default=188,
         help="Number of frame inputs to skip in order to compensate for the lack of BIOS",
     )
+    parser.add_argument(
+        "--cpr-sync",
+        "-cs",
+        action="store_true",
+        help="Use CPR synchronization to prevent video buffering",
+    )
     return parser
 
 
@@ -103,11 +109,12 @@ def main(args=None):
                             args.romfile,
                             get_gb_input,
                             app_session=app_session,
-                            color_mode=args.color_mode,
                             audio_out=audio_out,
                             frame_advance=args.frame_advance,
+                            color_mode=args.color_mode,
                             break_after=args.break_after,
                             speed_factor=args.speed_factor,
+                            use_cpr_sync=args.cpr_sync,
                             save_directory=save_directory,
                             force_gameboy=args.force_gameboy,
                         )
