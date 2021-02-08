@@ -22,41 +22,41 @@ def add_base_arguments(parser):
     )
     parser.add_argument(
         "--frame-advance",
-        "-fa",
+        "--fa",
         type=int,
         default=1,
-        help="Number of frames to run before showing the next one",
+        help="Number of frames to run before displaying the next one (default is 1)",
     )
     parser.add_argument(
         "--break-after",
-        "-ba",
+        "--ba",
         type=int,
         default=None,
-        help="Number of frames to run before forcing the emulator to stop",
+        help="Number of frames to run before forcing the emulator to stop (doesn't stop by default)",
     )
     parser.add_argument(
         "--speed-factor",
-        "-sf",
+        "--sf",
         type=float,
         default=1.0,
-        help="Speed factor to apply to the emulation",
+        help="Speed factor to apply to the emulation (default is 1.0 corresponding to 60 FPS)",
     )
     parser.add_argument(
         "--force-gameboy",
-        "-fg",
+        "--fg",
         action="store_true",
         help="Force the emulator to treat the rom as a GB file",
     )
     parser.add_argument(
         "--skip-inputs",
-        "-si",
+        "--si",
         type=int,
         default=188,
-        help="Number of frame inputs to skip in order to compensate for the lack of BIOS",
+        help="Number of frame inputs to skip in order to compensate for the lack of BIOS (default is 188)",
     )
     parser.add_argument(
         "--cpr-sync",
-        "-cs",
+        "--cs",
         action="store_true",
         help="Use CPR synchronization to prevent video buffering",
     )
@@ -69,14 +69,14 @@ def main(args=None):
     )
     add_base_arguments(parser)
     parser.add_argument(
-        "--disable-audio", "-d", action="store_true", help="Disable audio entirely"
+        "--disable-audio", "--da", action="store_true", help="Disable audio entirely"
     )
     parser.add_argument(
         "--color-mode",
         "-c",
         type=int,
         default=None,
-        help="Force a color mode (1: Greyscale, 2: 16 colors, 3: 256 colors, 4: 24-bit colors)",
+        help="Force a color mode (1: 4 greyscale colors, 2: 16 colors, 3: 256 colors, 4: 24-bit colors)",
     )
     args = parser.parse_args(args)
 

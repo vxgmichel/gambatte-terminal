@@ -209,18 +209,18 @@ def main(args=None):
         "-b",
         type=str,
         default="localhost",
-        help="Bind adress of the SSH server, use `0.0.0.0` for all interfaces",
+        help="Bind adress of the SSH server, use `0.0.0.0` for all interfaces (default is localhost)",
     )
     parser.add_argument(
         "--port",
         "-p",
         type=int,
         default=8022,
-        help="Port of the SSH server, default to 8022",
+        help="Port of the SSH server (default is 8022)",
     )
     parser.add_argument(
         "--password",
-        "-pw",
+        "--pw",
         type=str,
         help="Enable password authentification with the given global password",
     )
