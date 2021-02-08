@@ -60,7 +60,7 @@ setup(
         "sounddevice",
         "samplerate",
         "xlib; sys_platform == 'linux'",
-        "keyboard; sys_platform != 'linux'",
+        "pynput; sys_platform != 'linux'",
     ],
     python_requires=">=3.6",
     entry_points={

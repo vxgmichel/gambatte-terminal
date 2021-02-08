@@ -21,34 +21,55 @@ def get_xlib_mapping():
     from Xlib import XK
 
     return {
+        # Directions
         XK.XK_Up: GBInput.UP,
         XK.XK_Down: GBInput.DOWN,
         XK.XK_Left: GBInput.LEFT,
         XK.XK_Right: GBInput.RIGHT,
+        # A button
         XK.XK_f: GBInput.A,
+        XK.XK_v: GBInput.A,
         XK.XK_space: GBInput.A,
+        # B button
         XK.XK_d: GBInput.B,
+        XK.XK_c: GBInput.B,
         XK.XK_Alt_L: GBInput.B,
+        XK.XK_Alt_R: GBInput.B,
+        # Start button
         XK.XK_Return: GBInput.START,
+        XK.XK_Control_L: GBInput.START,
         XK.XK_Control_R: GBInput.START,
+        # Select button
         XK.XK_Shift_L: GBInput.SELECT,
         XK.XK_Shift_R: GBInput.SELECT,
+        XK.XK_Delete: GBInput.SELECT,
     }
 
 
 def get_keyboard_mapping():
     return {
+        # Directions
         "up": GBInput.UP,
         "down": GBInput.DOWN,
         "left": GBInput.LEFT,
         "right": GBInput.RIGHT,
+        # A button
         "f": GBInput.A,
+        "v": GBInput.A,
         "space": GBInput.A,
+        # B button
         "d": GBInput.B,
+        "c": GBInput.B,
         "alt": GBInput.B,
+        "alt_r": GBInput.B,
+        # Start button
         "enter": GBInput.START,
         "ctrl": GBInput.START,
+        "ctrl_r": GBInput.START,
+        # Select button
         "shift": GBInput.SELECT,
+        "shift_r": GBInput.SELECT,
+        "delete": GBInput.SELECT,
     }
 
 
@@ -110,11 +131,39 @@ def xlib_key_pressed_context(display=None):
 
 
 @contextmanager
-def keyboard_key_pressed_context(display=None):
-    import keyboard
+def pynput_key_pressed_context(display=None):
+    from pynput import keyboard
 
-    keyboard.get_hotkey_name()
-    yield lambda: keyboard.get_hotkey_name().split("+")
+    def on_press(key):
+        try:
+            value = key.char
+        except AttributeError:
+            value = key.name
+        try:
+            value = value.lower()
+        except AttributeError:
+            return
+        pressed.add(value)
+
+    def on_release(key):
+        try:
+            value = key.char
+        except AttributeError:
+            value = key.name
+        try:
+            value = value.lower()
+        except AttributeError:
+            return
+        pressed.discard(value)
+
+    pressed = set()
+    listener = keyboard.Listener(on_press=on_press, on_release=on_release)
+    try:
+        listener.start()
+        yield lambda: pressed
+    finally:
+        pressed.clear()
+        listener.stop()
 
 
 @contextmanager
@@ -124,7 +173,7 @@ def gb_input_from_keyboard_context(display=None):
         key_pressed_context = xlib_key_pressed_context
     else:
         mapping = get_keyboard_mapping()
-        key_pressed_context = keyboard_key_pressed_context
+        key_pressed_context = pynput_key_pressed_context
 
     def get_gb_input():
         value = 0
@@ -148,7 +197,7 @@ def main():
         mapping = reverse_lookup.get
     else:
         mapping = get_keyboard_mapping()
-        key_pressed_context = keyboard_key_pressed_context
+        key_pressed_context = pynput_key_pressed_context
         mapping = str
 
     with create_app_session() as session:
