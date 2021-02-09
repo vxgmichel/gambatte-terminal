@@ -15,7 +15,7 @@ It supports:
 Installation
 ------------
 
-Wheels are available on linux, windows and osx for python 3.6, 3.7, 3.8 and 3.9:
+Wheels are available on linux, windows and macos for python 3.6, 3.7, 3.8 and 3.9:
 
 ```shell
 $ pip3 install gambaterm
@@ -30,36 +30,53 @@ usage: gambaterm [-h] [--input-file INPUT_FILE] [--frame-advance FRAME_ADVANCE] 
                  [--skip-inputs SKIP_INPUTS] [--cpr-sync] [--disable-audio] [--color-mode COLOR_MODE]
                  ROM
 ```
+
 Positional arguments:
- - `ROM`
-                        Path to a GB or GBC rom file
+  - `ROM`
+
+    Path to a GB or GBC rom file
 
 Optional arguments:
   - `--input-file INPUT_FILE, -i INPUT_FILE`
-                        Path to a bizhawk BK2 input file
+
+    Path to a bizhawk BK2 input file
+
   - `--frame-advance FRAME_ADVANCE, --fa FRAME_ADVANCE`
-                        Number of frames to run before displaying the next one (default is 1)
+
+    Number of frames to run before displaying the next one (default is 1)
+
   - `--break-after BREAK_AFTER, --ba BREAK_AFTER`
-                        Number of frames to run before forcing the emulator to stop (doesn't stop by default)
+
+    Number of frames to run before forcing the emulator to stop (doesn't stop by default)
+
   - `--speed-factor SPEED_FACTOR, --sf SPEED_FACTOR`
-                        Speed factor to apply to the emulation (default is 1.0 corresponding to 60 FPS)
+
+    Speed factor to apply to the emulation (default is 1.0 corresponding to 60 FPS)
+
   - `--force-gameboy, --fg`
-                        Force the emulator to treat the rom as a GB file
+
+    Force the emulator to treat the rom as a GB file
+
   - `--skip-inputs SKIP_INPUTS, --si SKIP_INPUTS`
-                        Number of frame inputs to skip in order to compensate for the lack of BIOS (default is 188)
+
+    Number of frame inputs to skip in order to compensate for the lack of BIOS (default is 188)
+
   - `--cpr-sync, --cs`
-                        Use CPR synchronization to prevent video buffering
+
+    Use CPR synchronization to prevent video buffering
+
   - `--disable-audio, --da`
-                        Disable audio entirely
+
+    Disable audio entirely
+
   - `--color-mode COLOR_MODE, -c COLOR_MODE`
-                        Force a color mode (1: 4 greyscale colors, 2: 16 colors, 3: 256 colors, 4: 24-bit colors)
+
+    Force a color mode (1: 4 greyscale colors, 2: 16 colors, 3: 256 colors, 4: 24-bit colors)
 
 SSH server
 ----------
 
-It is possible to serve the emulation though SSH, although clients won't be able to send input to the emulator without an X server and the `ssh -X` option.
-
-Use `gambaterm-ssh --help` for more information.
+It is possible to serve the emulation though SSH, although clients won't be able to send input to the emulator without an X server and the `ssh -X` option. Use `gambaterm-ssh --help` for more information.
 
 
 Terminal support
@@ -77,7 +94,7 @@ Not all terminals will actually offer a pleasant experience. The main criteria a
   In this case, it might be better to use greyscale colors using `--force-gameboy` or `--color-mode=1`.
 
 - **Support for UTF-8 and good rendering of unicode block elements**
-  More specifically the following characters "▄█▀".
+  More specifically the following characters `▄█▀`.
   Changing the code page might be necessary on windows, using `chcp 65001`.
   Also, the alignement might be off (e.g small spaces between pixels)
   This is not always well supported.
@@ -86,7 +103,7 @@ Not all terminals will actually offer a pleasant experience. The main criteria a
   The terminal has to be able to process about 500KB of requests per seconds for a smooth rendering of "intense" frames.
   Typically, the most intense frames happen during screen transitions of two detailed scenes.
 
-The table below sums up my findings when I tried a the most common terminal emulators:
+The table below sums up my findings when I tried a the most common terminal emulators. Here's about linux:
 
 | Linux            | Status     | Colors        | Unicode rendering      | Performance | Comments                 |
 |------------------|------------|---------------|------------------------|-------------|--------------------------|
@@ -99,10 +116,14 @@ The table below sums up my findings when I tried a the most common terminal emul
 | Mlterm           | Ok         | 24-bit colors | Light misalignments    | 60 FPS      | No resize shortcuts      |
 | Terminology      | Ok         | 24-bit colors | Possible misalignments | 30 FPS      | Weird colors             |
 
-| OSX              | Status     | Colors        | Unicode rendering      | Performance | Comments                 |
+About MacOS:
+
+| MacOS            | Status     | Colors        | Unicode rendering      | Performance | Comments                 |
 |------------------|------------|---------------|------------------------|-------------|--------------------------|
 | iTerm2           | Good       | 24-bit colors | Good                   | 30 FPS      |                          |
 | Terminal         | Unplayable | 256 colors    | Misalignments          | 20 FPS      |                          |
+
+About Windows:
 
 | Windows          | Status     | Colors        | Unicode rendering      | Performance | Comments                 |
 |------------------|------------|---------------|------------------------|-------------|--------------------------|
@@ -112,21 +133,25 @@ The table below sums up my findings when I tried a the most common terminal emul
 | Command prompt   | Broken     | N/A           | N/A                    | N/A         | No ANSI code support     |
 | Git bash         | Broken     | N/A           | N/A                    | N/A         | Doesn't work with winpty |
 
+Terminal size
+-------------
+
+The emulator uses a single character on screen to display two vertically aligned pixels, like so `▄▀`. The gameboy being 160 pixels wide over 144 pixels high, you'll need your terminal to be at least 160 characters wide over 72 characters high to display the entire screen. Setting the terminal to full screen is usually enough but you might want to tweak the character size, typically using the `ctrl - / ctrl +` or `ctrl wheel` shortcuts.
 
 Keyboard input
 --------------
 
 The key bindings are not configurable at the moment:
 
-| Buttons    | Keyboard     |
-|------------|--------------|
-| Directions | Arrows       |
-| A          | F/V/Space    |
-| B          | D/C/Alt      |
-| Start      | Ctrl/Enter   |
-| Select     | Shift/Delete |
+| Buttons    | Keyboard             |
+|------------|----------------------|
+| Directions | Arrows               |
+| A          | F / V / Space        |
+| B          | D / C / Alt          |
+| Start      | Right Ctrl / Enter   |
+| Select     | Right Shift / Delete |
 
-Key releases cannot be detected through stdin, which is usually mandatory to play games. It is then required to access the window system to get access to the key presses. There are a couple of problems with that:
+Key releases, which are usually mandatory to play games, cannot be detected through `stdin`. It is then required to access the window system to get access to the key presses. There are a couple of problems with that:
 
 - It can be hard to detect the window corresponding to the terminal. With X11, the best solution is to look for the current focused window. For other systems, the fallback solution is to use global hotkeys.
 
@@ -136,7 +161,7 @@ Key releases cannot be detected through stdin, which is usually mandatory to pla
 Motivation
 ----------
 
-To be honest, there is no actual reason to use this gameboy emulator, other than you might find it fun or interesting. The motivation behind this project is simply to push the idea of running a video game console emulator in a terminal as far as possible. It seems like there has been a [similar attempt](https://github.com/gabrielrcouto/php-terminal-gameboy-emulator) that used a different approach for displaying the video stream. In any case I'm quite satisfied with this project, and also a bit surprised that I could push it to the point where playing games it's actually enjoyable. In particular, I've been able to complete [The Bouncing Ball](https://gbhh.avivace.com/game/The-Bouncing-Ball) at 60 FPS in XTerm, which makes me want to try other homebrew games :)
+To be honest there is no actual reason to use this gameboy emulator, other than you might find it fun or interesting. The motivation behind this project is simply to push the idea of running a video game console emulator in a terminal as far as possible. It seems like there has been a [similar attempt](https://github.com/gabrielrcouto/php-terminal-gameboy-emulator) that used a different approach for displaying the video stream. In any case I'm quite satisfied with this project, and also a bit surprised that I could push it to the point where playing games is actually enjoyable. In particular, I've been able to complete [The Bouncing Ball](https://gbhh.avivace.com/game/The-Bouncing-Ball) at 60 FPS in XTerm, and I'm now looking forward to playing more homebrew games :)
 
 
 

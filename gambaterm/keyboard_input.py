@@ -37,10 +37,8 @@ def get_xlib_mapping():
         XK.XK_Alt_R: GBInput.B,
         # Start button
         XK.XK_Return: GBInput.START,
-        XK.XK_Control_L: GBInput.START,
         XK.XK_Control_R: GBInput.START,
         # Select button
-        XK.XK_Shift_L: GBInput.SELECT,
         XK.XK_Shift_R: GBInput.SELECT,
         XK.XK_Delete: GBInput.SELECT,
     }
@@ -64,10 +62,8 @@ def get_keyboard_mapping():
         "alt_r": GBInput.B,
         # Start button
         "enter": GBInput.START,
-        "ctrl": GBInput.START,
         "ctrl_r": GBInput.START,
         # Select button
-        "shift": GBInput.SELECT,
         "shift_r": GBInput.SELECT,
         "delete": GBInput.SELECT,
     }
