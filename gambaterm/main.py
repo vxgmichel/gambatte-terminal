@@ -80,9 +80,6 @@ def main(args=None):
     )
     args = parser.parse_args(args)
 
-    if args.color_mode is None:
-        args.color_mode = detect_local_color_mode()
-
     if args.input_file is not None:
         save_directory = tempfile.mkdtemp()
         gb_input_context = gb_input_from_file_context(args.input_file, args.skip_inputs)
@@ -98,6 +95,10 @@ def main(args=None):
         with create_app_session() as app_session:
             with app_session.input.raw_mode():
                 try:
+                    # Detect color mode
+                    if args.color_mode is None:
+                        args.color_mode = detect_local_color_mode(app_session)
+
                     # Prepare alternate screen
                     app_session.output.enter_alternate_screen()
                     app_session.output.erase_screen()
@@ -123,7 +124,7 @@ def main(args=None):
                 else:
                     exit(return_code)
                 finally:
-                    # Wait for CPR
+                    # Wait for a possible CPR
                     time.sleep(0.1)
                     # Clear alternate screen
                     app_session.input.read_keys()

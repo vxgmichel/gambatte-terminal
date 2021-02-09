@@ -36,7 +36,7 @@ async def detect_true_color_support(process, timeout=0.5):
         else:
             break
     # Return whether true color is supported
-    return "P1$r0;48:2::1:2:3m" in header
+    return "P1$r" in header and "48:2" in header and "1:2:3m" in header
 
 
 async def safe_ssh_process_handler(process):
