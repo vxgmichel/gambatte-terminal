@@ -10,12 +10,7 @@ import numpy as np
 
 from .libgambatte import GB
 from .termblit import blit
-
-# Gameboy constants
-GB_WIDTH = 160
-GB_HEIGHT = 144
-GB_FPS = 59.727500569606
-GB_TICKS_IN_FRAME = 35112
+from .constants import GB_WIDTH, GB_HEIGHT, GB_FPS, GB_TICKS_IN_FRAME
 
 
 @contextlib.contextmanager

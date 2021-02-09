@@ -5,8 +5,7 @@ import samplerate
 import sounddevice
 import numpy as np
 
-GB_FPS = 59.727500569606
-GB_TICKS_IN_FRAME = 35112
+from .constants import GB_FPS, GB_TICKS_IN_FRAME
 
 
 class AudioOut:

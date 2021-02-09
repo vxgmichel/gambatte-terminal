@@ -65,6 +65,10 @@ Optional arguments:
 
     Use CPR synchronization to prevent video buffering
 
+  - `--enable-controller, --ec`
+
+    Enable game controller support
+
   - `--disable-audio, --da`
 
     Disable audio entirely
@@ -94,7 +98,7 @@ Not all terminals will actually offer a pleasant experience. The main criteria a
   In this case, it might be better to use greyscale colors using `--force-gameboy` or `--color-mode=1`.
 
 - **Support for UTF-8 and good rendering of unicode block elements**
-  More specifically the following characters `▄█▀`.
+  More specifically the following characters `▄ █ ▀`.
   Changing the code page might be necessary on windows, using `chcp 65001`.
   Also, the alignement might be off (e.g small spaces between pixels)
   This is not always well supported.
@@ -138,24 +142,28 @@ Terminal size
 
 The emulator uses a single character on screen to display two vertically aligned pixels, like so `▄▀`. The gameboy being 160 pixels wide over 144 pixels high, you'll need your terminal to be at least 160 characters wide over 72 characters high to display the entire screen. Setting the terminal to full screen is usually enough but you might want to tweak the character size, typically using the `ctrl - / ctrl +` or `ctrl wheel` shortcuts.
 
-Keyboard input
---------------
+Keyboard, game controller and file inputs
+-----------------------------------------
 
-The key bindings are not configurable at the moment:
+Keyboard controls are enabled by default, while game controller controls have to be enabled using `--enable-controller` or `--ec`. The key bindings are not configurable at the moment:
 
-| Buttons    | Keyboard             |
-|------------|----------------------|
-| Directions | Arrows               |
-| A          | F / V / Space        |
-| B          | D / C / Alt          |
-| Start      | Right Ctrl / Enter   |
-| Select     | Right Shift / Delete |
+| Buttons    | Keyboard             | Controller            |
+|------------|----------------------|-----------------------|
+| Directions | Arrows               | Left hat / Left stick |
+| A          | F / V / Space        | Button 0 / Button 3   |
+| B          | D / C / Alt          | Button 1 / Button 2   |
+| Start      | Right Ctrl / Enter   | Button 7              |
+| Select     | Right Shift / Delete | Button 6              |
 
 Key releases, which are usually mandatory to play games, cannot be detected through `stdin`. It is then required to access the window system to get access to the key presses. There are a couple of problems with that:
 
 - It can be hard to detect the window corresponding to the terminal. With X11, the best solution is to look for the current focused window. For other systems, the fallback solution is to use global hotkeys.
 
-- It only works through SSH for clients with X servers using `ssh -X`, meaning it requires Requires and MacOS users to run an X server. Moreover, it's a bad idea to connect with `-X` to an untrusted server.
+- It only works through SSH for clients with X servers using `ssh -X`, meaning it requires Windows and MacOS users to run an X server. Moreover, it's a bad idea to connect with `-X` to an untrusted server.
+
+- Additional permissions might be required to access the window system, especially on MacOS (see [this guide](https://inputs.readthedocs.io/en/latest/user/install.html#mac-permissions))
+
+It is also possible to use a bizhawk BK2 input file to play tool-assisted speedruns using the `--input-file` (or `-i`) option.
 
 
 Motivation

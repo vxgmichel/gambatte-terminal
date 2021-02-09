@@ -1,18 +1,8 @@
-from enum import IntEnum
 from io import TextIOWrapper
 from contextlib import contextmanager
 from zipfile import ZipFile, BadZipFile
 
-
-class GBInput(IntEnum):
-    A = 0x01
-    B = 0x02
-    SELECT = 0x04
-    START = 0x08
-    RIGHT = 0x10
-    LEFT = 0x20
-    UP = 0x40
-    DOWN = 0x80
+from .constants import GBInput
 
 
 INPUTS = [

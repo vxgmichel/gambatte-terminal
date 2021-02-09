@@ -11,6 +11,7 @@ from .audio import audio_player, no_audio
 from .colors import detect_local_color_mode
 from .file_input import gb_input_from_file_context
 from .keyboard_input import gb_input_from_keyboard_context
+from .controller_input import combine_gb_input_from_controller_context
 
 
 def add_base_arguments(parser):
@@ -60,6 +61,12 @@ def add_base_arguments(parser):
         action="store_true",
         help="Use CPR synchronization to prevent video buffering",
     )
+    parser.add_argument(
+        "--enable-controller",
+        "--ec",
+        action="store_true",
+        help="Enable game controller support",
+    )
     return parser
 
 
@@ -86,26 +93,35 @@ def main(args=None):
     else:
         gb_input_context = gb_input_from_keyboard_context()
         save_directory = None
+        if args.enable_controller:
+            gb_input_context = combine_gb_input_from_controller_context(
+                gb_input_context
+            )
 
     if args.color_mode == 0:
         raise RuntimeError("No color mode seems to be supported")
 
-    player = no_audio if args.disable_audio else audio_player
-    with player(args.speed_factor) as audio_out:
-        with create_app_session() as app_session:
-            with app_session.input.raw_mode():
-                try:
-                    # Detect color mode
-                    if args.color_mode is None:
-                        args.color_mode = detect_local_color_mode(app_session)
+    # Enter terminal raw mode
+    with create_app_session() as app_session:
+        with app_session.input.raw_mode():
+            try:
 
-                    # Prepare alternate screen
-                    app_session.output.enter_alternate_screen()
-                    app_session.output.erase_screen()
-                    app_session.output.hide_cursor()
-                    app_session.output.flush()
+                # Detect color mode
+                if args.color_mode is None:
+                    args.color_mode = detect_local_color_mode(app_session)
 
-                    with gb_input_context as get_gb_input:
+                # Prepare alternate screen
+                app_session.output.enter_alternate_screen()
+                app_session.output.erase_screen()
+                app_session.output.hide_cursor()
+                app_session.output.flush()
+
+                # Enter input and audio contexts
+                with gb_input_context as get_gb_input:
+                    player = no_audio if args.disable_audio else audio_player
+                    with player(args.speed_factor) as audio_out:
+
+                        # Run the emulator
                         return_code = run(
                             args.romfile,
                             get_gb_input,
@@ -119,19 +135,25 @@ def main(args=None):
                             save_directory=save_directory,
                             force_gameboy=args.force_gameboy,
                         )
-                except (KeyboardInterrupt, EOFError):
-                    pass
-                else:
-                    exit(return_code)
-                finally:
-                    # Wait for a possible CPR
-                    time.sleep(0.1)
-                    # Clear alternate screen
-                    app_session.input.read_keys()
-                    app_session.output.erase_screen()
-                    app_session.output.quit_alternate_screen()
-                    app_session.output.show_cursor()
-                    app_session.output.flush()
+
+            # Deal with ctrl+c and ctrl+d exceptions
+            except (KeyboardInterrupt, EOFError):
+                pass
+
+            # Exit with return code
+            else:
+                exit(return_code)
+
+            # Restore terminal to its initial state
+            finally:
+                # Wait for a possible CPR
+                time.sleep(0.1)
+                # Clear alternate screen
+                app_session.input.read_keys()
+                app_session.output.erase_screen()
+                app_session.output.quit_alternate_screen()
+                app_session.output.show_cursor()
+                app_session.output.flush()
 
 
 if __name__ == "__main__":
