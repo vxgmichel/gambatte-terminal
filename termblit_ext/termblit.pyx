@@ -226,4 +226,7 @@ def blit(
 
     # Reset attributes before returning the buffer
     result += sprintf(result, "\033[0m")
-    return base[:result-base]
+    try:
+        return base[:result-base]
+    finally:
+        free(base)
