@@ -49,7 +49,7 @@ termblit_extension = Extension(
 
 setup(
     name="gambaterm",
-    version="0.8.1",
+    version="0.9.0",
     packages=["gambaterm"],
     setup_requires=["setuptools>=42", "Cython>=0.29.13", "numpy"],
     ext_modules=[gambatte_extension, termblit_extension],

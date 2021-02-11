@@ -180,10 +180,11 @@ Here is the list of the dependencies used in this project, all great open source
 
 - [gambatte](https://github.com/sinamas/gambatte) - Gameboy emulation
 - [Cython](https://cython.org/) - Binding to gambatte C++ API, and fast video frame conversion
-- [prompt-toolkit](https://github.com/prompt-toolkit/python-prompt-toolkit) - Handling of the terminal stream
-- [samplerate](https://github.com/tuxu/python-samplerate) - Resampling the emulator audio stream
+- [prompt-toolkit](https://github.com/prompt-toolkit/python-prompt-toolkit) - Cross-platform terminal handling
+- [samplerate](https://github.com/tuxu/python-samplerate) - Resampling the audio stream
 - [sounddevice](https://github.com/spatialaudio/python-sounddevice) - Playing the audio stream
-- [xlib](https://github.com/python-xlib/python-xlib)/[pynput](https://github.com/moses-palmer/pynput) - Getting keyboard input
+- [xlib](https://github.com/python-xlib/python-xlib)/[pynput](https://github.com/moses-palmer/pynput) - Getting keyboard inputs
+- [pygame](https://github.com/pygame/pygame) - Getting game controller inputs
 - [asyncssh](https://github.com/ronf/asyncssh) - Running the SSH server
 
 
