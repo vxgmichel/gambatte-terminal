@@ -1,6 +1,10 @@
 import os
 import glob
+from pathlib import Path
 from setuptools import Extension, setup
+
+# Read the contents of the README file
+LONG_DESCRIPTION = (Path(__file__).parent / "README.md").read_text()
 
 # List libgambatte sources, excluding `file_zip.cpp`
 libgambatte_sources = [
@@ -71,6 +75,8 @@ setup(
         ],
     },
     description="A terminal frontend for gambatte game boy color emulator ",
+    long_description=LONG_DESCRIPTION,
+    long_description_content_type="text/markdown",
     url="https://github.com/vxgmichel/gambatte-terminal",
     license="GPLv3",
     classifiers=[
