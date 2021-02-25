@@ -1,6 +1,11 @@
 gambatte-terminal
 -----------------
 
+[![](https://github.com/vxgmichel/gambatte-terminal/actions/workflows/build.yml/badge.svg)](https://github.com/vxgmichel/gambatte-terminal/actions/workflows/build.yml)
+[![](https://img.shields.io/pypi/v/gambaterm.svg)](https://pypi.python.org/pypi/gambaterm)
+[![](https://img.shields.io/pypi/pyversions/gambaterm.svg)](https://pypi.python.org/pypi/gambaterm)
+
+
 A terminal front-end for gambatte, the gameboy color emulator.
 
 ![](demo.gif)
