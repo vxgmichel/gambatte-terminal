@@ -1,4 +1,6 @@
+The [gambatte-terminal][gambatte-terminal] project, or [gambaterm][gambaterm], is a terminal frontend for the gambatte game boy color emulator.
 
+This write-up goes into all the interesting piece of information I ran into while developing this project. It is about old video game consoles, terminal emulation, pixels, unicode characters, reducing colors, the SSH protocol, remote terminal applications, key releases, tool-assisted speedruns and the definition of a frame.
 
 
 # Introduction
@@ -10,10 +12,10 @@ This write up goes through the interesting bits of information that I gathered a
 
 So buckle up, we're going to talk about old video game consoles, terminal emulation, pixels, unicode characters, reducing colors, the SSH protocol, remote terminal applications, key releases, tool-assisted speedruns and the definition of a frame. Let's go.
 
-## Wait, are you saying I can play gameboy color games in my terminal?
+## Wait, are you saying I can play Game Boy Color games in my terminal?
 {:.no_toc}
 
-Exactly!\* If you don't care about the details and just want to play around with an in-terminal gameboy color emulator, simply run `pip3 install gambaterm` and head to the [gambatte-terminal repository][gambatte-terminal] for more information.
+Exactly!\* If you don't care about the details and just want to play around with an in-terminal Game Boy Color emulator, simply run `pip3 install gambaterm` and head to the [gambatte-terminal repository][gambatte-terminal] for more information.
 
 <sub>\*: If you're running MacOS, you probably want to use [iterm2][iterm2].</sub>
 <br>
@@ -184,7 +186,7 @@ We get:
 
 Note that those assumptions really depends on the image that is being processed, the most important criteria being the level of details which directly correlates to the number of color change necessary. A video frame of one solid color would approach 0.5 byte per pixel while a checker board of 4 different colors in 24-bit color mode would be about 40 bytes per pixels.
 
-Remember however that the gameboy color displays at most 56 colors at once (ignoring the Hi-Color mode), so large solid areas will often appears in video frames during gameplay. Considering this, the assumption of 1 color change every 6 characters seems acceptable; I actually measured 1 color change every 6.7 characters using the first 5 minutes of gameplay of the 2019 TAS of Link's Awakening DX.
+Remember however that the Game Boy Color displays at most 56 colors at once (ignoring the Hi-Color mode), so large solid areas will often appears in video frames during gameplay. Considering this, the assumption of 1 color change every 6 characters seems acceptable; I actually measured 1 color change every 6.7 characters using the first 5 minutes of gameplay of the 2019 TAS of Link's Awakening DX.
 
 Things can be optimized a bit further by preferring the space character (` `) over the full block (`█`) since it's only one byte (compared to 3). My final measurements gives:
 - **1.8 bytes per pixels** in 256-color mode
@@ -255,7 +257,8 @@ More Q&A about:
 
 
 
-
+[gambatte-terminal]: https://github.com/vxgmichel/gambatte-terminal
+[gambaterm]: https://pypi.org/project/gambaterm/
 [asyncssh]: https://github.com/ronf/asyncssh
 [prompt-toolkit]: https://github.com/prompt-toolkit/python-prompt-toolkit
 [gambatte-terminal]: https://github.com/vxgmichel/gambatte-terminal

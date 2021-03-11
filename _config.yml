@@ -1,11 +1,7 @@
-title: Playing gameboy color games in the terminal
+title: gambaterm
 email: vxgmichel@gmail.com
 description: >- # this means to ignore newlines until "baseurl:"
-    The gambatte-terminal project (or gambaterm) is a terminal frontend for the gambatte game boy color emulator.
-
-    This write-up goes into all the interesting piece of information I ran into while developping this project.
-
-    It is about old video game consoles, terminal emulation, pixels, unicode characters, reducing colors, the SSH protocol, remote terminal applications, key releases, tool-assisted speedruns and the definition of a frame.
+    Playing Game Boy Color games in your terminal
 github_username: vxgmichel
 repository: vxgmichel/gambatte-terminal
 
