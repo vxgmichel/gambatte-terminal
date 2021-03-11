@@ -30,6 +30,9 @@ Somehow yes, but there's a bit more to it. Check out the [relevant section][ssh-
 Absolutely not.
 
 
+# Table of content
+{:.no_toc}
+
 <nav>
   * this unordered seed list will be replaced by toc as unordered list
   {:toc}
