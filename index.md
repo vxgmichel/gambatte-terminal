@@ -1,6 +1,6 @@
 The [gambatte-terminal][gambatte-terminal] project, or [gambaterm][gambaterm], is a terminal frontend for the gambatte game boy color emulator.
 
-This write-up goes into all the interesting piece of information I ran into while developing this project. It is about old video game consoles, terminal emulation, pixels, unicode characters, reducing colors, the SSH protocol, remote terminal applications, key releases, tool-assisted speedruns and the definition of a frame.
+This write-up goes into all the interesting piece of information I ran into while developing this project. It is about old video game consoles, terminal emulation, pixels within unicode characters, SSH-based terminal applications, tool-assisted speedruns and the definition of a frame.
 
 
 # Introduction
@@ -10,7 +10,7 @@ Last year I was talking to a friend about how powerful modern terminal emulators
 
 This write up goes through the interesting bits of information that I gathered and the limits I faced while attempting this challenge. It's a lot of information about unrelated stuff so instead of stitching everything together in consistent way, I gave up and simply dumped below the pieces of info I had in my mind, in the form of answers to questions that probably no one will ever ask me. My advice to you as a reader is to simply scroll and stop if something catch your eye.
 
-So buckle up, we're going to talk about old video game consoles, terminal emulation, pixels, unicode characters, reducing colors, the SSH protocol, remote terminal applications, key releases, tool-assisted speedruns and the definition of a frame. Let's go.
+So buckle up, we're going to talk about old video game consoles, terminal emulation, pixels within unicode characters, SSH-based terminal applications, tool-assisted speedruns and the definition of a frame. Let's go.
 
 ## Wait, are you saying I can play Game Boy Color games in my terminal?
 {:.no_toc}
