@@ -245,7 +245,7 @@ def main(args=None):
     app_config = parser.parse_args(args)
 
     # Run an executor with no limit on the number of threads
-    with ThreadPoolExecutor() as executor:
+    with ThreadPoolExecutor(max_workers=32) as executor:
 
         # Run the server in asyncio
         asyncio.run(run_server(app_config, executor))
