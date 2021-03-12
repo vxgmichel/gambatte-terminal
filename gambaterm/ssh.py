@@ -208,6 +208,8 @@ async def run_server(app_config, executor):
         server_host_keys=[user_private_key],
         authorized_client_keys=user_public_key,
         x11_forwarding=True,
+        # Choose a cheaper encryption than chacha20-poly1305
+        encryption_algs=["aes128-gcm@openssh.com"],
     )
     bind, port = server.sockets[0].getsockname()
     print(f"Running ssh server on {bind}:{port}...")
