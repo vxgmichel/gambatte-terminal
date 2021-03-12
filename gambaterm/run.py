@@ -168,7 +168,7 @@ def run(
             emu_percent = sum(emu_deltas) / len(emu_deltas) * emu_fps * 100
             audio_percent = sum(audio_deltas) / len(audio_deltas) * emu_fps * 100
             video_percent = sum(video_deltas) / len(video_deltas) * emu_fps * 100
-            data_rate = sum(data_length) / len(data_length) * emu_fps / 1024
+            data_rate = sum(data_length) / len(data_length) * emu_fps / 1000
             title = f"Gambaterm | "
             title += f"{os.path.basename(romfile)} | "
             title += f"Emu: {emu_fps:.0f} FPS - {emu_percent:.0f}% CPU | "
