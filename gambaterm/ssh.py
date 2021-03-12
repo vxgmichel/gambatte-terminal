@@ -4,6 +4,7 @@ import argparse
 import tempfile
 import traceback
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
 
 import asyncssh
 
@@ -53,6 +54,7 @@ async def safe_ssh_process_handler(process):
 
 
 async def ssh_process_handler(process):
+    executor = process.get_extra_info("executor")
     app_config = process.get_extra_info("app_config")
     display = process.channel.get_x11_display()
     command = process.channel.get_command()
@@ -112,7 +114,13 @@ async def ssh_process_handler(process):
             f"[Terminal Info] {username}: {terminal_type}, {color_mode}, {width}x{height}"
         )
         await loop.run_in_executor(
-            None, thread_target, app_session, app_config, username, display, color_mode
+            executor,
+            thread_target,
+            app_session,
+            app_config,
+            username,
+            display,
+            color_mode,
         )
 
 
@@ -160,14 +168,20 @@ def thread_target(app_session, app_config, username, display, color_mode):
             app_session.output.erase_screen()
             app_session.output.quit_alternate_screen()
             app_session.output.show_cursor()
-            app_session.output.flush()
+            # Flush if the connection is still active
+            try:
+                app_session.output.flush()
+            except BrokenPipeError:
+                pass
 
 
 class SSHServer(asyncssh.SSHServer):
-    def __init__(self, app_config):
+    def __init__(self, app_config, executor):
         self._app_config = app_config
+        self._executor = executor
 
     def connection_made(self, conn):
+        conn.set_extra_info(executor=self._executor)
         conn.set_extra_info(app_config=self._app_config)
 
     def begin_auth(self, username):
@@ -183,12 +197,12 @@ class SSHServer(asyncssh.SSHServer):
         return password == self._app_config.password
 
 
-async def run_server(app_config):
+async def run_server(app_config, executor):
     user_private_key = str(Path("~/.ssh/id_rsa").expanduser())
     user_public_key = str(Path("~/.ssh/id_rsa.pub").expanduser())
 
     server = await asyncssh.create_server(
-        lambda: SSHServer(app_config),
+        lambda: SSHServer(app_config, executor),
         app_config.bind,
         app_config.port,
         server_host_keys=[user_private_key],
@@ -225,8 +239,14 @@ def main(args=None):
         help="Enable password authentification with the given global password",
     )
 
+    # Parse arguments
     app_config = parser.parse_args(args)
-    asyncio.run(run_server(app_config))
+
+    # Run an executor with no limit on the number of threads
+    with ThreadPoolExecutor() as executor:
+
+        # Run the server in asyncio
+        asyncio.run(run_server(app_config, executor))
 
 
 if __name__ == "__main__":
