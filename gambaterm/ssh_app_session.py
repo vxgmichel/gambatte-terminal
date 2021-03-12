@@ -53,17 +53,13 @@ async def vt100_input_from_process(process):
 
 
 @contextmanager
-def disable_line_mode(process):
-    line_mode_enabled = (
-        hasattr(process._chan, "set_line_mode") and process._chan._editor is not None
-    )
-    if line_mode_enabled:
-        process._chan.set_line_mode(False)
+def disable_editor(process):
+    original_editor = process._chan._editor
+    process._chan._editor = None
     try:
         yield
     finally:
-        if line_mode_enabled:
-            process._chan.set_line_mode(True)
+        process._chan._editor = original_editor
 
 
 @contextmanager
@@ -86,7 +82,7 @@ def bind_resize_process_to_app_session(process, app_session):
 async def process_to_app_session(process):
     vt100_input = await vt100_input_from_process(process)
     vt100_output = await vt100_output_from_process(process)
-    with disable_line_mode(process):
+    with disable_editor(process):
         with create_app_session(input=vt100_input, output=vt100_output) as app_session:
             with bind_resize_process_to_app_session(process, app_session):
                 yield app_session
