@@ -201,6 +201,16 @@ async def run_server(app_config, executor):
     user_private_key = str(Path("~/.ssh/id_rsa").expanduser())
     user_public_key = str(Path("~/.ssh/id_rsa.pub").expanduser())
 
+    # Remove chacha20 from encryption_algs because it's a bit too expensive
+    encryption_algs = [
+        # "chacha20-poly1305@openssh.com",
+        "aes256-gcm@openssh.com",
+        "aes128-gcm@openssh.com",
+        "aes256-ctr",
+        "aes192-ctr",
+        "aes128-ctr",
+    ]
+
     server = await asyncssh.create_server(
         lambda: SSHServer(app_config, executor),
         app_config.bind,
@@ -208,8 +218,7 @@ async def run_server(app_config, executor):
         server_host_keys=[user_private_key],
         authorized_client_keys=user_public_key,
         x11_forwarding=True,
-        # Choose a cheaper encryption than chacha20-poly1305
-        encryption_algs=["aes128-gcm@openssh.com"],
+        encryption_algs=encryption_algs,
     )
     bind, port = server.sockets[0].getsockname()
     print(f"Running ssh server on {bind}:{port}...")
