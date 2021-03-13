@@ -4,6 +4,8 @@ from an AsyncSSH process.
 """
 
 import os
+import asyncio
+import subprocess
 from contextlib import asynccontextmanager, contextmanager
 
 from prompt_toolkit.data_structures import Size
@@ -37,19 +39,52 @@ class StdoutFromProcess:
     def encoding(self):
         return self.process._encoding
 
+    def close(self):
+        for fd in (self._r, self._w):
+            try:
+                os.close(fd)
+            except OSError:
+                pass
 
+
+@asynccontextmanager
 async def vt100_output_from_process(process):
     stdout = StdoutFromProcess(process)
     term = process.get_terminal_type()
     vt100_output = Vt100_Output(stdout, stdout.get_size, term=term, write_binary=True)
-    await process.redirect_stdout(stdout._r)
-    return vt100_output
+    try:
+        await process.redirect_stdout(stdout._r)
+        try:
+            yield vt100_output
+        finally:
+            await process.redirect_stdout(subprocess.PIPE)
+            await asyncio.sleep(0)  # Let the loop remove the file descriptor
+    finally:
+        stdout.close()
 
 
+@asynccontextmanager
 async def vt100_input_from_process(process):
     vt100_input = create_pipe_input()
-    await process.redirect_stdin(vt100_input._w)
-    return vt100_input
+
+    # Patch `vt100_input` to ignore `OSError`s
+    def close(self):
+        for fd in (self._r, self._w):
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+
+    vt100_input.close = close.__get__(vt100_input)
+    try:
+        await process.redirect_stdin(vt100_input._w)
+        try:
+            yield vt100_input
+        finally:
+            await process.redirect_stdin(subprocess.PIPE)
+            await asyncio.sleep(0)  # Let the loop remove the file descriptor
+    finally:
+        vt100_input.close()
 
 
 @contextmanager
@@ -80,9 +115,11 @@ def bind_resize_process_to_app_session(process, app_session):
 
 @asynccontextmanager
 async def process_to_app_session(process):
-    vt100_input = await vt100_input_from_process(process)
-    vt100_output = await vt100_output_from_process(process)
-    with disable_editor(process):
-        with create_app_session(input=vt100_input, output=vt100_output) as app_session:
-            with bind_resize_process_to_app_session(process, app_session):
-                yield app_session
+    async with vt100_input_from_process(process) as vt100_input:
+        async with vt100_output_from_process(process) as vt100_output:
+            with disable_editor(process):
+                with create_app_session(
+                    input=vt100_input, output=vt100_output
+                ) as app_session:
+                    with bind_resize_process_to_app_session(process, app_session):
+                        yield app_session
