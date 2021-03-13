@@ -131,7 +131,7 @@ def thread_target(app_session, app_config, username, display, color_mode):
         )
         save_directory = tempfile.mkdtemp()
     else:
-        gb_input_context = gb_input_from_keyboard_context()
+        gb_input_context = gb_input_from_keyboard_context(display=display)
         save_directory = Path("ssh_save") / username
         save_directory.mkdir(parents=True, exist_ok=True)
 
