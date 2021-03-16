@@ -89,12 +89,13 @@ async def vt100_input_from_process(process):
 
 @contextmanager
 def disable_editor(process):
-    original_editor = process._chan._editor
-    process._chan._editor = None
+    process.channel.set_line_mode(False)
+    original_editor = process.channel._editor
+    process.channel._editor = None
     try:
         yield
     finally:
-        process._chan._editor = original_editor
+        process.channel._editor = original_editor
 
 
 @contextmanager

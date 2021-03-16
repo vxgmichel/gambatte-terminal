@@ -9,10 +9,10 @@ from concurrent.futures import ThreadPoolExecutor
 import asyncssh
 
 from .run import run
-from .main import add_base_arguments
 from .colors import ColorMode, detect_color_mode
 from .file_input import gb_input_from_file_context
 from .keyboard_input import gb_input_from_keyboard_context
+from .main import add_base_arguments, add_optional_arguments
 
 from .ssh_app_session import process_to_app_session
 
@@ -67,17 +67,19 @@ async def ssh_process_handler(process):
 
     # Check command
     if command is not None:
-        print(
-            "Commands are not supported",
-            file=process.stdout,
+        parser = argparse.ArgumentParser()
+        parser._print_message = lambda message, file=None: type(parser)._print_message(
+            parser, message, file=process.stdout
         )
-        print(f"< User `{username}` provided an unsupported command")
-        return 1
+        add_optional_arguments(parser)
+        parser.parse_args(command.split(), app_config)
 
     # Check terminal
     if terminal_type is None:
         print(
             "Please use a terminal to access the interactive interface.",
+            "Use `-t` to force pseudo-terminal allocation if a command is provided.",
+            sep="\n",
             file=process.stdout,
         )
         print(f"< User `{username}` did not use an interactive terminal")
@@ -86,14 +88,23 @@ async def ssh_process_handler(process):
     # X11 is required
     if not display and app_config.input_file is None:
         print(
-            "Please enable X11 forwarding using `-X` option.",
+            """\
+X11 forwarding is required and can be enabled using the `-X` option.
+
+===============================[ WARNING ]=====================================
+Enabling X11 forwarding while connecting to an untrusted server can greatly
+endanger your machine. Please only do so if you are running the X11 server in a
+sandbox. More information here: https://security.stackexchange.com/a/7496
+===============================[ WARNING ]=====================================""",
             file=process.stdout,
         )
         print(f"< User `{username}` did not enable X11 forwarding")
         return 1
 
     # Detect true color support by interracting with the terminal
-    if await detect_true_color_support(process):
+    if app_config.color_mode is not None:
+        color_mode = app_config.color_mode
+    elif await detect_true_color_support(process):
         color_mode = ColorMode.HAS_24_BIT_COLOR
     else:
         environment["TERM"] = terminal_type
@@ -229,6 +240,7 @@ async def run_server(app_config, executor):
 def main(args=None):
     parser = argparse.ArgumentParser(description="Gambatte terminal front-end over ssh")
     add_base_arguments(parser)
+    add_optional_arguments(parser)
     parser.add_argument(
         "--bind",
         "-b",

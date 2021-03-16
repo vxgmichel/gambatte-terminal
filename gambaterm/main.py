@@ -21,6 +21,16 @@ def add_base_arguments(parser):
     parser.add_argument(
         "--input-file", "-i", default=None, help="Path to a bizhawk BK2 file"
     )
+
+
+def add_optional_arguments(parser):
+    parser.add_argument(
+        "--color-mode",
+        "-c",
+        type=int,
+        default=None,
+        help="Force a color mode (1: 4 greyscale colors, 2: 16 colors, 3: 256 colors, 4: 24-bit colors)",
+    )
     parser.add_argument(
         "--frame-advance",
         "--fa",
@@ -75,15 +85,9 @@ def main(args=None):
         prog="gambaterm", description="Gambatte terminal front-end"
     )
     add_base_arguments(parser)
+    add_optional_arguments(parser)
     parser.add_argument(
         "--disable-audio", "--da", action="store_true", help="Disable audio entirely"
-    )
-    parser.add_argument(
-        "--color-mode",
-        "-c",
-        type=int,
-        default=None,
-        help="Force a color mode (1: 4 greyscale colors, 2: 16 colors, 3: 256 colors, 4: 24-bit colors)",
     )
     args = parser.parse_args(args)
 
