@@ -77,10 +77,14 @@ def xlib_key_pressed_context(display=None):
     with closing(Display(display)) as xdisplay:
         extension_info = xdisplay.query_extension("XInputExtension")
         xinput_major = extension_info.major_opcode
-        # Set of currently pressed keys
+        # Set of currently pressed keys and focused flag
         pressed = set()
+        focused = True
         # Save current focus, as it is likely to be the terminal window
         term_window = xdisplay.get_input_focus().focus
+        term_window.xinput_select_events(
+            [(xinput.AllDevices, xinput.FocusInMask | xinput.FocusOutMask)]
+        )
         # It is possible the select events directly on the terminal window,
         # but for some reasons, the events won't be propagated for some terminals like kitty.
         # Instead, we select the events on the root windows and then perform some filtering.
@@ -89,15 +93,24 @@ def xlib_key_pressed_context(display=None):
         )
 
         def get_pressed():
+            nonlocal focused
             # Loop over pending events
             while xdisplay.pending_events():
                 event = xdisplay.next_event()
                 assert event.extension == xinput_major, event
-                # Check whether the focus is currently on the terminal window
-                if xdisplay.get_input_focus().focus != term_window:
+                # Focus has been lost
+                if event.evtype == xinput.FocusOut:
+                    focused = False
                     pressed.clear()
                     continue
-                # Extract information
+                # Focus has been retrieved
+                if event.evtype == xinput.FocusIn:
+                    focused = True
+                    continue
+                # The window is currently not focused
+                if not focused:
+                    continue
+                # Extract key press/release information
                 keycode = event.data.detail
                 mods = event.data.mods.effective_mods
                 keysym = xdisplay.keycode_to_keysym(keycode, 0)
