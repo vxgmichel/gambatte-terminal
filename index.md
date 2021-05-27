@@ -1,7 +1,10 @@
-The [gambatte-terminal][gambatte-terminal] project, or [gambaterm][gambaterm], is a terminal frontend for the gambatte game boy color emulator.
+The [gambatte-terminal][gambatte-terminal] project, or [gambaterm][gambaterm], is a terminal frontend for the [gambatte][gambatte] game boy color emulator.
 
 This write-up goes into all the interesting piece of information I ran into while developing this project. It is about old video game consoles, terminal emulation, pixels within unicode characters, SSH-based terminal applications, tool-assisted speedruns and the definition of a frame.
 
+<p align="center">
+![demo](./demo.gif)
+</p>
 
 # Introduction
 {:.no_toc}
@@ -24,7 +27,16 @@ Exactly!\* If you don't care about the details and just want to play around with
 ## And that I can expose those games through SSH?
 {:.no_toc}
 
-Somehow yes, but there's a bit more to it. Check out the [relevant section][ssh-server].
+Somehow yes, but there are some security concerns that come with that. Check out the [relevant section][ssh-server].
+
+What you can safely do though is expose tool-assisted speedruns over SSH, like this amazing [GBC The Legend of Zelda: Link's Awakening DX (USA v1.0) in 27:55.02 by TwistedTammer](http://tasvideos.org/4017M.html). Try it out by connecting to my demo server:
+
+```bash
+ssh gambaterm.vxgmichel.xyz
+# When prompted for a password, use `not@bot`
+# Resize the terminal font if necessary, typically with `ctrl -` or `ctrl mouse-wheel`
+# Don't expect any sound, audio can't really be streamed through SSH :(
+```
 
 ## Is that useful?
 {:.no_toc}
@@ -62,7 +74,7 @@ For a given foreground/background combination, all colors combinations are then 
 
 This technique gives very nice results in most terminals (more on that later) and so far I've only seen it used in the [PIXterm project][pixterm]. I've also used it in [this gist][pokesprite] which fetches and displays pokemon sprites in the terminal.
 
-## Then draw me a bird!
+## Then draw me a something!
 
 OK, maybe that was a bit fast. Let's take it step by step and consider this cool bird sprite from [Celeste](celeste):
 
@@ -144,7 +156,7 @@ This is less than 200 bytes in base64, which means this lovely bird does fit in 
 echo H4sIAAAAAAAAA32QwQ3AIAgA/yadwA8j2JQ+OoszsIOPPpigA3aSgoiaJq0hkcidoABtxbwluq+zxxK8dF8cMyJpdgq3Ud0x2U6udsOFmA9sd0LzSvOKxbCL21Vek7ZTCQ3mz371THnhYDjSlKvmOAs+s4YPWl+0k49lQ77G60Wcf4pdhJ+/kTQ8gw4GvWwBAAA= | base64 -d | gzip -d
 ```
 
-Now go [tweet copyrighted material now](http://twitter.com/home?status=echo%20H4sIALg0LWAAA32QwQ3AIAgA%2FyadwA8j2JQ%2BOoszsIOPPpigA3aSgoiaJq0hkcidoABtxbwluq%2BzxxK8dF8cMyJpdgq3Ud0x2U6udsOFmA9sd0LzSvOKxbCL21Vek7ZTCQ3mz371THnhYDjSlKvmOAs%2Bs4YPWl%2B0k49lQ77G60Wcf4pdhJ%2B%2FkTQ8gw4GvWwBAAA%3D%20%7C%20base64%20-d%20%7C%20pigz%20-d), I'm sure it's all fine ~
+Now go [tweet this suspicious command with its arbitrary payload](http://twitter.com/home?status=echo%20H4sIALg0LWAAA32QwQ3AIAgA%2FyadwA8j2JQ%2BOoszsIOPPpigA3aSgoiaJq0hkcidoABtxbwluq%2BzxxK8dF8cMyJpdgq3Ud0x2U6udsOFmA9sd0LzSvOKxbCL21Vek7ZTCQ3mz371THnhYDjSlKvmOAs%2Bs4YPWl%2B0k49lQ77G60Wcf4pdhJ%2B%2FkTQ8gw4GvWwBAAA%3D%20%7C%20base64%20-d%20%7C%20pigz%20-d), I'm sure it's all fine ~
 
 Also, here's a penguin that you can put in your `.bashrc`:
 ```bash
@@ -209,8 +221,11 @@ This is much better! An exception to our assumption of subsequent frames being s
 
 ## That's a lot of computation, isn't it slow?
 
-TODO..
+The whole video buffer to ANSI output conversion can be done by a single iteration over every pair of vertically aligned pixels, i.e `O(n)` where `n` is `160 * 144 // 2 = 11520`. Running this 60 times per seconds is not a big deal, especially if the output buffer is pre-allocated and the routine is written in a fast language like [Cython][cython].
 
+I ended up writing a dedicated cython extension module called [termblit](https://github.com/vxgmichel/gambatte-terminal/blob/master/termblit_ext/termblit.pyx) that exposes the conversion function as `gambaterm.termblit.blit`, which is generic enough to be used in other projects. In the case of gambaterm, the conversion typically runs in 250 microsecond and can go up to 1 millisecond during screen transitions. That means it shouldn't exceed 6% of the load of a single CPU core.
+
+In my experience, the most CPU intensive part of running this project is not the video conversion nor the emulator but the processing and rendering of the video stream on the terminal side. Terminals are understandably not optimized for this use case and while some do a really good job at dealing with such large amount and weird kind of data, others will slow down to the point where the gameboy 60 FPS frame rate can't be maintained and frames have to be dropped.
 
 ## What about using Braille dot as pixel?
 
@@ -259,12 +274,14 @@ More Q&A about:
 
 [gambatte-terminal]: https://github.com/vxgmichel/gambatte-terminal
 [gambaterm]: https://pypi.org/project/gambaterm/
+[gambatte]: https://github.com/sinamas/gambatte
 [asyncssh]: https://github.com/ronf/asyncssh
 [prompt-toolkit]: https://github.com/prompt-toolkit/python-prompt-toolkit
 [gambatte-terminal]: https://github.com/vxgmichel/gambatte-terminal
 [iterm2]: https://iterm2.com/
 [terminal support]: https://github.com/vxgmichel/gambatte-terminal#terminal-support
 [ssh-server]: https://github.com/vxgmichel/gambatte-terminal#ssh-server
+
 [php-terminal-gameboy-emulator]: https://github.com/gabrielrcouto/php-terminal-gameboy-emulator
 [Braille Patterns]: https://en.wikipedia.org/wiki/Braille_Patterns
 [pixterm]: https://github.com/eliukblau/pixterm
@@ -272,3 +289,4 @@ More Q&A about:
 [block elements]: https://en.wikipedia.org/wiki/Block_Elements
 [pokesprite]: https://gist.github.com/vxgmichel/80fca9bd3220f45e0fb2ea0d3167ccb3
 [celeste]: http://www.celestegame.com/
+[cython]: https://cython.org/
