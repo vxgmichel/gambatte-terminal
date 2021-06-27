@@ -63,7 +63,7 @@ setup(
         "prompt_toolkit>=3",
         "sounddevice",
         "samplerate",
-        "xlib; sys_platform == 'linux'",
+        "python-xlib; sys_platform == 'linux'",
         "pynput; sys_platform != 'linux'",
         "pygame>=1.9.5",
     ],
