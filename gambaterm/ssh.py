@@ -58,7 +58,7 @@ async def ssh_process_handler(process):
     app_config = process.get_extra_info("app_config")
     display = process.channel.get_x11_display()
     command = process.channel.get_command()
-    environment = process.channel.get_environment()
+    environment = dict(process.channel.get_environment())
     terminal_type = process.get_terminal_type()
     connection = process.get_extra_info("connection")
     username = process.get_extra_info("username")
@@ -189,7 +189,8 @@ def thread_target(app_session, app_config, username, display, color_mode):
 
 class SSHServer(asyncssh.SSHServer):
     def __init__(self, app_config, executor):
-        self._app_config = app_config
+        # Copy app config so we can mutate it later if necessary
+        self._app_config = argparse.Namespace(**vars(app_config))
         self._executor = executor
 
     def connection_made(self, conn):
