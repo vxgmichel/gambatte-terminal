@@ -63,7 +63,8 @@ class AudioOut:
 @contextmanager
 def audio_player(speed_factor=1.0):
     # Perform late imports
-    # Those can fail if a linux machine doesn't have portaudio or libsamplerate installed
+    # Those can fail if a linux machine doesn't have portaudio or libsamplerate
+    # installed
     import samplerate
     import sounddevice
 

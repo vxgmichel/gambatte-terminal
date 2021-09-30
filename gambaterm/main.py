@@ -29,7 +29,8 @@ def add_optional_arguments(parser):
         "-c",
         type=int,
         default=None,
-        help="Force a color mode (1: 4 greyscale colors, 2: 16 colors, 3: 256 colors, 4: 24-bit colors)",
+        help="Force a color mode "
+        "(1: 4 greyscale colors, 2: 16 colors, 3: 256 colors, 4: 24-bit colors)",
     )
     parser.add_argument(
         "--frame-advance",
@@ -43,14 +44,16 @@ def add_optional_arguments(parser):
         "--ba",
         type=int,
         default=None,
-        help="Number of frames to run before forcing the emulator to stop (doesn't stop by default)",
+        help="Number of frames to run before forcing the emulator to stop "
+        "(doesn't stop by default)",
     )
     parser.add_argument(
         "--speed-factor",
         "--sf",
         type=float,
         default=1.0,
-        help="Speed factor to apply to the emulation (default is 1.0 corresponding to 60 FPS)",
+        help="Speed factor to apply to the emulation "
+        "(default is 1.0 corresponding to 60 FPS)",
     )
     parser.add_argument(
         "--force-gameboy",
@@ -63,7 +66,8 @@ def add_optional_arguments(parser):
         "--si",
         type=int,
         default=188,
-        help="Number of frame inputs to skip in order to compensate for the lack of BIOS (default is 188)",
+        help="Number of frame inputs to skip in order to compensate "
+        "for the lack of BIOS (default is 188)",
     )
     parser.add_argument(
         "--cpr-sync",

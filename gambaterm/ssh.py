@@ -122,7 +122,8 @@ sandbox. More information here: https://security.stackexchange.com/a/7496
         loop = asyncio.get_event_loop()
         height, width = app_session.output.get_size()
         print(
-            f"[Terminal Info] {username}: {terminal_type}, {color_mode}, {width}x{height}"
+            "[Terminal Info] "
+            f"{username}: {terminal_type}, {color_mode}, {width}x{height}"
         )
         await loop.run_in_executor(
             executor,
@@ -246,7 +247,8 @@ def main(args=None):
         "-b",
         type=str,
         default="localhost",
-        help="Bind adress of the SSH server, use `0.0.0.0` for all interfaces (default is localhost)",
+        help="Bind adress of the SSH server, "
+        "use `0.0.0.0` for all interfaces (default is localhost)",
     )
     parser.add_argument(
         "--port",

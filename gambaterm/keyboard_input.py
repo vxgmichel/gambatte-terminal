@@ -85,9 +85,10 @@ def xlib_key_pressed_context(display=None):
         term_window.xinput_select_events(
             [(xinput.AllDevices, xinput.FocusInMask | xinput.FocusOutMask)]
         )
-        # It is possible the select events directly on the terminal window,
-        # but for some reasons, the events won't be propagated for some terminals like kitty.
-        # Instead, we select the events on the root windows and then perform some filtering.
+        # It is possible the select events directly on the terminal window, but for some
+        # reasons, the events won't be propagated for some terminals like kitty.
+        # Instead, we select the events on the root windows and then perform some
+        # filtering.
         xdisplay.screen().root.xinput_select_events(
             [(xinput.AllDevices, xinput.KeyPressMask | xinput.KeyReleaseMask)]
         )

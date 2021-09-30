@@ -50,22 +50,22 @@ def pygame_button_pressed_context(deadzone=0.4):
         }
         if joystick.get_numhats() >= 1:
             if joystick.get_hat(0)[0] > 0:
-                pressed.add(f"H0+")
+                pressed.add("H0+")
             if joystick.get_hat(0)[0] < 0:
-                pressed.add(f"H0-")
+                pressed.add("H0-")
             if joystick.get_hat(0)[1] < 0:
-                pressed.add(f"H1+")
+                pressed.add("H1+")
             if joystick.get_hat(0)[1] > 0:
-                pressed.add(f"H1-")
+                pressed.add("H1-")
         if joystick.get_numaxes() >= 2:
             if joystick.get_axis(0) > deadzone:
-                pressed.add(f"A0+")
+                pressed.add("A0+")
             if joystick.get_axis(0) < -deadzone:
-                pressed.add(f"A0-")
+                pressed.add("A0-")
             if joystick.get_axis(1) > deadzone:
-                pressed.add(f"A1+")
+                pressed.add("A1+")
             if joystick.get_axis(1) < -deadzone:
-                pressed.add(f"A1-")
+                pressed.add("A1-")
         return pressed
 
     yield get_pressed
