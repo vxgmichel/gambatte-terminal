@@ -8,7 +8,7 @@ gambatte-terminal
 
 A terminal front-end for gambatte, the gameboy color emulator.
 
-![](https://github.com/vxgmichel/gambatte-terminal/raw/master/demo.gif)
+![](https://github.com/vxgmichel/gambatte-terminal/raw/main/demo.gif)
 
 
 It supports:
