@@ -10,23 +10,16 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     env:
-      CIBW_BUILD: cp36-* cp37-* cp38-* cp39-* cp310-* cp311-*
-      CIBW_SKIP: "*-win32 *-manylinux_i686"
+      CIBW_SKIP: "pp* *-win32 *-manylinux_i686 *-musllinux_* cp311-macosx_*"
       CIBW_TEST_COMMAND: python -m gambaterm --help
       CIBW_BEFORE_ALL_LINUX: yum install -y libsamplerate portaudio
 
     steps:
       - uses: actions/checkout@v2
 
-      - uses: actions/setup-python@v2
-        name: Install Python
-
-      - name: Install cibuildwheel
-        run: |
-          python -m pip install cibuildwheel==1.7.4
       - name: Build wheels
-        run: |
-          python -m cibuildwheel --output-dir wheelhouse
+        uses: pypa/cibuildwheel@v2.9.0
+
       - uses: actions/upload-artifact@v2
         with:
           path: ./wheelhouse/*.whl

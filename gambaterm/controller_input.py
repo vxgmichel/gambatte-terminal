@@ -31,7 +31,17 @@ def get_controller_mapping():
 @contextmanager
 def pygame_button_pressed_context(deadzone=0.4):
     os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
-    import pygame
+
+    try:
+        import pygame
+    except ImportError:
+        raise SystemExit(
+            """\
+The pygame library is not available, which is required to get controller support.
+Please use the following command to install gambaterm with controller support:
+  pip3 install gambaterm[controller-support]
+"""
+        )
 
     pygame.init()
     pygame.joystick.init()
