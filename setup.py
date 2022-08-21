@@ -65,8 +65,10 @@ setup(
         "samplerate",
         "python-xlib; sys_platform == 'linux'",
         "pynput; sys_platform != 'linux'",
-        "pygame>=1.9.5",
     ],
+    extras_require={
+        "controller-support": ["pygame>=1.9.5"],
+    },
     python_requires=">=3.6",
     entry_points={
         "console_scripts": [
