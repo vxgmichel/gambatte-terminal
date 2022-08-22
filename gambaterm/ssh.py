@@ -201,10 +201,12 @@ class SSHServer(asyncssh.SSHServer):
         return True
 
     def session_requested(self):
-        return asyncssh.SSHServerProcess(safe_ssh_process_handler, None, None)
+        return asyncssh.SSHServerProcess(
+            safe_ssh_process_handler, sftp_factory=None, sftp_version=3, allow_scp=False
+        )
 
     def password_auth_supported(self):
-        return self._app_config.password
+        return bool(self._app_config.password)
 
     def validate_password(self, username, password):
         return password == self._app_config.password

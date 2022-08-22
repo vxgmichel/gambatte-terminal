@@ -59,8 +59,8 @@ setup(
     ext_modules=[gambatte_extension, termblit_extension],
     install_requires=[
         "numpy>=1",
-        "asyncssh>=2",
-        "prompt_toolkit>=3",
+        "asyncssh>=2.9",
+        "prompt_toolkit>=3.0.29",
         "sounddevice",
         "samplerate",
         "python-xlib; sys_platform == 'linux'",
