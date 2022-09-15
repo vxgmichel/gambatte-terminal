@@ -10,8 +10,8 @@ import asyncssh
 
 from .run import run
 from .colors import ColorMode, detect_color_mode
-from .file_input import gb_input_from_file_context
-from .keyboard_input import gb_input_from_keyboard_context
+from .file_input import console_input_from_file_context
+from .keyboard_input import console_input_from_keyboard_context
 from .main import add_base_arguments, add_optional_arguments
 
 from .ssh_app_session import process_to_app_session
@@ -138,12 +138,12 @@ sandbox. More information here: https://security.stackexchange.com/a/7496
 
 def thread_target(app_session, app_config, username, display, color_mode):
     if app_config.input_file is not None:
-        gb_input_context = gb_input_from_file_context(
+        gb_input_context = console_input_from_file_context(
             app_config.input_file, app_config.skip_inputs
         )
         save_directory = tempfile.mkdtemp()
     else:
-        gb_input_context = gb_input_from_keyboard_context(display=display)
+        gb_input_context = console_input_from_keyboard_context(display=display)
         save_directory = Path("ssh_save") / username
         save_directory.mkdir(parents=True, exist_ok=True)
 

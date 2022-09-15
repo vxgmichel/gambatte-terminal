@@ -6,7 +6,7 @@ from prompt_toolkit.application import create_app_session
 
 
 def get_xlib_mapping(console):
-    from Xlib import XK
+    from Xlib import XK  # type: ignore
 
     return {
         # Directions
@@ -59,8 +59,8 @@ def get_keyboard_mapping(console):
 
 @contextmanager
 def xlib_key_pressed_context(display=None):
-    from Xlib.ext import xinput
-    from Xlib.display import Display
+    from Xlib.ext import xinput  # type: ignore
+    from Xlib.display import Display  # type: ignore
 
     with closing(Display(display)) as xdisplay:
         extension_info = xdisplay.query_extension("XInputExtension")
@@ -134,7 +134,7 @@ def xlib_key_pressed_context(display=None):
 
 @contextmanager
 def pynput_key_pressed_context(display=None):
-    from pynput import keyboard
+    from pynput import keyboard  # type: ignore
 
     def on_press(key):
         try:

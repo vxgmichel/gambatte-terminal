@@ -22,10 +22,6 @@ class AudioOut:
         return self.output_rate / self.input_rate / self.speed
 
     def send(self, audio):
-        # Set the right type and shape
-        (length,) = audio.shape
-        audio.dtype = np.int16
-        audio.shape = (length, 2)
         # Resample to output rate
         data = self.resampler.process(audio, self.ratio).astype(np.int16)
         # Loop over data blocks
@@ -63,8 +59,8 @@ def audio_player(console, speed_factor=1.0):
     # Perform late imports
     # Those can fail if a linux machine doesn't have portaudio or libsamplerate
     # installed
-    import samplerate
-    import sounddevice
+    import samplerate  # type: ignore
+    import sounddevice  # type: ignore
 
     input_rate = console.FPS * console.TICKS_IN_FRAME
     resampler = samplerate.Resampler("linear", channels=2)

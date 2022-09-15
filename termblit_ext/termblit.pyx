@@ -141,8 +141,8 @@ cdef char* move_from_to(
 
 
 def blit(
-    np.ndarray[np.int32_t, ndim=2] image,
-    np.ndarray[np.int32_t, ndim=2] last,
+    np.ndarray[np.uint32_t, ndim=2] image,
+    np.ndarray[np.uint32_t, ndim=2] last,
     int refx, int refy, int width, int height,
     int color_mode,
 ):

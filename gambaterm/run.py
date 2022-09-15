@@ -39,8 +39,8 @@ def run(
     assert color_mode > 0
 
     # Prepare buffers with invalid data
-    video = np.full((console.HEIGHT, console.WIDTH), -1, np.int32)
-    audio = np.full(2 * console.TICKS_IN_FRAME, -1, np.int32)
+    video = np.full((console.HEIGHT, console.WIDTH), -1, np.uint32)
+    audio = np.full((2 * console.TICKS_IN_FRAME, 2), -1, np.int16)
     last_frame = video.copy()
 
     # Print area
@@ -92,7 +92,7 @@ def run(
         # Send audio
         with timing(audio_deltas):
             if audio_out:
-                audio_out.send(audio[:samples])
+                audio_out.send(audio[:samples, :])
 
         # Read keys
         for event in app_session.input.read_keys():

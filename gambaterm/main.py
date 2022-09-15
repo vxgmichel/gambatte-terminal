@@ -2,12 +2,13 @@
 
 import time
 import argparse
+from typing import Type, Optional, Tuple
 
 from prompt_toolkit.application import create_app_session
 
 
 from .run import run
-from .console import GameboyColor
+from .console import GameboyColor, Console
 from .audio import audio_player, no_audio
 from .colors import detect_local_color_mode
 from .keyboard_input import console_input_from_keyboard_context
@@ -15,14 +16,14 @@ from .controller_input import combine_console_input_from_controller_context
 from .file_input import console_input_from_file_context, write_input_context
 
 
-def add_base_arguments(parser):
+def add_base_arguments(parser: argparse.ArgumentParser):
     parser.add_argument("romfile", metavar="ROM", type=str, help="Path to a rom file")
     parser.add_argument(
         "--input-file", "-i", default=None, help="Path to a bizhawk BK2 file"
     )
 
 
-def add_optional_arguments(parser):
+def add_optional_arguments(parser: argparse.ArgumentParser):
     parser.add_argument(
         "--color-mode",
         "-c",
@@ -80,10 +81,12 @@ def add_optional_arguments(parser):
         type=str,
         help="Enable game controller support",
     )
-    return parser
 
 
-def main(args=None, console_cls=GameboyColor):
+def main(
+    parser_args: Optional[Tuple[str, ...]] = None,
+    console_cls: Type[Console] = GameboyColor,
+):
     parser = argparse.ArgumentParser(
         prog="gambaterm", description="Gambatte terminal front-end"
     )
@@ -93,7 +96,7 @@ def main(args=None, console_cls=GameboyColor):
     parser.add_argument(
         "--disable-audio", "--da", action="store_true", help="Disable audio entirely"
     )
-    args = parser.parse_args(args)
+    args: argparse.Namespace = parser.parse_args(parser_args)
     console = console_cls(args)
 
     if args.input_file is not None:
