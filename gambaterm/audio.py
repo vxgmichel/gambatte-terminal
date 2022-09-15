@@ -3,16 +3,14 @@ from contextlib import contextmanager
 
 import numpy as np
 
-from .constants import GB_FPS, GB_TICKS_IN_FRAME
-
 
 class AudioOut:
 
-    input_rate = GB_FPS * GB_TICKS_IN_FRAME
     output_rate = 48000
     buffer_size = output_rate // 60
 
-    def __init__(self, resampler, speed=1.0):
+    def __init__(self, input_rate, resampler, speed=1.0):
+        self.input_rate = input_rate
         self.speed = speed
         self.resampler = resampler
         self.queue = Queue(maxsize=6)  # 100 ms delay
@@ -61,15 +59,16 @@ class AudioOut:
 
 
 @contextmanager
-def audio_player(speed_factor=1.0):
+def audio_player(console, speed_factor=1.0):
     # Perform late imports
     # Those can fail if a linux machine doesn't have portaudio or libsamplerate
     # installed
     import samplerate
     import sounddevice
 
+    input_rate = console.FPS * console.TICKS_IN_FRAME
     resampler = samplerate.Resampler("linear", channels=2)
-    audio_out = AudioOut(resampler, speed_factor)
+    audio_out = AudioOut(input_rate, resampler, speed_factor)
     with sounddevice.OutputStream(
         samplerate=audio_out.output_rate,
         dtype="int16",
@@ -82,5 +81,5 @@ def audio_player(speed_factor=1.0):
 
 
 @contextmanager
-def no_audio(speed_factor=1.0):
+def no_audio(console, speed_factor=1.0):
     yield None

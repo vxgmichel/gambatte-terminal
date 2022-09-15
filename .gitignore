@@ -73,7 +73,8 @@ parsec/core/gui/rc/generated_misc/
 # Temporary files
 *~
 *#
-ext/*.cpp
+*_ext/*.cpp
+*_ext/*.c
 
 # Build artefacts
 *.o
