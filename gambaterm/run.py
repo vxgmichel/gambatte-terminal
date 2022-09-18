@@ -5,13 +5,19 @@ import time
 import contextlib
 from itertools import count
 from collections import deque
+from typing import Deque, Optional, Iterator
 
 import numpy as np
+from prompt_toolkit.application import AppSession
+
 from .termblit import blit
+from .audio import AudioOut
+from .console import Console, InputGetter
+from .colors import ColorMode
 
 
 @contextlib.contextmanager
-def timing(deltas):
+def timing(deltas: Deque) -> Iterator[None]:
     try:
         start = time.perf_counter()
         yield
@@ -19,23 +25,23 @@ def timing(deltas):
         deltas.append(time.perf_counter() - start)
 
 
-def get_ref(width, height, console):
+def get_ref(width: int, height: int, console: Console) -> tuple[int, int]:
     refx = 2 + max(0, (height - console.HEIGHT // 2) // 2)
     refy = 3 + max(0, (width - console.WIDTH) // 2)
     return refx, refy
 
 
 def run(
-    console,
-    get_input,
-    app_session,
-    audio_out=None,
-    frame_advance=1,
-    color_mode=False,
-    break_after=None,
-    speed_factor=1.0,
-    use_cpr_sync=False,
-):
+    console: Console,
+    get_input: InputGetter,
+    app_session: AppSession,
+    audio_out: Optional[AudioOut] = None,
+    frame_advance: int = 1,
+    color_mode: ColorMode = ColorMode.HAS_24_BIT_COLOR,
+    break_after: Optional[int] = None,
+    speed_factor: float = 1.0,
+    use_cpr_sync: bool = False,
+) -> None:
     assert color_mode > 0
 
     # Prepare buffers with invalid data
@@ -50,15 +56,15 @@ def run(
     # Prepare reporting
     fps = console.FPS * speed_factor
     average_over = int(round(fps))  # frames
-    ticks = deque(maxlen=average_over)
-    emu_deltas = deque(maxlen=average_over)
-    audio_deltas = deque(maxlen=average_over)
-    video_deltas = deque(maxlen=average_over)
-    sync_deltas = deque(maxlen=average_over)
-    total_deltas = deque(maxlen=average_over)
-    shown_frames = deque(maxlen=average_over)
-    data_length = deque(maxlen=average_over)
-    shifting = deque(maxlen=average_over)
+    ticks: Deque[float] = deque(maxlen=average_over)
+    emu_deltas: Deque[float] = deque(maxlen=average_over)
+    audio_deltas: Deque[float] = deque(maxlen=average_over)
+    video_deltas: Deque[float] = deque(maxlen=average_over)
+    sync_deltas: Deque[float] = deque(maxlen=average_over)
+    total_deltas: Deque[float] = deque(maxlen=average_over)
+    shifting: Deque[float] = deque(maxlen=average_over)
+    shown_frames: Deque[int] = deque(maxlen=average_over)
+    data_length: Deque[int] = deque(maxlen=average_over)
     start = time.time()
 
     # Create a 100 ms time shift to fill up audio buffer
@@ -80,7 +86,7 @@ def run(
 
         # Break when frame limit is reach
         if break_after is not None and i >= break_after:
-            return 0
+            return
 
         # Tick the emulator
         with timing(emu_deltas):

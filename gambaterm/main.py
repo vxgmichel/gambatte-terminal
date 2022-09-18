@@ -2,7 +2,7 @@
 
 import time
 import argparse
-from typing import Type, Optional, Tuple
+from typing import Type, Optional
 
 from prompt_toolkit.application import create_app_session
 
@@ -16,14 +16,14 @@ from .controller_input import combine_console_input_from_controller_context
 from .file_input import console_input_from_file_context, write_input_context
 
 
-def add_base_arguments(parser: argparse.ArgumentParser):
+def add_base_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("romfile", metavar="ROM", type=str, help="Path to a rom file")
     parser.add_argument(
         "--input-file", "-i", default=None, help="Path to a bizhawk BK2 file"
     )
 
 
-def add_optional_arguments(parser: argparse.ArgumentParser):
+def add_optional_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--color-mode",
         "-c",
@@ -84,9 +84,9 @@ def add_optional_arguments(parser: argparse.ArgumentParser):
 
 
 def main(
-    parser_args: Optional[Tuple[str, ...]] = None,
+    parser_args: Optional[tuple[str, ...]] = None,
     console_cls: Type[Console] = GameboyColor,
-):
+) -> None:
     parser = argparse.ArgumentParser(
         prog="gambaterm", description="Gambatte terminal front-end"
     )
@@ -137,7 +137,7 @@ def main(
                     with player(console, args.speed_factor) as audio_out:
 
                         # Run the emulator
-                        return_code = run(
+                        run(
                             console,
                             get_gb_input,
                             app_session=app_session,
@@ -153,9 +153,9 @@ def main(
             except (KeyboardInterrupt, EOFError):
                 pass
 
-            # Exit with return code
+            # Exit normally
             else:
-                exit(return_code)
+                exit()
 
             # Restore terminal to its initial state
             finally:

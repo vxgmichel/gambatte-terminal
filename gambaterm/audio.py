@@ -1,15 +1,32 @@
+from typing import Iterator, Optional, TYPE_CHECKING
 from queue import Queue, Empty, Full
 from contextlib import contextmanager
 
 import numpy as np
+import numpy.typing as npt
+
+from .console import Console
+
+# Late import of samplerate
+if TYPE_CHECKING:
+    import samplerate  # type: ignore
 
 
 class AudioOut:
 
-    output_rate = 48000
-    buffer_size = output_rate // 60
+    output_rate: float = 48000.0
+    buffer_size: int = int(output_rate // 60)
 
-    def __init__(self, input_rate, resampler, speed=1.0):
+    input_rate: float
+    speed: float
+    resampler: "samplerate.Resampler"
+    queue: Queue[npt.NDArray[np.int16]]
+    buffer: npt.NDArray[np.int16]
+    offset: int
+
+    def __init__(
+        self, input_rate: float, resampler: "samplerate.Resampler", speed: float = 1.0
+    ):
         self.input_rate = input_rate
         self.speed = speed
         self.resampler = resampler
@@ -18,12 +35,12 @@ class AudioOut:
         self.offset = 0
 
     @property
-    def ratio(self):
+    def ratio(self) -> float:
         return self.output_rate / self.input_rate / self.speed
 
-    def send(self, audio):
+    def send(self, audio: npt.NDArray[np.int16]) -> None:
         # Resample to output rate
-        data = self.resampler.process(audio, self.ratio).astype(np.int16)
+        data = self.resampler.process(audio, self.ratio)
         # Loop over data blocks
         while True:
             # Write the current buffer
@@ -47,7 +64,7 @@ class AudioOut:
             data = data[stop - self.offset :]
             self.offset = 0
 
-    def stream_callback(self, output_buffer, *args):
+    def stream_callback(self, output_buffer: npt.NDArray[np.int16], *_: object) -> None:
         try:
             output_buffer[:] = self.queue.get_nowait()
         except Empty:
@@ -55,7 +72,9 @@ class AudioOut:
 
 
 @contextmanager
-def audio_player(console, speed_factor=1.0):
+def audio_player(
+    console: Console, speed_factor: float = 1.0
+) -> Iterator[Optional[AudioOut]]:
     # Perform late imports
     # Those can fail if a linux machine doesn't have portaudio or libsamplerate
     # installed
@@ -77,5 +96,7 @@ def audio_player(console, speed_factor=1.0):
 
 
 @contextmanager
-def no_audio(console, speed_factor=1.0):
+def no_audio(
+    console: Console, speed_factor: float = 1.0
+) -> Iterator[Optional[AudioOut]]:
     yield None

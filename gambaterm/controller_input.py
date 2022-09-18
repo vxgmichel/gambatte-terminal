@@ -1,8 +1,11 @@
 import os
+from typing import Callable, ContextManager, Iterator
 from contextlib import contextmanager
 
+from .console import Console, InputGetter
 
-def get_controller_mapping(console):
+
+def get_controller_mapping(console: Console) -> dict[str, Console.Input]:
     return {
         # Directions
         "A1-": console.Input.UP,
@@ -27,7 +30,9 @@ def get_controller_mapping(console):
 
 
 @contextmanager
-def pygame_button_pressed_context(deadzone=0.4):
+def pygame_button_pressed_context(
+    deadzone: float = 0.4,
+) -> Iterator[Callable[[], set[str]]]:
     os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
 
     try:
@@ -45,12 +50,12 @@ Please use the following command to install gambaterm with controller support:
     pygame.joystick.init()
     joystick = None
 
-    def get_pressed():
+    def get_pressed() -> set[str]:
         nonlocal joystick
         pygame.event.get()
         if pygame.joystick.get_count() == 0:
             joystick = None
-            return {}
+            return set()
         if joystick is None:
             joystick = pygame.joystick.Joystick(0)
         pressed = {
@@ -80,21 +85,24 @@ Please use the following command to install gambaterm with controller support:
 
 
 @contextmanager
-def console_input_from_controller_context(console):
+def console_input_from_controller_context(console: Console) -> Iterator[InputGetter]:
     controller_mapping = get_controller_mapping(console)
 
-    def get_gb_input():
-        value = 0
-        for keysym in joystick_get_pressed():
-            value |= controller_mapping.get(keysym, 0)
-        return value
+    def get_gb_input() -> set[Console.Input]:
+        return {
+            controller_mapping[keysym]
+            for keysym in joystick_get_pressed()
+            if keysym in controller_mapping
+        }
 
     with pygame_button_pressed_context() as joystick_get_pressed:
         yield get_gb_input
 
 
 @contextmanager
-def combine_console_input_from_controller_context(console, context):
+def combine_console_input_from_controller_context(
+    console: Console, context: ContextManager[InputGetter]
+) -> Iterator[InputGetter]:
     with context as getter1:
         with console_input_from_controller_context(console) as getter2:
             yield lambda: getter1() | getter2()

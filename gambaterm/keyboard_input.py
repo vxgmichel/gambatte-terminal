@@ -2,10 +2,16 @@ import sys
 import time
 import logging
 from contextlib import contextmanager, closing
+from typing import Callable, Iterator, Optional, TYPE_CHECKING
 from prompt_toolkit.application import create_app_session
 
+from .console import Console, InputGetter
 
-def get_xlib_mapping(console):
+if TYPE_CHECKING:
+    import pynput  # type: ignore
+
+
+def get_xlib_mapping(console: Console) -> dict[int, Console.Input]:
     from Xlib import XK  # type: ignore
 
     return {
@@ -32,7 +38,7 @@ def get_xlib_mapping(console):
     }
 
 
-def get_keyboard_mapping(console):
+def get_keyboard_mapping(console: Console) -> dict[str, Console.Input]:
     return {
         # Directions
         "up": console.Input.UP,
@@ -58,7 +64,9 @@ def get_keyboard_mapping(console):
 
 
 @contextmanager
-def xlib_key_pressed_context(display=None):
+def xlib_key_pressed_context(
+    display: Optional[str] = None,
+) -> Iterator[Callable[[], set[int]]]:
     from Xlib.ext import xinput  # type: ignore
     from Xlib.display import Display  # type: ignore
 
@@ -66,7 +74,7 @@ def xlib_key_pressed_context(display=None):
         extension_info = xdisplay.query_extension("XInputExtension")
         xinput_major = extension_info.major_opcode
         # Set of currently pressed keys and focused flag
-        pressed = set()
+        pressed: set[int] = set()
         focused = True
         # Save current focus, as it is likely to be the terminal window
         term_window = xdisplay.get_input_focus().focus
@@ -81,7 +89,7 @@ def xlib_key_pressed_context(display=None):
             [(xinput.AllDevices, xinput.KeyPressMask | xinput.KeyReleaseMask)]
         )
 
-        def get_pressed():
+        def get_pressed() -> set[int]:
             nonlocal focused
             # Loop over pending events
             while xdisplay.pending_events():
@@ -133,10 +141,12 @@ def xlib_key_pressed_context(display=None):
 
 
 @contextmanager
-def pynput_key_pressed_context(display=None):
+def pynput_key_pressed_context(
+    display: Optional[str] = None,
+) -> Iterator[Callable[[], set[str]]]:
     from pynput import keyboard  # type: ignore
 
-    def on_press(key):
+    def on_press(key: pynput.keyboard.Key) -> None:
         try:
             value = key.char
         except AttributeError:
@@ -147,7 +157,7 @@ def pynput_key_pressed_context(display=None):
             return
         pressed.add(value)
 
-    def on_release(key):
+    def on_release(key: pynput.keyboard.Key) -> None:
         try:
             value = key.char
         except AttributeError:
@@ -158,7 +168,7 @@ def pynput_key_pressed_context(display=None):
             return
         pressed.discard(value)
 
-    pressed = set()
+    pressed: set[str] = set()
     listener = keyboard.Listener(on_press=on_press, on_release=on_release)
     try:
         listener.start()
@@ -169,7 +179,9 @@ def pynput_key_pressed_context(display=None):
 
 
 @contextmanager
-def console_input_from_keyboard_context(console, display=None):
+def console_input_from_keyboard_context(
+    console: Console, display: Optional[str] = None
+) -> Iterator[InputGetter]:
     if sys.platform == "linux":
         mapping = get_xlib_mapping(console)
         key_pressed_context = xlib_key_pressed_context
@@ -177,21 +189,17 @@ def console_input_from_keyboard_context(console, display=None):
         mapping = get_keyboard_mapping(console)
         key_pressed_context = pynput_key_pressed_context
 
-    def get_input():
-        value = 0
-        for keysym in get_pressed():
-            value |= mapping.get(keysym, 0)
-        return value
+    def get_input() -> set[Console.Input]:
+        return {mapping[keysym] for keysym in get_pressed() if keysym in mapping}
 
     with key_pressed_context(display=display) as get_pressed:
         yield get_input
 
 
-def main():
+def main() -> None:
     if sys.platform == "linux":
         from Xlib import XK
 
-        mapping = get_xlib_mapping()
         key_pressed_context = xlib_key_pressed_context
         reverse_lookup = {
             v: k[3:] for k, v in XK.__dict__.items() if k.startswith("XK_")

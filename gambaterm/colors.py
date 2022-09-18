@@ -1,6 +1,9 @@
 import os
 import time
 from enum import IntEnum
+from typing import Optional
+
+from prompt_toolkit.application import AppSession
 
 BASIC_TERMINALS = [
     "screen",
@@ -23,15 +26,19 @@ class ColorMode(IntEnum):
     HAS_24_BIT_COLOR = 4
 
 
-def detect_local_color_mode(app_session, environ=None, timeout=0.1):
+def detect_local_color_mode(
+    app_session: AppSession,
+    environ: Optional[dict[str, str]] = None,
+    timeout: float = 0.1,
+) -> ColorMode:
     if detect_true_color_support(app_session, timeout):
         return ColorMode.HAS_24_BIT_COLOR
     if environ is None:
-        environ = os.environ
+        environ = dict(os.environ)
     return detect_color_mode(environ)
 
 
-def detect_color_mode(env):
+def detect_color_mode(env: dict[str, str]) -> ColorMode:
     # Extract interesting variables
     term = env.get("TERM", "").lower()
     colorterm = env.get("COLORTERM", "").lower()
@@ -63,7 +70,7 @@ def detect_color_mode(env):
     return ColorMode.NO_COLOR
 
 
-def detect_true_color_support(app_session, timeout=0.1):
+def detect_true_color_support(app_session: AppSession, timeout: float = 0.1) -> bool:
     # Set unlikely RGB value
     app_session.output.write_raw("\033[48:2:1:2:3m")
     # Query current configuration using a DECRQSS request

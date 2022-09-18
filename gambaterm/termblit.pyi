@@ -4,8 +4,8 @@ import numpy as np
 import numpy.typing as npt
 
 def blit(
-    image: npt.NDArray[np.int32],
-    last: Optional[npt.NDArray[np.int32]],
+    image: npt.NDArray[np.uint32],
+    last: Optional[npt.NDArray[np.uint32]],
     refx: int,
     refy: int,
     width: int,
