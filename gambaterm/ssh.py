@@ -6,7 +6,7 @@ import argparse
 import tempfile
 import traceback
 from pathlib import Path
-from typing import Type, Optional, IO, cast
+from typing import IO, cast
 from concurrent.futures import ThreadPoolExecutor
 
 import asyncssh
@@ -260,8 +260,8 @@ async def run_server(
 
 
 def main(
-    parser_args: Optional[tuple[str, ...]] = None,
-    console_cls: Type[Console] = GameboyColor,
+    parser_args: tuple[str, ...] | None = None,
+    console_cls: type[Console] = GameboyColor,
 ) -> None:
     parser = argparse.ArgumentParser(description="Gambatte terminal front-end over ssh")
     add_base_arguments(parser)

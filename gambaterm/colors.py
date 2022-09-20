@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 import time
 from enum import IntEnum
-from typing import Optional
 
 from prompt_toolkit.application import AppSession
 
@@ -30,7 +29,7 @@ class ColorMode(IntEnum):
 
 def detect_local_color_mode(
     app_session: AppSession,
-    environ: Optional[dict[str, str]] = None,
+    environ: dict[str, str] | None = None,
     timeout: float = 0.1,
 ) -> ColorMode:
     if detect_true_color_support(app_session, timeout):

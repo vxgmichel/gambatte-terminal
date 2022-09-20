@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Iterator, Optional, TYPE_CHECKING
+from typing import Iterator, TYPE_CHECKING
 from queue import Queue, Empty, Full
 from contextlib import contextmanager
 
@@ -76,7 +76,7 @@ class AudioOut:
 @contextmanager
 def audio_player(
     console: Console, speed_factor: float = 1.0
-) -> Iterator[Optional[AudioOut]]:
+) -> Iterator[AudioOut | None]:
     # Perform late imports
     # Those can fail if a linux machine doesn't have portaudio or libsamplerate
     # installed
@@ -98,7 +98,5 @@ def audio_player(
 
 
 @contextmanager
-def no_audio(
-    console: Console, speed_factor: float = 1.0
-) -> Iterator[Optional[AudioOut]]:
+def no_audio(console: Console, speed_factor: float = 1.0) -> Iterator[AudioOut | None]:
     yield None

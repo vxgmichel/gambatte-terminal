@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import tempfile
 from enum import IntEnum
-from typing import Optional, Callable, Set
+from typing import Callable, Set
 
 import numpy as np
 import numpy.typing as npt
@@ -57,7 +57,7 @@ class GameboyColor(Console):
 
     gb: GB
     force_gameboy: bool
-    save_directory: Optional[str]
+    save_directory: str | None
 
     @classmethod
     def add_console_arguments(cls, parser: argparse.ArgumentParser) -> None:

@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import time
 import argparse
-from typing import Type, Optional
 
 from prompt_toolkit.application import create_app_session
 
@@ -85,8 +84,8 @@ def add_optional_arguments(parser: argparse.ArgumentParser) -> None:
 
 
 def main(
-    parser_args: Optional[tuple[str, ...]] = None,
-    console_cls: Type[Console] = GameboyColor,
+    parser_args: tuple[str, ...] | None = None,
+    console_cls: type[Console] = GameboyColor,
 ) -> None:
     parser = argparse.ArgumentParser(
         prog="gambaterm", description="Gambatte terminal front-end"

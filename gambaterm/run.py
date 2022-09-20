@@ -5,7 +5,7 @@ import time
 import contextlib
 from itertools import count
 from collections import deque
-from typing import Deque, Optional, Iterator
+from typing import Deque, Iterator
 
 import numpy as np
 from prompt_toolkit.application import AppSession
@@ -35,10 +35,10 @@ def run(
     console: Console,
     get_input: InputGetter,
     app_session: AppSession,
-    audio_out: Optional[AudioOut] = None,
+    audio_out: AudioOut | None = None,
     frame_advance: int = 1,
     color_mode: ColorMode = ColorMode.HAS_24_BIT_COLOR,
-    break_after: Optional[int] = None,
+    break_after: int | None = None,
     speed_factor: float = 1.0,
     use_cpr_sync: bool = False,
 ) -> None:

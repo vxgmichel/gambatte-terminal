@@ -4,7 +4,7 @@ import sys
 import time
 import logging
 from contextlib import contextmanager, closing
-from typing import Callable, Iterator, Optional, TYPE_CHECKING
+from typing import Callable, Iterator, TYPE_CHECKING
 from prompt_toolkit.application import create_app_session
 
 from .console import Console, InputGetter
@@ -67,7 +67,7 @@ def get_keyboard_mapping(console: Console) -> dict[str, Console.Input]:
 
 @contextmanager
 def xlib_key_pressed_context(
-    display: Optional[str] = None,
+    display: str | None = None,
 ) -> Iterator[Callable[[], set[int]]]:
     from Xlib.ext import xinput  # type: ignore
     from Xlib.display import Display  # type: ignore
@@ -144,7 +144,7 @@ def xlib_key_pressed_context(
 
 @contextmanager
 def pynput_key_pressed_context(
-    display: Optional[str] = None,
+    display: str | None = None,
 ) -> Iterator[Callable[[], set[str]]]:
     from pynput import keyboard  # type: ignore
 
@@ -182,7 +182,7 @@ def pynput_key_pressed_context(
 
 @contextmanager
 def console_input_from_keyboard_context(
-    console: Console, display: Optional[str] = None
+    console: Console, display: str | None = None
 ) -> Iterator[InputGetter]:
     if sys.platform == "linux":
         mapping = get_xlib_mapping(console)
