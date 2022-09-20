@@ -28,6 +28,8 @@ async def vt100_output_from_process(
 ) -> AsyncIterator[Vt100_Output]:
     def get_size() -> Size:
         width, height, _, _ = process.get_terminal_size()
+        if width == height == 0:
+            width, height = 80, 24
         return Size(rows=height, columns=width)
 
     term = process.get_terminal_type()

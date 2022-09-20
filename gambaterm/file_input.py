@@ -35,9 +35,11 @@ def open_input_log_file(path: str) -> Iterator[TextIOWrapper]:
         with ZipFile(path) as myzip:
             with myzip.open("Input Log.txt") as myfile:
                 yield TextIOWrapper(myfile, "utf-8")
+        return
     except BadZipFile:
-        with open(path) as myfile:
-            yield myfile
+        pass
+    with open(path) as myfile:
+        yield myfile
 
 
 @contextmanager

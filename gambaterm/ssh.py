@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import time
 import asyncio
 import argparse
@@ -38,7 +39,7 @@ async def detect_true_color_support(
             header = await asyncio.wait_for(process.stdin.readuntil("\033\\"), timeout)
         except asyncssh.TerminalSizeChanged:
             pass
-        except asyncio.TimeoutError:
+        except (asyncio.TimeoutError, asyncio.IncompleteReadError):
             return False
         else:
             break
@@ -230,8 +231,19 @@ class SSHServer(asyncssh.SSHServer):
 async def run_server(
     app_config: argparse.Namespace, executor: ThreadPoolExecutor
 ) -> None:
-    user_private_key = str(Path("~/.ssh/id_rsa").expanduser())
-    user_public_key = str(Path("~/.ssh/id_rsa.pub").expanduser())
+    ssh_key_dir = Path(os.environ.get("GAMBATERM_SSH_KEY_DIR", "~/.ssh"))
+    user_private_key = (ssh_key_dir / "id_rsa").expanduser()
+    user_public_key = (ssh_key_dir / "id_rsa.pub").expanduser()
+    if not user_private_key.exists():
+        raise SystemExit(
+            f"The server requires a private RSA key to use as a host hey.\n"
+            f"You may generate one by running the following command:\n\n"
+            f"    ssh-keygen -f {ssh_key_dir / 'id_rsa'} -P ''\n"
+        )
+    server_host_keys = [str(user_private_key)]
+    authorized_client_keys = []
+    if user_public_key.exists():
+        authorized_client_keys = [str(user_public_key)]
 
     # Remove chacha20 from encryption_algs because it's a bit too expensive
     encryption_algs = [
@@ -247,14 +259,14 @@ async def run_server(
         lambda: SSHServer(app_config, executor),
         app_config.bind,
         app_config.port,
-        server_host_keys=[user_private_key],
-        authorized_client_keys=user_public_key,
+        server_host_keys=server_host_keys,
+        authorized_client_keys=authorized_client_keys,
         x11_forwarding=True,
         encryption_algs=encryption_algs,
         line_editor=False,
     )
     bind, port = server.sockets[0].getsockname()
-    print(f"Running ssh server on {bind}:{port}...")
+    print(f"Running ssh server on {bind}:{port}...", flush=True)
 
     await server.wait_closed()
 
@@ -271,7 +283,7 @@ def main(
         "--bind",
         "-b",
         type=str,
-        default="localhost",
+        default="127.0.0.1",
         help="Bind adress of the SSH server, "
         "use `0.0.0.0` for all interfaces (default is localhost)",
     )

@@ -75,6 +75,8 @@ parsec/core/gui/rc/generated_misc/
 *#
 *_ext/*.cpp
 *_ext/*.c
+tests/*.rtc
+tests/*.sav
 
 # Build artefacts
 *.o
