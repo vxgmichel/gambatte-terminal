@@ -9,10 +9,6 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-    env:
-      CIBW_SKIP: "pp* *-win32 *-manylinux_i686 *-musllinux_* cp311-macosx_*"
-      CIBW_TEST_COMMAND: python -m gambaterm --help
-      CIBW_BEFORE_ALL_LINUX: yum install -y libsamplerate portaudio
 
     steps:
       - uses: actions/checkout@v2
