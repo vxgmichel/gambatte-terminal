@@ -1,7 +1,9 @@
+from __future__ import annotations
+
 import argparse
 import tempfile
 from enum import IntEnum
-from typing import Optional, Callable
+from typing import Optional, Callable, Set
 
 import numpy as np
 import numpy.typing as npt
@@ -34,7 +36,7 @@ class Console:
     def __init__(self, args: argparse.Namespace):
         self.romfile = args.romfile
 
-    def set_input(self, value: set["Console.Input"]) -> None:
+    def set_input(self, value: set[Console.Input]) -> None:
         pass
 
     def advance_one_frame(
@@ -44,7 +46,7 @@ class Console:
 
 
 # Type Alias
-InputGetter = Callable[[], set[Console.Input]]
+InputGetter = Callable[[], Set[Console.Input]]
 
 
 class GameboyColor(Console):

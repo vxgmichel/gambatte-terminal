@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import Iterator, Optional, TYPE_CHECKING
 from queue import Queue, Empty, Full
 from contextlib import contextmanager

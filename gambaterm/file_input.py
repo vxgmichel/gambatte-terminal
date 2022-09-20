@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from io import TextIOWrapper
 from contextlib import contextmanager
 from zipfile import ZipFile, BadZipFile
