@@ -19,9 +19,9 @@ cdef class GB:
 
     def run_for(
         self,
-        np.ndarray[np.int32_t, ndim=2] video,
+        np.ndarray[np.uint32_t, ndim=2] video,
         ptrdiff_t pitch,
-        np.ndarray[np.int32_t, ndim=1] audio,
+        np.ndarray[np.int16_t, ndim=2] audio,
         size_t samples,
     ):
         cdef unsigned int* video_buffer = <unsigned int*> video.data

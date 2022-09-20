@@ -1,84 +1,82 @@
+from __future__ import annotations
+
 import sys
 import time
 import logging
-from enum import IntEnum
 from contextlib import contextmanager, closing
+from typing import Callable, Iterator, TYPE_CHECKING
 from prompt_toolkit.application import create_app_session
 
+from .console import Console, InputGetter
 
-class GBInput(IntEnum):
-    A = 0x01
-    B = 0x02
-    SELECT = 0x04
-    START = 0x08
-    RIGHT = 0x10
-    LEFT = 0x20
-    UP = 0x40
-    DOWN = 0x80
+if TYPE_CHECKING:
+    import pynput  # type: ignore
 
 
-def get_xlib_mapping():
-    from Xlib import XK
+def get_xlib_mapping(console: Console) -> dict[int, Console.Input]:
+    from Xlib import XK  # type: ignore
 
     return {
         # Directions
-        XK.XK_Up: GBInput.UP,
-        XK.XK_Down: GBInput.DOWN,
-        XK.XK_Left: GBInput.LEFT,
-        XK.XK_Right: GBInput.RIGHT,
+        XK.XK_Up: console.Input.UP,
+        XK.XK_Down: console.Input.DOWN,
+        XK.XK_Left: console.Input.LEFT,
+        XK.XK_Right: console.Input.RIGHT,
         # A button
-        XK.XK_f: GBInput.A,
-        XK.XK_v: GBInput.A,
-        XK.XK_space: GBInput.A,
+        XK.XK_f: console.Input.A,
+        XK.XK_v: console.Input.A,
+        XK.XK_space: console.Input.A,
         # B button
-        XK.XK_d: GBInput.B,
-        XK.XK_c: GBInput.B,
-        XK.XK_Alt_L: GBInput.B,
-        XK.XK_Alt_R: GBInput.B,
+        XK.XK_d: console.Input.B,
+        XK.XK_c: console.Input.B,
+        XK.XK_Alt_L: console.Input.B,
+        XK.XK_Alt_R: console.Input.B,
         # Start button
-        XK.XK_Return: GBInput.START,
-        XK.XK_Control_R: GBInput.START,
+        XK.XK_Return: console.Input.START,
+        XK.XK_Control_R: console.Input.START,
         # Select button
-        XK.XK_Shift_R: GBInput.SELECT,
-        XK.XK_Delete: GBInput.SELECT,
+        XK.XK_Shift_R: console.Input.SELECT,
+        XK.XK_Delete: console.Input.SELECT,
     }
 
 
-def get_keyboard_mapping():
+def get_keyboard_mapping(console: Console) -> dict[str, Console.Input]:
     return {
         # Directions
-        "up": GBInput.UP,
-        "down": GBInput.DOWN,
-        "left": GBInput.LEFT,
-        "right": GBInput.RIGHT,
+        "up": console.Input.UP,
+        "down": console.Input.DOWN,
+        "left": console.Input.LEFT,
+        "right": console.Input.RIGHT,
         # A button
-        "f": GBInput.A,
-        "v": GBInput.A,
-        "space": GBInput.A,
+        "f": console.Input.A,
+        "v": console.Input.A,
+        "space": console.Input.A,
         # B button
-        "d": GBInput.B,
-        "c": GBInput.B,
-        "alt": GBInput.B,
-        "alt_r": GBInput.B,
+        "d": console.Input.B,
+        "c": console.Input.B,
+        "alt": console.Input.B,
+        "alt_r": console.Input.B,
         # Start button
-        "enter": GBInput.START,
-        "ctrl_r": GBInput.START,
+        "enter": console.Input.START,
+        "ctrl_r": console.Input.START,
         # Select button
-        "shift_r": GBInput.SELECT,
-        "delete": GBInput.SELECT,
+        "shift_r": console.Input.SELECT,
+        "delete": console.Input.SELECT,
     }
 
 
 @contextmanager
-def xlib_key_pressed_context(display=None):
-    from Xlib.ext import xinput
-    from Xlib.display import Display
+def xlib_key_pressed_context(
+    display: str | None = None,
+) -> Iterator[Callable[[], set[int]]]:
+    from Xlib.ext import xinput  # type: ignore
+    from Xlib.display import Display  # type: ignore
 
     with closing(Display(display)) as xdisplay:
         extension_info = xdisplay.query_extension("XInputExtension")
         xinput_major = extension_info.major_opcode
         # Set of currently pressed keys and focused flag
-        pressed = set()
+        pressed: set[int] = set()
         focused = True
         # Save current focus, as it is likely to be the terminal window
         term_window = xdisplay.get_input_focus().focus
@@ -93,12 +91,16 @@ def xlib_key_pressed_context(display=None):
             [(xinput.AllDevices, xinput.KeyPressMask | xinput.KeyReleaseMask)]
         )
 
-        def get_pressed():
+        def get_pressed() -> set[int]:
             nonlocal focused
             # Loop over pending events
             while xdisplay.pending_events():
                 event = xdisplay.next_event()
-                assert event.extension == xinput_major, event
+                # Unexpected events
+                if not hasattr(event, "extension"):
+                    continue
+                if event.extension != xinput_major:
+                    continue
                 # Focus has been lost
                 if event.evtype == xinput.FocusOut:
                     focused = False
@@ -141,10 +143,12 @@ def xlib_key_pressed_context(display=None):
 
 
 @contextmanager
-def pynput_key_pressed_context(display=None):
-    from pynput import keyboard
+def pynput_key_pressed_context(
+    display: str | None = None,
+) -> Iterator[Callable[[], set[str]]]:
+    from pynput import keyboard  # type: ignore
 
-    def on_press(key):
+    def on_press(key: pynput.keyboard.Key) -> None:
         try:
             value = key.char
         except AttributeError:
@@ -155,7 +159,7 @@ def pynput_key_pressed_context(display=None):
             return
         pressed.add(value)
 
-    def on_release(key):
+    def on_release(key: pynput.keyboard.Key) -> None:
         try:
             value = key.char
         except AttributeError:
@@ -166,7 +170,7 @@ def pynput_key_pressed_context(display=None):
             return
         pressed.discard(value)
 
-    pressed = set()
+    pressed: set[str] = set()
     listener = keyboard.Listener(on_press=on_press, on_release=on_release)
     try:
         listener.start()
@@ -177,29 +181,27 @@ def pynput_key_pressed_context(display=None):
 
 
 @contextmanager
-def gb_input_from_keyboard_context(display=None):
+def console_input_from_keyboard_context(
+    console: Console, display: str | None = None
+) -> Iterator[InputGetter]:
     if sys.platform == "linux":
-        mapping = get_xlib_mapping()
+        mapping = get_xlib_mapping(console)
         key_pressed_context = xlib_key_pressed_context
     else:
-        mapping = get_keyboard_mapping()
+        mapping = get_keyboard_mapping(console)
         key_pressed_context = pynput_key_pressed_context
 
-    def get_gb_input():
-        value = 0
-        for keysym in get_pressed():
-            value |= mapping.get(keysym, 0)
-        return value
+    def get_input() -> set[Console.Input]:
+        return {mapping[keysym] for keysym in get_pressed() if keysym in mapping}
 
     with key_pressed_context(display=display) as get_pressed:
-        yield get_gb_input
+        yield get_input
 
 
-def main():
+def main() -> None:
     if sys.platform == "linux":
         from Xlib import XK
 
-        mapping = get_xlib_mapping()
         key_pressed_context = xlib_key_pressed_context
         reverse_lookup = {
             v: k[3:] for k, v in XK.__dict__.items() if k.startswith("XK_")

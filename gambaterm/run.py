@@ -1,80 +1,70 @@
-#!/usr/bin/env python3
+from __future__ import annotations
 
 import os
 import time
 import contextlib
 from itertools import count
 from collections import deque
+from typing import Deque, Iterator
 
 import numpy as np
+from prompt_toolkit.application import AppSession
 
-from .libgambatte import GB
 from .termblit import blit
-from .constants import GB_WIDTH, GB_HEIGHT, GB_FPS, GB_TICKS_IN_FRAME
+from .audio import AudioOut
+from .console import Console, InputGetter
+from .colors import ColorMode
 
 
 @contextlib.contextmanager
-def timing(deltas):
+def timing(deltas: Deque) -> Iterator[None]:
     try:
-        start = time.time()
+        start = time.perf_counter()
         yield
     finally:
-        deltas.append(time.time() - start)
+        deltas.append(time.perf_counter() - start)
 
 
-def get_ref(width, height):
-    refx = 2 + max(0, (height - GB_HEIGHT // 2) // 2)
-    refy = 3 + max(0, (width - GB_WIDTH) // 2)
+def get_ref(width: int, height: int, console: Console) -> tuple[int, int]:
+    refx = 2 + max(0, (height - console.HEIGHT // 2) // 2)
+    refy = 3 + max(0, (width - console.WIDTH) // 2)
     return refx, refy
 
 
 def run(
-    romfile,
-    get_input,
-    app_session,
-    audio_out=None,
-    frame_advance=1,
-    color_mode=False,
-    break_after=None,
-    speed_factor=1.0,
-    use_cpr_sync=False,
-    save_directory=None,
-    force_gameboy=False,
-):
+    console: Console,
+    get_input: InputGetter,
+    app_session: AppSession,
+    audio_out: AudioOut | None = None,
+    frame_advance: int = 1,
+    color_mode: ColorMode = ColorMode.HAS_24_BIT_COLOR,
+    break_after: int | None = None,
+    speed_factor: float = 1.0,
+    use_cpr_sync: bool = False,
+) -> None:
     assert color_mode > 0
 
-    # Set save_directory
-    gb = GB()
-    if save_directory:
-        gb.set_save_directory(save_directory)
-
-    # Load the rom
-    return_code = gb.load(romfile, 1 if force_gameboy else 0)
-    if return_code != 0:
-        # Make sure it exists
-        open(romfile).close()
-        raise RuntimeError(return_code)
-
     # Prepare buffers with invalid data
-    video = np.full((GB_HEIGHT, GB_WIDTH), -1, np.int32)
-    audio = np.full(2 * GB_TICKS_IN_FRAME, -1, np.int32)
+    video = np.full((console.HEIGHT, console.WIDTH), -1, np.uint32)
+    audio = np.full((2 * console.TICKS_IN_FRAME, 2), -1, np.int16)
     last_frame = video.copy()
 
     # Print area
     height, width = app_session.output.get_size()
-    refx, refy = get_ref(width, height)
+    refx, refy = get_ref(width, height, console)
 
     # Prepare reporting
-    fps = GB_FPS * speed_factor
+    fps = console.FPS * speed_factor
     average_over = int(round(fps))  # frames
-    ticks = deque(maxlen=average_over)
-    emu_deltas = deque(maxlen=average_over)
-    audio_deltas = deque(maxlen=average_over)
-    video_deltas = deque(maxlen=average_over)
-    sync_deltas = deque(maxlen=average_over)
-    shown_frames = deque(maxlen=average_over)
-    data_length = deque(maxlen=average_over)
-    shifting = deque(maxlen=average_over)
+    ticks: Deque[float] = deque(maxlen=average_over)
+    emu_deltas: Deque[float] = deque(maxlen=average_over)
+    audio_deltas: Deque[float] = deque(maxlen=average_over)
+    video_deltas: Deque[float] = deque(maxlen=average_over)
+    sync_deltas: Deque[float] = deque(maxlen=average_over)
+    total_deltas: Deque[float] = deque(maxlen=average_over)
+    shifting: Deque[float] = deque(maxlen=average_over)
+    shown_frames: Deque[int] = deque(maxlen=average_over)
+    data_length: Deque[int] = deque(maxlen=average_over)
     start = time.time()
 
     # Create a 100 ms time shift to fill up audio buffer
@@ -84,25 +74,31 @@ def run(
     # Prepare state
     new_frame = False
     screen_ready = True
+    frame_start_time = None
 
     # Loop over emulator frames
     for i in count():
 
+        # Add total deltas
+        if frame_start_time is not None:
+            total_deltas.append(time.perf_counter() - frame_start_time)
+        frame_start_time = time.perf_counter()
+
         # Break when frame limit is reach
         if break_after is not None and i >= break_after:
-            return 0
+            return
 
         # Tick the emulator
         with timing(emu_deltas):
-            gb.set_input(get_input())
-            offset, samples = gb.run_for(video, GB_WIDTH, audio, GB_TICKS_IN_FRAME)
+            console.set_input(get_input())
+            offset, samples = console.advance_one_frame(video, audio)
             new_frame = new_frame or offset > 0
             ticks.append(samples)
 
         # Send audio
         with timing(audio_deltas):
             if audio_out:
-                audio_out.send(audio[:samples])
+                audio_out.send(audio[:samples, :])
 
         # Read keys
         for event in app_session.input.read_keys():
@@ -125,7 +121,7 @@ def run(
                     app_session.output.erase_screen()
                     app_session.output.flush()
                     height, width = new_size
-                    refx, refy = get_ref(width, height)
+                    refx, refy = get_ref(width, height, console)
                     last_frame.fill(-1)
                 # Render frame
                 video_data = blit(
@@ -151,7 +147,7 @@ def run(
                     app_session.output.ask_for_cpr()
                     screen_ready = False
             # Timing sync
-            increment = samples / GB_TICKS_IN_FRAME
+            increment = samples / console.TICKS_IN_FRAME
             deadline = start + increment / fps
             current = time.time()
             if current < deadline - 1e-3:
@@ -161,16 +157,17 @@ def run(
             start = deadline
 
         # Reporting
-        if i % average_over == 0:
-            tps = fps * GB_TICKS_IN_FRAME
+        if i % average_over == 1:
+            tps = fps * console.TICKS_IN_FRAME
             emu_fps = tps * len(ticks) / sum(ticks)
             video_fps = emu_fps * sum(shown_frames) / len(shown_frames)
-            emu_percent = sum(emu_deltas) / len(emu_deltas) * emu_fps * 100
-            audio_percent = sum(audio_deltas) / len(audio_deltas) * emu_fps * 100
-            video_percent = sum(video_deltas) / len(video_deltas) * emu_fps * 100
-            data_rate = sum(data_length) / len(data_length) * emu_fps / 1000
-            title = "Gambaterm | "
-            title += f"{os.path.basename(romfile)} | "
+            total_fps = len(total_deltas) / sum(total_deltas)
+            emu_percent = sum(emu_deltas) / len(emu_deltas) * total_fps * 100
+            audio_percent = sum(audio_deltas) / len(audio_deltas) * total_fps * 100
+            video_percent = sum(video_deltas) / len(video_deltas) * total_fps * 100
+            data_rate = sum(data_length) / len(data_length) * total_fps / 1000
+            title = f"Gambaterm - {total_fps:.0f} FPS | "
+            title += f"{os.path.basename(console.romfile)} | "
             title += f"Emu: {emu_fps:.0f} FPS - {emu_percent:.0f}% CPU | "
             title += f"Video: {video_fps:.0f} FPS - {video_percent:.0f}% CPU - "
             title += f"{data_rate:.0f} KB/s | "

@@ -6,3 +6,28 @@ requires = [
     "oldest-supported-numpy",
 ]
 build-backend = "setuptools.build_meta"
+
+[tool.mypy]
+warn_return_any = true
+disallow_untyped_calls = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+
+
+[tool.cibuildwheel]
+build = "cp*-win_amd64 cp*-manylinux_x86_64 cp*-macosx_x86_64"
+skip = "cp36*"
+
+[tool.cibuildwheel.windows]
+test-command = "gambaterm --help"
+
+[tool.cibuildwheel.macos]
+test-requires = "pytest"
+test-command = "pytest {project}/tests -v -k 'not test_gambaterm[interactive]'"
+
+[tool.cibuildwheel.linux]
+before-all = "yum install -y libsamplerate portaudio openssh-clients"
+test-requires = "pytest"
+test-command = "pytest {project}/tests -v"

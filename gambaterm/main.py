@@ -1,29 +1,29 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 
 import time
-import tempfile
 import argparse
 
 from prompt_toolkit.application import create_app_session
 
+
 from .run import run
+from .console import GameboyColor, Console
 from .audio import audio_player, no_audio
 from .colors import detect_local_color_mode
-from .file_input import gb_input_from_file_context
-from .keyboard_input import gb_input_from_keyboard_context
-from .controller_input import combine_gb_input_from_controller_context
+from .keyboard_input import console_input_from_keyboard_context
+from .controller_input import combine_console_input_from_controller_context
+from .file_input import console_input_from_file_context, write_input_context
 
 
-def add_base_arguments(parser):
-    parser.add_argument(
-        "romfile", metavar="ROM", type=str, help="Path to a GB or GBC rom file"
-    )
+def add_base_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("romfile", metavar="ROM", type=str, help="Path to a rom file")
     parser.add_argument(
         "--input-file", "-i", default=None, help="Path to a bizhawk BK2 file"
     )
 
 
-def add_optional_arguments(parser):
+def add_optional_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--color-mode",
         "-c",
@@ -56,12 +56,6 @@ def add_optional_arguments(parser):
         "(default is 1.0 corresponding to 60 FPS)",
     )
     parser.add_argument(
-        "--force-gameboy",
-        "--fg",
-        action="store_true",
-        help="Force the emulator to treat the rom as a GB file",
-    )
-    parser.add_argument(
         "--skip-inputs",
         "--si",
         type=int,
@@ -81,30 +75,43 @@ def add_optional_arguments(parser):
         action="store_true",
         help="Enable game controller support",
     )
-    return parser
+    parser.add_argument(
+        "--write-input",
+        "--wi",
+        type=str,
+        help="Enable game controller support",
+    )
 
 
-def main(args=None):
+def main(
+    parser_args: tuple[str, ...] | None = None,
+    console_cls: type[Console] = GameboyColor,
+) -> None:
     parser = argparse.ArgumentParser(
         prog="gambaterm", description="Gambatte terminal front-end"
     )
     add_base_arguments(parser)
     add_optional_arguments(parser)
+    console_cls.add_console_arguments(parser)
     parser.add_argument(
         "--disable-audio", "--da", action="store_true", help="Disable audio entirely"
     )
-    args = parser.parse_args(args)
+    args: argparse.Namespace = parser.parse_args(parser_args)
+    console = console_cls(args)
 
     if args.input_file is not None:
-        save_directory = tempfile.mkdtemp()
-        gb_input_context = gb_input_from_file_context(args.input_file, args.skip_inputs)
+        input_context = console_input_from_file_context(
+            console, args.input_file, args.skip_inputs
+        )
     else:
-        gb_input_context = gb_input_from_keyboard_context()
-        save_directory = None
+        input_context = console_input_from_keyboard_context(console)
         if args.enable_controller:
-            gb_input_context = combine_gb_input_from_controller_context(
-                gb_input_context
+            input_context = combine_console_input_from_controller_context(
+                console, input_context
             )
+
+    if args.write_input:
+        input_context = write_input_context(console, input_context, args.write_input)
 
     if args.color_mode == 0:
         raise RuntimeError("No color mode seems to be supported")
@@ -125,13 +132,13 @@ def main(args=None):
                 app_session.output.flush()
 
                 # Enter input and audio contexts
-                with gb_input_context as get_gb_input:
+                with input_context as get_gb_input:
                     player = no_audio if args.disable_audio else audio_player
-                    with player(args.speed_factor) as audio_out:
+                    with player(console, args.speed_factor) as audio_out:
 
                         # Run the emulator
-                        return_code = run(
-                            args.romfile,
+                        run(
+                            console,
                             get_gb_input,
                             app_session=app_session,
                             audio_out=audio_out,
@@ -140,17 +147,15 @@ def main(args=None):
                             break_after=args.break_after,
                             speed_factor=args.speed_factor,
                             use_cpr_sync=args.cpr_sync,
-                            save_directory=save_directory,
-                            force_gameboy=args.force_gameboy,
                         )
 
             # Deal with ctrl+c and ctrl+d exceptions
             except (KeyboardInterrupt, EOFError):
                 pass
 
-            # Exit with return code
+            # Exit normally
             else:
-                exit(return_code)
+                exit()
 
             # Restore terminal to its initial state
             finally:

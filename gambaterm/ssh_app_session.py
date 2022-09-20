@@ -2,22 +2,34 @@
 Provide an async context manager to create a prompt-toolkit app session
 from an AsyncSSH process.
 """
+from __future__ import annotations
 
 import os
+import sys
 import asyncio
 import subprocess
 from contextlib import asynccontextmanager, contextmanager
+from typing import AsyncIterator, Iterator
 
 from prompt_toolkit.data_structures import Size
-from prompt_toolkit.input import create_pipe_input
 from prompt_toolkit.output.vt100 import Vt100_Output
-from prompt_toolkit.application.current import create_app_session
+from prompt_toolkit.input import create_pipe_input, PipeInput
+from prompt_toolkit.application.current import create_app_session, AppSession
+
+from asyncssh import SSHServerProcess
+
+if sys.platform != "win32":
+    from prompt_toolkit.input.posix_pipe import PosixPipeInput
 
 
 @asynccontextmanager
-async def vt100_output_from_process(process):
-    def get_size():
+async def vt100_output_from_process(
+    process: SSHServerProcess,
+) -> AsyncIterator[Vt100_Output]:
+    def get_size() -> Size:
         width, height, _, _ = process.get_terminal_size()
+        if width == height == 0:
+            width, height = 80, 24
         return Size(rows=height, columns=width)
 
     term = process.get_terminal_type()
@@ -33,8 +45,11 @@ async def vt100_output_from_process(process):
 
 
 @asynccontextmanager
-async def vt100_input_from_process(process):
+async def vt100_input_from_process(
+    process: SSHServerProcess,
+) -> AsyncIterator[PipeInput]:
     with create_pipe_input() as vt100_input:
+        assert isinstance(vt100_input, PosixPipeInput)
         await process.redirect_stdin(vt100_input.pipe.write_fd)
         try:
             yield vt100_input
@@ -47,39 +62,33 @@ async def vt100_input_from_process(process):
 
 
 @contextmanager
-def disable_editor(process):
-    process.channel.set_line_mode(False)
-    original_editor = process.channel._editor
-    process.channel._editor = None
-    try:
-        yield
-    finally:
-        process.channel._editor = original_editor
-
-
-@contextmanager
-def bind_resize_process_to_app_session(process, app_session):
+def bind_resize_process_to_app_session(
+    process: SSHServerProcess, app_session: AppSession
+) -> Iterator[None]:
     original_method = process.terminal_size_changed
 
-    def terminal_size_changed(*args):
+    def terminal_size_changed(
+        width: int, height: int, pixwidth: int, pixheight: int
+    ) -> None:
         if app_session.app is not None:
             app_session.app._on_resize()
-        return original_method(*args)
+        return original_method(width, height, pixheight, pixwidth)
 
     try:
-        process.terminal_size_changed = terminal_size_changed
+        process.terminal_size_changed = terminal_size_changed  # type: ignore[assignment]
         yield
     finally:
         del process.terminal_size_changed
 
 
 @asynccontextmanager
-async def process_to_app_session(process):
+async def process_to_app_session(
+    process: SSHServerProcess,
+) -> AsyncIterator[AppSession]:
     async with vt100_input_from_process(process) as vt100_input:
         async with vt100_output_from_process(process) as vt100_output:
-            with disable_editor(process):
-                with create_app_session(
-                    input=vt100_input, output=vt100_output
-                ) as app_session:
-                    with bind_resize_process_to_app_session(process, app_session):
-                        yield app_session
+            with create_app_session(
+                input=vt100_input, output=vt100_output
+            ) as app_session:
+                with bind_resize_process_to_app_session(process, app_session):
+                    yield app_session

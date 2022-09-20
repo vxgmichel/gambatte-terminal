@@ -1,35 +1,40 @@
+from __future__ import annotations
+
 import os
+from typing import Callable, ContextManager, Iterator
 from contextlib import contextmanager
 
-from .constants import GBInput
+from .console import Console, InputGetter
 
 
-def get_controller_mapping():
+def get_controller_mapping(console: Console) -> dict[str, Console.Input]:
     return {
         # Directions
-        "A1-": GBInput.UP,
-        "H1-": GBInput.UP,
-        "A1+": GBInput.DOWN,
-        "H1+": GBInput.DOWN,
-        "A0-": GBInput.LEFT,
-        "H0-": GBInput.LEFT,
-        "A0+": GBInput.RIGHT,
-        "H0+": GBInput.RIGHT,
+        "A1-": console.Input.UP,
+        "H1-": console.Input.UP,
+        "A1+": console.Input.DOWN,
+        "H1+": console.Input.DOWN,
+        "A0-": console.Input.LEFT,
+        "H0-": console.Input.LEFT,
+        "A0+": console.Input.RIGHT,
+        "H0+": console.Input.RIGHT,
         # A button
-        "B0": GBInput.A,
-        "B3": GBInput.A,
+        "B0": console.Input.A,
+        "B3": console.Input.A,
         # B button
-        "B1": GBInput.B,
-        "B2": GBInput.B,
+        "B1": console.Input.B,
+        "B2": console.Input.B,
         # Start button
-        "B7": GBInput.START,
+        "B7": console.Input.START,
         # Select button
-        "B6": GBInput.SELECT,
+        "B6": console.Input.SELECT,
     }
 
 
 @contextmanager
-def pygame_button_pressed_context(deadzone=0.4):
+def pygame_button_pressed_context(
+    deadzone: float = 0.4,
+) -> Iterator[Callable[[], set[str]]]:
     os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
 
     try:
@@ -47,12 +52,12 @@ Please use the following command to install gambaterm with controller support:
     pygame.joystick.init()
     joystick = None
 
-    def get_pressed():
+    def get_pressed() -> set[str]:
         nonlocal joystick
         pygame.event.get()
         if pygame.joystick.get_count() == 0:
             joystick = None
-            return {}
+            return set()
         if joystick is None:
             joystick = pygame.joystick.Joystick(0)
         pressed = {
@@ -82,21 +87,24 @@ Please use the following command to install gambaterm with controller support:
 
 
 @contextmanager
-def gb_input_from_controller_context():
-    controller_mapping = get_controller_mapping()
+def console_input_from_controller_context(console: Console) -> Iterator[InputGetter]:
+    controller_mapping = get_controller_mapping(console)
 
-    def get_gb_input():
-        value = 0
-        for keysym in joystick_get_pressed():
-            value |= controller_mapping.get(keysym, 0)
-        return value
+    def get_gb_input() -> set[Console.Input]:
+        return {
+            controller_mapping[keysym]
+            for keysym in joystick_get_pressed()
+            if keysym in controller_mapping
+        }
 
     with pygame_button_pressed_context() as joystick_get_pressed:
         yield get_gb_input
 
 
 @contextmanager
-def combine_gb_input_from_controller_context(context):
+def combine_console_input_from_controller_context(
+    console: Console, context: ContextManager[InputGetter]
+) -> Iterator[InputGetter]:
     with context as getter1:
-        with gb_input_from_controller_context() as getter2:
+        with console_input_from_controller_context(console) as getter2:
             yield lambda: getter1() | getter2()
