@@ -13,6 +13,12 @@ cdef extern from "gambatte.h" namespace "gambatte":
         void setInputGetter(GetInput *getInput);
         void setSaveDir(string& sdir);
 
+        # Save state
+        void selectState(int state);
+        int currentState();
+        int loadState();
+        int saveState(unsigned int *videoBuf, ptrdiff_t pitch);
+
 
 cdef extern from "input.h" namespace "gambatte":
     cdef cppclass GetInput:
