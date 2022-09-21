@@ -34,3 +34,22 @@ cdef class GB:
 
     def set_save_directory(self, str path):
         self.c_gb.setSaveDir(path.encode())
+
+    def select_state(self, int state):
+        self.c_gb.selectState(state)
+
+    def current_state(self):
+        return self.c_gb.currentState()
+
+    def load_state(self):
+        return self.c_gb.loadState()
+
+    def save_state(
+        self,
+        np.ndarray[np.uint32_t, ndim=2] video,
+        ptrdiff_t pitch,
+    ):
+        if video is None:
+            return self.c_gb.saveState(NULL, 0)
+        cdef unsigned int* video_buffer = <unsigned int*> video.data
+        return self.c_gb.saveState(video_buffer, pitch)

@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from .console import Console, InputGetter
 
 
-def get_controller_mapping(console: Console) -> dict[str, Console.Input]:
+def get_controller_input_mapping(console: Console) -> dict[str, Console.Input]:
     return {
         # Directions
         "A1-": console.Input.UP,
@@ -28,6 +28,16 @@ def get_controller_mapping(console: Console) -> dict[str, Console.Input]:
         "B7": console.Input.START,
         # Select button
         "B6": console.Input.SELECT,
+    }
+
+
+def get_controller_event_mapping(console: Console) -> dict[str, Console.Event]:
+    return {
+        # Directions
+        "B4": console.Event.INCREMENT_STATE,
+        "B5": console.Event.DECREMENT_STATE,
+        "B8": console.Event.LOAD_STATE,
+        "B9": console.Event.SAVE_STATE,
     }
 
 
@@ -88,16 +98,24 @@ Please use the following command to install gambaterm with controller support:
 
 @contextmanager
 def console_input_from_controller_context(console: Console) -> Iterator[InputGetter]:
-    controller_mapping = get_controller_mapping(console)
+    input_mapping = get_controller_input_mapping(console)
+    event_mapping = get_controller_event_mapping(console)
+    current_pressed: set[str] = set()
 
     def get_gb_input() -> set[Console.Input]:
+        nonlocal current_pressed
+        old_pressed, current_pressed = current_pressed, set(get_pressed())
+        for event in map(event_mapping.get, current_pressed - old_pressed):
+            if event is None:
+                continue
+            console.handle_event(event)
         return {
-            controller_mapping[keysym]
-            for keysym in joystick_get_pressed()
-            if keysym in controller_mapping
+            input_mapping[keysym]
+            for keysym in current_pressed
+            if keysym in input_mapping
         }
 
-    with pygame_button_pressed_context() as joystick_get_pressed:
+    with pygame_button_pressed_context() as get_pressed:
         yield get_gb_input
 
 

@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     import pynput  # type: ignore
 
 
-def get_xlib_mapping(console: Console) -> dict[int, Console.Input]:
+def get_xlib_input_mapping(console: Console) -> dict[int, Console.Input]:
     from Xlib import XK  # type: ignore
 
     return {
@@ -40,7 +40,26 @@ def get_xlib_mapping(console: Console) -> dict[int, Console.Input]:
     }
 
 
-def get_keyboard_mapping(console: Console) -> dict[str, Console.Input]:
+def get_xlib_event_mapping(console: Console) -> dict[int, Console.Event]:
+    from Xlib import XK  # type: ignore
+
+    return {
+        XK.XK_0: console.Event.SELECT_STATE_0,
+        XK.XK_1: console.Event.SELECT_STATE_1,
+        XK.XK_2: console.Event.SELECT_STATE_2,
+        XK.XK_3: console.Event.SELECT_STATE_3,
+        XK.XK_4: console.Event.SELECT_STATE_4,
+        XK.XK_5: console.Event.SELECT_STATE_5,
+        XK.XK_6: console.Event.SELECT_STATE_6,
+        XK.XK_7: console.Event.SELECT_STATE_7,
+        XK.XK_8: console.Event.SELECT_STATE_8,
+        XK.XK_9: console.Event.SELECT_STATE_9,
+        XK.XK_l: console.Event.LOAD_STATE,
+        XK.XK_k: console.Event.SAVE_STATE,
+    }
+
+
+def get_keyboard_input_mapping(console: Console) -> dict[str, Console.Input]:
     return {
         # Directions
         "up": console.Input.UP,
@@ -62,6 +81,23 @@ def get_keyboard_mapping(console: Console) -> dict[str, Console.Input]:
         # Select button
         "shift_r": console.Input.SELECT,
         "delete": console.Input.SELECT,
+    }
+
+
+def get_keyboard_event_mapping(console: Console) -> dict[str, Console.Event]:
+    return {
+        "0": console.Event.SELECT_STATE_0,
+        "1": console.Event.SELECT_STATE_1,
+        "2": console.Event.SELECT_STATE_2,
+        "3": console.Event.SELECT_STATE_3,
+        "4": console.Event.SELECT_STATE_4,
+        "5": console.Event.SELECT_STATE_5,
+        "6": console.Event.SELECT_STATE_6,
+        "7": console.Event.SELECT_STATE_7,
+        "8": console.Event.SELECT_STATE_8,
+        "9": console.Event.SELECT_STATE_9,
+        "l": console.Event.LOAD_STATE,
+        "k": console.Event.SAVE_STATE,
     }
 
 
@@ -185,14 +221,28 @@ def console_input_from_keyboard_context(
     console: Console, display: str | None = None
 ) -> Iterator[InputGetter]:
     if sys.platform == "linux":
-        mapping = get_xlib_mapping(console)
+        current_pressed: set[int] = set()
+        input_mapping = get_xlib_input_mapping(console)
+        event_mapping = get_xlib_event_mapping(console)
         key_pressed_context = xlib_key_pressed_context
     else:
-        mapping = get_keyboard_mapping(console)
+        current_pressed: set[str] = set()
+        input_mapping = get_keyboard_input_mapping(console)
+        event_mapping = get_keyboard_event_mapping(console)
         key_pressed_context = pynput_key_pressed_context
 
     def get_input() -> set[Console.Input]:
-        return {mapping[keysym] for keysym in get_pressed() if keysym in mapping}
+        nonlocal current_pressed
+        old_pressed, current_pressed = current_pressed, set(get_pressed())
+        for event in map(event_mapping.get, current_pressed - old_pressed):
+            if event is None:
+                continue
+            console.handle_event(event)
+        return {
+            input_mapping[keysym]
+            for keysym in current_pressed
+            if keysym in input_mapping
+        }
 
     with key_pressed_context(display=display) as get_pressed:
         yield get_input
@@ -208,7 +258,6 @@ def main() -> None:
         }
         mapping = reverse_lookup.get
     else:
-        mapping = get_keyboard_mapping()
         key_pressed_context = pynput_key_pressed_context
         mapping = str
 

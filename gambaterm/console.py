@@ -27,7 +27,24 @@ class Console:
         UP = 0x40
         DOWN = 0x80
 
+    class Event(IntEnum):
+        SELECT_STATE_0 = 0
+        SELECT_STATE_1 = 1
+        SELECT_STATE_2 = 2
+        SELECT_STATE_3 = 3
+        SELECT_STATE_4 = 4
+        SELECT_STATE_5 = 5
+        SELECT_STATE_6 = 6
+        SELECT_STATE_7 = 7
+        SELECT_STATE_8 = 8
+        SELECT_STATE_9 = 9
+        INCREMENT_STATE = 10
+        DECREMENT_STATE = 11
+        LOAD_STATE = 12
+        SAVE_STATE = 13
+
     romfile: str
+    last_video: npt.NDArray[np.uint32] | None
 
     @classmethod
     def add_console_arguments(cls, parser: argparse.ArgumentParser) -> None:
@@ -36,13 +53,39 @@ class Console:
     def __init__(self, args: argparse.Namespace):
         self.romfile = args.romfile
 
-    def set_input(self, value: set[Console.Input]) -> None:
+    def set_input(self, value: set[Input]) -> None:
         pass
 
     def advance_one_frame(
         self, video: npt.NDArray[np.uint32], audio: npt.NDArray[np.int16]
     ) -> tuple[int, int]:
         raise NotImplementedError
+
+    def get_current_state(self) -> int:
+        raise NotImplementedError
+
+    def set_current_state(self, state: int) -> None:
+        raise NotImplementedError
+
+    def load_state(self) -> None:
+        raise NotImplementedError
+
+    def save_state(self) -> None:
+        raise NotImplementedError
+
+    def handle_event(self, event: Event) -> None:
+        if event.value < 10:
+            self.set_current_state(event.value)
+        elif event == event.INCREMENT_STATE:
+            self.set_current_state(self.get_current_state() + 1)
+        elif event == event.DECREMENT_STATE:
+            self.set_current_state(self.get_current_state() - 1)
+        elif event == event.LOAD_STATE:
+            self.load_state()
+        elif event == event.SAVE_STATE:
+            self.save_state()
+        else:
+            assert False
 
 
 # Type Alias
@@ -93,4 +136,17 @@ class GameboyColor(Console):
     def advance_one_frame(
         self, video: npt.NDArray[np.uint32], audio: npt.NDArray[np.int16]
     ) -> tuple[int, int]:
+        self.last_video = video
         return self.gb.run_for(video, self.WIDTH, audio, self.TICKS_IN_FRAME)
+
+    def get_current_state(self) -> int:
+        return self.gb.current_state() % 10
+
+    def set_current_state(self, value: int) -> None:
+        self.gb.select_state(value % 10)
+
+    def load_state(self) -> None:
+        self.gb.load_state()
+
+    def save_state(self) -> None:
+        self.gb.save_state(self.last_video, self.WIDTH)
