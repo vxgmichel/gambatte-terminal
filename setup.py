@@ -77,6 +77,7 @@ setup(
             "gambaterm-ssh = gambaterm.ssh:main",
         ],
     },
+    package_data={"gambaterm": ["py.typed"]},
     description="A terminal frontend for gambatte game boy color emulator ",
     long_description=LONG_DESCRIPTION,
     long_description_content_type="text/markdown",
