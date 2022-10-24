@@ -24,7 +24,7 @@ if sys.platform != "win32":
 
 @asynccontextmanager
 async def vt100_output_from_process(
-    process: SSHServerProcess,
+    process: SSHServerProcess[str],
 ) -> AsyncIterator[Vt100_Output]:
     def get_size() -> Size:
         width, height, _, _ = process.get_terminal_size()
@@ -46,7 +46,7 @@ async def vt100_output_from_process(
 
 @asynccontextmanager
 async def vt100_input_from_process(
-    process: SSHServerProcess,
+    process: SSHServerProcess[str],
 ) -> AsyncIterator[PipeInput]:
     with create_pipe_input() as vt100_input:
         assert isinstance(vt100_input, PosixPipeInput)
@@ -63,7 +63,7 @@ async def vt100_input_from_process(
 
 @contextmanager
 def bind_resize_process_to_app_session(
-    process: SSHServerProcess, app_session: AppSession
+    process: SSHServerProcess[str], app_session: AppSession
 ) -> Iterator[None]:
     original_method = process.terminal_size_changed
 
@@ -83,7 +83,7 @@ def bind_resize_process_to_app_session(
 
 @asynccontextmanager
 async def process_to_app_session(
-    process: SSHServerProcess,
+    process: SSHServerProcess[str],
 ) -> AsyncIterator[AppSession]:
     async with vt100_input_from_process(process) as vt100_input:
         async with vt100_output_from_process(process) as vt100_output:

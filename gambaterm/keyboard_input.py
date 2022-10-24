@@ -10,11 +10,11 @@ from prompt_toolkit.application import create_app_session
 from .console import Console, InputGetter
 
 if TYPE_CHECKING:
-    import pynput  # type: ignore
+    import pynput
 
 
 def get_xlib_input_mapping(console: Console) -> dict[int, Console.Input]:
-    from Xlib import XK  # type: ignore
+    from Xlib import XK
 
     return {
         # Directions
@@ -41,7 +41,7 @@ def get_xlib_input_mapping(console: Console) -> dict[int, Console.Input]:
 
 
 def get_xlib_event_mapping(console: Console) -> dict[int, Console.Event]:
-    from Xlib import XK  # type: ignore
+    from Xlib import XK
 
     return {
         XK.XK_0: console.Event.SELECT_STATE_0,
@@ -105,8 +105,8 @@ def get_keyboard_event_mapping(console: Console) -> dict[str, Console.Event]:
 def xlib_key_pressed_context(
     display: str | None = None,
 ) -> Iterator[Callable[[], set[int]]]:
-    from Xlib.ext import xinput  # type: ignore
-    from Xlib.display import Display  # type: ignore
+    from Xlib.ext import xinput
+    from Xlib.display import Display
 
     with closing(Display(display)) as xdisplay:
         extension_info = xdisplay.query_extension("XInputExtension")
@@ -182,7 +182,7 @@ def xlib_key_pressed_context(
 def pynput_key_pressed_context(
     display: str | None = None,
 ) -> Iterator[Callable[[], set[str]]]:
-    from pynput import keyboard  # type: ignore
+    from pynput import keyboard
 
     def on_press(key: pynput.keyboard.Key) -> None:
         try:

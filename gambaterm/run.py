@@ -17,7 +17,7 @@ from .colors import ColorMode
 
 
 @contextlib.contextmanager
-def timing(deltas: Deque) -> Iterator[None]:
+def timing(deltas: Deque[float]) -> Iterator[None]:
     try:
         start = time.perf_counter()
         yield

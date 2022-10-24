@@ -25,4 +25,7 @@ repos:
         "samplerate",
         "python-xlib; sys_platform == 'linux'",
         "pynput; sys_platform != 'linux'",
+        "types-setuptools",
+        "pytest",
       ]
+      args: []
