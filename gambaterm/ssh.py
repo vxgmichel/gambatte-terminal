@@ -25,7 +25,7 @@ from .ssh_app_session import process_to_app_session
 
 
 async def detect_true_color_support(
-    process: SSHServerProcess, timeout: float = 0.5
+    process: SSHServerProcess[str], timeout: float = 0.5
 ) -> bool:
     # Set unlikely RGB value
     process.stdout.write("\033[48:2:1:2:3m")
@@ -47,7 +47,7 @@ async def detect_true_color_support(
     return "P1$r" in header and "48:2" in header and "1:2:3m" in header
 
 
-async def safe_ssh_process_handler(process: SSHServerProcess) -> None:
+async def safe_ssh_process_handler(process: SSHServerProcess[str]) -> None:
     try:
         result = await ssh_process_handler(process)
     except KeyboardInterrupt:
@@ -60,7 +60,7 @@ async def safe_ssh_process_handler(process: SSHServerProcess) -> None:
     return process.exit(result or 0)
 
 
-async def ssh_process_handler(process: SSHServerProcess) -> int:
+async def ssh_process_handler(process: SSHServerProcess[str]) -> int:
     executor = process.get_extra_info("executor")
     app_config = process.get_extra_info("app_config")
     display = process.channel.get_x11_display()
@@ -215,7 +215,7 @@ class SSHServer(asyncssh.SSHServer):
     def begin_auth(self, username: str) -> bool:
         return True
 
-    def session_requested(self) -> SSHServerProcess:
+    def session_requested(self) -> SSHServerProcess[str]:
         return asyncssh.SSHServerProcess(
             safe_ssh_process_handler, sftp_factory=None, sftp_version=3, allow_scp=False  # type: ignore[arg-type]
         )

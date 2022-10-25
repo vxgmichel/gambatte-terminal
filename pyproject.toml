@@ -8,13 +8,18 @@ requires = [
 build-backend = "setuptools.build_meta"
 
 [tool.mypy]
-warn_return_any = true
-disallow_untyped_calls = true
-disallow_untyped_defs = true
-disallow_incomplete_defs = true
-check_untyped_defs = true
-disallow_untyped_decorators = true
+strict = true
+show_error_codes = true
 
+[[tool.mypy.overrides]]
+module = [
+    "pygame",
+    "samplerate",
+    "sounddevice",
+    "pynput",
+    "Xlib.*"
+]
+ignore_missing_imports = true
 
 [tool.cibuildwheel]
 build = "cp*-win_amd64 cp*-manylinux_x86_64 cp*-macosx_x86_64"

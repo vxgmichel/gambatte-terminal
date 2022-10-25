@@ -11,7 +11,7 @@ from .console import Console
 
 # Late import of samplerate
 if TYPE_CHECKING:
-    import samplerate  # type: ignore
+    import samplerate
 
 
 class AudioOut:
@@ -21,13 +21,13 @@ class AudioOut:
 
     input_rate: float
     speed: float
-    resampler: "samplerate.Resampler"
+    resampler: samplerate.Resampler
     queue: Queue[npt.NDArray[np.int16]]
     buffer: npt.NDArray[np.int16]
     offset: int
 
     def __init__(
-        self, input_rate: float, resampler: "samplerate.Resampler", speed: float = 1.0
+        self, input_rate: float, resampler: samplerate.Resampler, speed: float = 1.0
     ):
         self.input_rate = input_rate
         self.speed = speed
@@ -80,8 +80,8 @@ def audio_player(
     # Perform late imports
     # Those can fail if a linux machine doesn't have portaudio or libsamplerate
     # installed
-    import samplerate  # type: ignore
-    import sounddevice  # type: ignore
+    import samplerate
+    import sounddevice
 
     input_rate = console.FPS * console.TICKS_IN_FRAME
     resampler = samplerate.Resampler("linear", channels=2)

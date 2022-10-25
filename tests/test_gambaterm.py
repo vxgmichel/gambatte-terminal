@@ -9,7 +9,7 @@ from subprocess import Popen, PIPE, run
 TEST_ROM = Path(__file__).parent / "test_rom.gb"
 
 
-@pytest.fixture  # type: ignore[misc]
+@pytest.fixture
 def ssh_config(tmp_path: Path) -> Iterator[Path]:
     rsa_key = asyncssh.generate_private_key("ssh-rsa")
     (tmp_path / "id_rsa").write_bytes(rsa_key.export_private_key())
@@ -21,7 +21,7 @@ def ssh_config(tmp_path: Path) -> Iterator[Path]:
     del os.environ["GAMBATERM_SSH_KEY_DIR"]
 
 
-@pytest.mark.parametrize(  # type: ignore[misc]
+@pytest.mark.parametrize(
     "interactive", (False, True), ids=("non-interactive", "interactive")
 )
 def test_gambaterm(interactive: bool) -> None:

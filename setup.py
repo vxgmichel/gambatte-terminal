@@ -1,7 +1,9 @@
+from __future__ import annotations
+
 import os
 import glob
 from pathlib import Path
-from setuptools import Extension, setup  # type: ignore
+from setuptools import Extension, setup
 
 # Read the contents of the README file
 LONG_DESCRIPTION = (Path(__file__).parent / "README.md").read_text()
@@ -14,16 +16,13 @@ libgambatte_sources = [
 ]
 
 # List all directories containing `.h` files
-libgambatte_include_dirs = list(
-    set(
-        os.path.dirname(path)
-        for path in glob.glob("libgambatte/**/*.h", recursive=True)
-    )
+libgambatte_include_dirs: list[os.PathLike[str]] = list(
+    set(Path(path).parent for path in glob.glob("libgambatte/**/*.h", recursive=True))
 )
 
 
 # Defer call to `numpy.get_include`
-class NumpyIncludePath(os.PathLike):
+class NumpyIncludePath:
     def __str__(self) -> str:
         return self.__fspath__()
 
@@ -38,7 +37,7 @@ class NumpyIncludePath(os.PathLike):
 gambatte_extension = Extension(
     "gambaterm.libgambatte",
     language="c++",
-    include_dirs=libgambatte_include_dirs + [NumpyIncludePath()],  # type: ignore
+    include_dirs=libgambatte_include_dirs + [NumpyIncludePath()],
     extra_compile_args=["-DHAVE_STDINT_H"],
     sources=libgambatte_sources + ["libgambatte_ext/libgambatte.pyx"],
 )
