@@ -16,8 +16,11 @@ libgambatte_sources = [
 ]
 
 # List all directories containing `.h` files
-libgambatte_include_dirs: list[os.PathLike[str]] = list(
-    set(Path(path).parent for path in glob.glob("libgambatte/**/*.h", recursive=True))
+libgambatte_include_dirs: list[str] = list(
+    set(
+        str(Path(path).parent)
+        for path in glob.glob("libgambatte/**/*.h", recursive=True)
+    )
 )
 
 
@@ -37,7 +40,7 @@ class NumpyIncludePath:
 gambatte_extension = Extension(
     "gambaterm.libgambatte",
     language="c++",
-    include_dirs=libgambatte_include_dirs + [NumpyIncludePath()],
+    include_dirs=libgambatte_include_dirs + [NumpyIncludePath()],  # type: ignore[list-item]
     extra_compile_args=["-DHAVE_STDINT_H"],
     sources=libgambatte_sources + ["libgambatte_ext/libgambatte.pyx"],
 )
@@ -47,7 +50,7 @@ gambatte_extension = Extension(
 termblit_extension = Extension(
     "gambaterm.termblit",
     language="c",
-    include_dirs=[NumpyIncludePath()],
+    include_dirs=[NumpyIncludePath()],  # type: ignore[list-item]
     sources=["termblit_ext/termblit.pyx"],
 )
 
