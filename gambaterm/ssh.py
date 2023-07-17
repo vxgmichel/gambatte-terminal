@@ -4,7 +4,6 @@ import os
 import time
 import asyncio
 import argparse
-import tempfile
 import traceback
 from pathlib import Path
 from typing import IO, cast
@@ -151,18 +150,24 @@ def thread_target(
     display: str,
     color_mode: ColorMode,
 ) -> int:
-    console = app_config.console_cls(app_config)
+    # Create save directory for user
+    if app_config.input_file is None:
+        save_directory = Path("ssh_save") / username
+        save_directory.mkdir(parents=True, exist_ok=True)
+        app_config.save_directory = save_directory
+    # Otherwise, use a temporary directory for when an input file is provided
+    else:
+        app_config.save_directory = None
+
+    console: Console = app_config.console_cls(app_config)
     if app_config.input_file is not None:
         console_input_context = console_input_from_file_context(
             console, app_config.input_file, app_config.skip_inputs
         )
-        save_directory = Path(tempfile.mkdtemp())
     else:
         console_input_context = console_input_from_keyboard_context(
             console, display=display
         )
-        save_directory = Path("ssh_save") / username
-        save_directory.mkdir(parents=True, exist_ok=True)
 
     with console_input_context as get_console_input:
         try:
@@ -217,7 +222,7 @@ class SSHServer(asyncssh.SSHServer):
 
     def session_requested(self) -> SSHServerProcess[str]:
         return asyncssh.SSHServerProcess(
-            safe_ssh_process_handler, sftp_factory=None, sftp_version=3, allow_scp=False  # type: ignore[arg-type]
+            safe_ssh_process_handler, sftp_factory=None, sftp_version=3, allow_scp=False
         )
 
     def password_auth_supported(self) -> bool:

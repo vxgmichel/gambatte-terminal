@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import pathlib
 import tempfile
 from enum import IntEnum
 from typing import Callable, Set
@@ -100,7 +101,6 @@ class GameboyColor(Console):
 
     gb: GB
     force_gameboy: bool
-    save_directory: str | None
 
     @classmethod
     def add_console_arguments(cls, parser: argparse.ArgumentParser) -> None:
@@ -110,18 +110,23 @@ class GameboyColor(Console):
             action="store_true",
             help="Force the emulator to treat the rom as a GB file",
         )
+        parser.add_argument(
+            "--save-directory",
+            "--sd",
+            type=pathlib.Path,
+            help="Path to the save directory",
+        )
 
     def __init__(self, args: argparse.Namespace):
         super().__init__(args)
         self.gb = GB()
         self.force_gameboy = args.force_gameboy
-        self.save_directory = (
-            tempfile.mkdtemp() if args.input_file is not None else None
-        )
 
         # Set save_directory
-        if self.save_directory:
-            self.gb.set_save_directory(self.save_directory)
+        if args.save_directory is not None:
+            self.gb.set_save_directory(str(args.save_directory.absolute()))
+        elif args.input_file is not None:
+            self.gb.set_save_directory(tempfile.mkdtemp())
 
         # Load the rom
         return_code = self.gb.load(self.romfile, 1 if self.force_gameboy else 0)
