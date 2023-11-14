@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-import os
 import glob
 from pathlib import Path
 from setuptools import Extension, setup
+
+import numpy
 
 # Read the contents of the README file
 LONG_DESCRIPTION = (Path(__file__).parent / "README.md").read_text()
@@ -24,23 +25,11 @@ libgambatte_include_dirs: list[str] = list(
 )
 
 
-# Defer call to `numpy.get_include`
-class NumpyIncludePath:
-    def __str__(self) -> str:
-        return self.__fspath__()
-
-    def __fspath__(self) -> str:
-        import numpy
-
-        include_path: str = numpy.get_include()
-        return os.fspath(include_path)
-
-
 # The gambatte extension, including libgambatte with the Cython wrapper
 gambatte_extension = Extension(
     "gambaterm.libgambatte",
     language="c++",
-    include_dirs=libgambatte_include_dirs + [NumpyIncludePath()],  # type: ignore[list-item]
+    include_dirs=libgambatte_include_dirs + [numpy.get_include()],
     extra_compile_args=["-DHAVE_STDINT_H"],
     sources=libgambatte_sources + ["libgambatte_ext/libgambatte.pyx"],
 )
@@ -50,7 +39,7 @@ gambatte_extension = Extension(
 termblit_extension = Extension(
     "gambaterm.termblit",
     language="c",
-    include_dirs=[NumpyIncludePath()],  # type: ignore[list-item]
+    include_dirs=[numpy.get_include()],
     sources=["termblit_ext/termblit.pyx"],
 )
 
@@ -58,7 +47,6 @@ setup(
     name="gambaterm",
     version="0.12.2",
     packages=["gambaterm"],
-    setup_requires=["setuptools>=42", "Cython>=0.29.13", "numpy"],
     ext_modules=[gambatte_extension, termblit_extension],
     install_requires=[
         "numpy>=1.20",
