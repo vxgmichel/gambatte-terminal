@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import time
 import contextlib
 from itertools import count
@@ -29,6 +30,20 @@ def get_ref(width: int, height: int, console: Console) -> tuple[int, int]:
     refx = 2 + max(0, (height - console.HEIGHT // 2) // 2)
     refy = 3 + max(0, (width - console.WIDTH) // 2)
     return refx, refy
+
+
+def write_bytes(app_session: AppSession, video_data: bytes) -> None:
+    # Fix code page issue on windows:
+    # `sys.stdout.buffer.raw` is a `WindowsConsoleIO` that always support UTF-8
+    # regardless of the configured codepage
+    if (
+        sys.platform == "win32"
+        and app_session.output.fileno() == sys.stdout.fileno()
+        and hasattr(sys.stdout.buffer, "raw")
+    ):
+        sys.stdout.buffer.raw.write(video_data)
+    else:
+        os.write(app_session.output.fileno(), video_data)
 
 
 def run(
@@ -140,7 +155,7 @@ def run(
             # Video sync
             if video_data:
                 # Write video frame, might block
-                os.write(app_session.output.fileno(), video_data)
+                write_bytes(app_session, video_data)
                 # Send CPR request
                 if use_cpr_sync:
                     app_session.output.ask_for_cpr()

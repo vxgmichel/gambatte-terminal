@@ -104,7 +104,6 @@ Not all terminals will actually offer a pleasant experience. The main criteria a
 
 - **Support for UTF-8 and good rendering of unicode block elements**
   More specifically the following characters `▄ █ ▀`.
-  Changing the code page might be necessary on windows, using `chcp 65001`.
   Also, the alignement might be off (e.g small spaces between pixels)
   This is not always well supported.
 
@@ -136,8 +135,8 @@ About Windows:
 
 | Windows          | Status     | Colors        | Unicode rendering      | Performance | Comments                 |
 |------------------|------------|---------------|------------------------|-------------|--------------------------|
-| Windows terminal | Unpleasant | 24-bit colors | Good (`chcp 65001`)    | 30 FPS      | Buggy display            |
-| Cmder            | Unplayable | 24-bit colors | Good (`chcp 65001`)    | 2 FPS       | No window title          |
+| Windows terminal | Unpleasant | 24-bit colors | Good                   | 30 FPS      | Buggy display            |
+| Cmder            | Unplayable | 24-bit colors | Good                   | 2 FPS       | No window title          |
 | Terminus         | Unplayable | 24-bit colors | Misalignments          | 10 FPS      |                          |
 | Command prompt   | Broken     | N/A           | N/A                    | N/A         | No ANSI code support     |
 | Git bash         | Broken     | N/A           | N/A                    | N/A         | Doesn't work with winpty |
