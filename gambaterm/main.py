@@ -120,7 +120,6 @@ def main(
     with create_app_session() as app_session:
         with app_session.input.raw_mode():
             try:
-
                 # Detect color mode
                 if args.color_mode is None:
                     args.color_mode = detect_local_color_mode(app_session)
@@ -135,7 +134,6 @@ def main(
                 with input_context as get_gb_input:
                     player = no_audio if args.disable_audio else audio_player
                     with player(console, args.speed_factor) as audio_out:
-
                         # Run the emulator
                         run(
                             console,

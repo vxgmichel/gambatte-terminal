@@ -15,7 +15,6 @@ if TYPE_CHECKING:
 
 
 class AudioOut:
-
     output_rate: float = 48000.0
     buffer_size: int = int(output_rate // 60)
 

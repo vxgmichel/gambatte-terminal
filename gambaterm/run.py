@@ -78,7 +78,6 @@ def run(
 
     # Loop over emulator frames
     for i in count():
-
         # Add total deltas
         if frame_start_time is not None:
             total_deltas.append(time.perf_counter() - frame_start_time)

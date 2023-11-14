@@ -75,7 +75,7 @@ def bind_resize_process_to_app_session(
         return original_method(width, height, pixheight, pixwidth)
 
     try:
-        process.terminal_size_changed = terminal_size_changed  # type: ignore[assignment]
+        process.terminal_size_changed = terminal_size_changed  # type: ignore[method-assign]
         yield
     finally:
         del process.terminal_size_changed

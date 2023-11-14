@@ -52,7 +52,10 @@ async def safe_ssh_process_handler(process: SSHServerProcess[str]) -> None:
     except KeyboardInterrupt:
         result = 1
     except SystemExit as e:
-        result = e.code or 0
+        if isinstance(e.code, int):
+            result = e.code
+        else:
+            result = 1 if e.code else 0
     except BaseException:
         traceback.print_exc()
         result = 1
@@ -74,7 +77,7 @@ async def ssh_process_handler(process: SSHServerProcess[str]) -> int:
     # Check command
     if command is not None:
         parser = argparse.ArgumentParser()
-        parser._print_message = lambda message, file=None: type(parser)._print_message(  # type: ignore[assignment]
+        parser._print_message = lambda message, file=None: type(parser)._print_message(  # type: ignore[method-assign]
             parser, message, file=cast(IO[str], process.stdout)
         )
         add_optional_arguments(parser)
@@ -313,7 +316,6 @@ def main(
 
     # Run an executor with no limit on the number of threads
     with ThreadPoolExecutor(max_workers=32) as executor:
-
         # Run the server in asyncio
         asyncio.run(run_server(app_config, executor))
 
