@@ -45,8 +45,12 @@ def detect_color_mode(env: dict[str, str]) -> ColorMode:
     colorterm = env.get("COLORTERM", "").lower()
     term_program = env.get("TERM_PROGRAM", "").lower()
     term_program_version = env.get("TERM_PROGRAM_VERSION", "").lower()
+    con_emu_ansi = env.get("ConEmuANSI", "").lower()
     # True color, says $COLORTERM
     if "truecolor" in colorterm or "24bit" in colorterm:
+        return ColorMode.HAS_24_BIT_COLOR
+    # Windows
+    if con_emu_ansi == "on":
         return ColorMode.HAS_24_BIT_COLOR
     # Apple terminal
     if term_program == "apple_terminal":

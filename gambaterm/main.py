@@ -10,7 +10,7 @@ from prompt_toolkit.application import create_app_session
 from .run import run
 from .console import GameboyColor, Console
 from .audio import audio_player, no_audio
-from .colors import detect_local_color_mode
+from .colors import detect_local_color_mode, ColorMode
 from .keyboard_input import console_input_from_keyboard_context
 from .controller_input import combine_console_input_from_controller_context
 from .file_input import console_input_from_file_context, write_input_context
@@ -113,8 +113,10 @@ def main(
     if args.write_input:
         input_context = write_input_context(console, input_context, args.write_input)
 
-    if args.color_mode == 0:
-        raise RuntimeError("No color mode seems to be supported")
+    if args.color_mode not in [None, 1, 2, 3, 4]:
+        exit(
+            f"Invalid color mode `{args.color_mode}`: the value must be between 1 and 4"
+        )
 
     # Enter terminal raw mode
     with create_app_session() as app_session:
@@ -123,6 +125,12 @@ def main(
                 # Detect color mode
                 if args.color_mode is None:
                     args.color_mode = detect_local_color_mode(app_session)
+                    if args.color_mode == ColorMode.NO_COLOR:
+                        raise exit(
+                            """\
+The ANSI color support for your terminal could not be detected from your environment.
+Try to force a color mode using the `--color-mode` option with a value between 1 and 4."""
+                        )
 
                 # Prepare alternate screen
                 app_session.output.enter_alternate_screen()

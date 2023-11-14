@@ -122,7 +122,9 @@ sandbox. More information here: https://security.stackexchange.com/a/7496
 
     if color_mode == ColorMode.NO_COLOR:
         print(
-            "Your terminal `{terminal_type}` doesn't seem to support colors.",
+            f"""\
+Your terminal `{terminal_type}` doesn't seem to support colors.
+Try to force a color mode by appending `-t -- --color-mode 3` to the ssh command""",
             file=process.stdout,
         )
         print(f"< User `{username}`terminal `{terminal_type}` does not support colors")

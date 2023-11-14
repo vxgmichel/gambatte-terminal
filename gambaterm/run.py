@@ -36,12 +36,9 @@ def write_bytes(app_session: AppSession, video_data: bytes) -> None:
     # Fix code page issue on windows:
     # `sys.stdout.buffer.raw` is a `WindowsConsoleIO` that always support UTF-8
     # regardless of the configured codepage
-    if (
-        sys.platform == "win32"
-        and app_session.output.fileno() == sys.stdout.fileno()
-        and hasattr(sys.stdout.buffer, "raw")
-    ):
-        sys.stdout.buffer.raw.write(video_data)
+    if sys.platform == "win32" and app_session.output.fileno() == sys.stdout.fileno():
+        sys.stdout.buffer.write(video_data)
+        sys.stdout.buffer.flush()
     else:
         os.write(app_session.output.fileno(), video_data)
 
