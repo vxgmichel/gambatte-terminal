@@ -15,7 +15,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - uses: actions/setup-python@v2
-      - uses: pre-commit/action@v2.0.0
+      - uses: pre-commit/action@v3.0.0
 
   build_wheels:
     name: Build wheels on ${{ matrix.os }}
@@ -46,8 +46,11 @@ jobs:
       - uses: actions/setup-python@v2
         name: Install Python
 
+      - name: Install pypa/build
+        run: pip install build
+
       - name: Build sdist
-        run: python setup.py sdist
+        run: python -m build . --sdist
 
       - uses: actions/upload-artifact@v2
         with:
