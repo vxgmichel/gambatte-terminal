@@ -272,8 +272,9 @@ async def run_server(
     )
     bind, port = server.sockets[0].getsockname()
     print(f"Running ssh server on {bind}:{port}...", flush=True)
-
-    await server.wait_closed()
+    async with server:
+        # Sleep forever
+        await asyncio.Future()
 
 
 def main(
