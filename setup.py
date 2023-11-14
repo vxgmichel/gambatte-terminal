@@ -45,7 +45,7 @@ termblit_extension = Extension(
 
 setup(
     name="gambaterm",
-    version="0.12.2",
+    version="0.12.3",
     packages=["gambaterm"],
     ext_modules=[gambatte_extension, termblit_extension],
     install_requires=[
