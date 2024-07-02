@@ -24,14 +24,20 @@ libgambatte_include_dirs: list[str] = list(
     )
 )
 
-
 # The gambatte extension, including libgambatte with the Cython wrapper
 gambatte_extension = Extension(
     "gambaterm.libgambatte",
     language="c++",
-    include_dirs=libgambatte_include_dirs + [numpy.get_include()],
+    include_dirs=[
+        *libgambatte_include_dirs,
+        "libgambatte_ext",
+        numpy.get_include(),
+    ],
     extra_compile_args=["-DHAVE_STDINT_H"],
-    sources=libgambatte_sources + ["libgambatte_ext/libgambatte.pyx"],
+    sources=[
+        *libgambatte_sources,
+        "libgambatte_ext/libgambatte.pyx",
+    ],
 )
 
 
