@@ -59,7 +59,7 @@ setup(
         "asyncssh>=2.9",
         "prompt_toolkit>=3.0.29",
         "sounddevice",
-        "samplerate",
+        "samplerate==0.1.0",  # See https://github.com/tuxu/python-samplerate/issues/19
         "python-xlib; sys_platform == 'linux'",
         "pynput; sys_platform != 'linux'",
     ],
