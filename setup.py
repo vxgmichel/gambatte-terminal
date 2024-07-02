@@ -24,14 +24,20 @@ libgambatte_include_dirs: list[str] = list(
     )
 )
 
-
 # The gambatte extension, including libgambatte with the Cython wrapper
 gambatte_extension = Extension(
     "gambaterm.libgambatte",
     language="c++",
-    include_dirs=libgambatte_include_dirs + [numpy.get_include()],
+    include_dirs=[
+        *libgambatte_include_dirs,
+        "libgambatte_ext",
+        numpy.get_include(),
+    ],
     extra_compile_args=["-DHAVE_STDINT_H"],
-    sources=libgambatte_sources + ["libgambatte_ext/libgambatte.pyx"],
+    sources=[
+        *libgambatte_sources,
+        "libgambatte_ext/libgambatte.pyx",
+    ],
 )
 
 
@@ -49,16 +55,16 @@ setup(
     packages=["gambaterm"],
     ext_modules=[gambatte_extension, termblit_extension],
     install_requires=[
-        "numpy>=1.20",
-        "asyncssh>=2.9",
-        "prompt_toolkit>=3.0.29",
-        "sounddevice",
-        "samplerate",
+        "numpy~=1.20",
+        "asyncssh~=2.9",
+        "prompt_toolkit~=3.0.29",
+        "sounddevice~=0.4",
+        "samplerate~=0.1.0",  # See https://github.com/tuxu/python-samplerate/issues/19
         "python-xlib; sys_platform == 'linux'",
         "pynput; sys_platform != 'linux'",
     ],
     extras_require={
-        "controller-support": ["pygame>=1.9.5"],
+        "controller-support": ["pygame~=1.9.5"],
     },
     python_requires=">=3.7",
     entry_points={

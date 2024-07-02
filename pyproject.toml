@@ -22,15 +22,16 @@ module = [
 ignore_missing_imports = true
 
 [tool.cibuildwheel]
-build = "cp*-win_amd64 cp*-manylinux_x86_64 cp*-macosx_x86_64"
+build = "cp*-win_amd64 cp*-manylinux_x86_64 cp*-macosx_x86_64 cp*-macosx_arm64"
 skip = "cp36*"
+test-skip = "cp38-macosx_*:arm64"
 
 [tool.cibuildwheel.windows]
 test-command = "gambaterm --help"
 
 [tool.cibuildwheel.macos]
 test-requires = "pytest"
-test-command = "pytest {project}/tests -v -k 'not test_gambaterm[interactive]'"
+test-command = "pytest {project}/tests -v -k 'test_gambaterm[non-interactive]'"
 
 [tool.cibuildwheel.linux]
 before-all = "yum install -y libsamplerate portaudio openssh-clients"
