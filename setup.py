@@ -55,16 +55,16 @@ setup(
     packages=["gambaterm"],
     ext_modules=[gambatte_extension, termblit_extension],
     install_requires=[
-        "numpy>=1.20",
-        "asyncssh>=2.9",
-        "prompt_toolkit>=3.0.29",
-        "sounddevice",
-        "samplerate==0.1.0",  # See https://github.com/tuxu/python-samplerate/issues/19
+        "numpy~=1.20",
+        "asyncssh~=2.9",
+        "prompt_toolkit~=3.0.29",
+        "sounddevice~=0.4",
+        "samplerate~=0.1.0",  # See https://github.com/tuxu/python-samplerate/issues/19
         "python-xlib; sys_platform == 'linux'",
         "pynput; sys_platform != 'linux'",
     ],
     extras_require={
-        "controller-support": ["pygame>=1.9.5"],
+        "controller-support": ["pygame~=1.9.5"],
     },
     python_requires=">=3.7",
     entry_points={
