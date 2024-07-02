@@ -22,7 +22,7 @@ module = [
 ignore_missing_imports = true
 
 [tool.cibuildwheel]
-build = "cp*-win_amd64 cp*-manylinux_x86_64 cp*-macosx_x86_64"
+build = "cp*-win_amd64 cp*-manylinux_x86_64 cp*-macosx_x86_64 cp*-macosx_arm64"
 skip = "cp36*"
 
 [tool.cibuildwheel.windows]
