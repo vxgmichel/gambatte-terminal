@@ -68,8 +68,6 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: dist
+          merge-multiple: true
 
       - uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          user: __token__
-          password: ${{ secrets.pypi_password }}
