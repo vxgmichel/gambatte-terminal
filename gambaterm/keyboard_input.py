@@ -116,9 +116,12 @@ def xlib_key_pressed_context(
         focused = True
         # Save current focus, as it is likely to be the terminal window
         term_window = xdisplay.get_input_focus().focus
-        term_window.xinput_select_events(
-            [(xinput.AllDevices, xinput.FocusInMask | xinput.FocusOutMask)]
-        )
+        if isinstance(term_window, int):
+            logging.warning("term_window is an integer, skipping xinput_select_events call")
+        else:
+            term_window.xinput_select_events(
+                [(xinput.AllDevices, xinput.FocusInMask | xinput.FocusOutMask)]
+            )
         # It is possible the select events directly on the terminal window, but for some
         # reasons, the events won't be propagated for some terminals like kitty.
         # Instead, we select the events on the root windows and then perform some
@@ -216,15 +219,31 @@ def pynput_key_pressed_context(
         listener.stop()
 
 
+def detect_display_server() -> str:
+    if "WAYLAND_DISPLAY" in os.environ:
+        return "wayland"
+    elif "DISPLAY" in os.environ:
+        return "x11"
+    else:
+        return "unknown"
+
+
 @contextmanager
 def console_input_from_keyboard_context(
     console: Console, display: str | None = None
 ) -> Iterator[InputGetter]:
-    if sys.platform == "linux":
+    display_server = detect_display_server()
+    if display_server == "x11":
         current_pressed: set[int] = set()
         input_mapping = get_xlib_input_mapping(console)
         event_mapping = get_xlib_event_mapping(console)
         key_pressed_context = xlib_key_pressed_context
+    elif display_server == "wayland":
+        from .wayland_input import wayland_key_pressed_context
+        current_pressed: set[str] = set()
+        input_mapping = get_keyboard_input_mapping(console)
+        event_mapping = get_keyboard_event_mapping(console)
+        key_pressed_context = wayland_key_pressed_context
     else:
         current_pressed: set[str] = set()
         input_mapping = get_keyboard_input_mapping(console)
