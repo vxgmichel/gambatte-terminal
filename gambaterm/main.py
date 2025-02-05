@@ -14,6 +14,7 @@ from .colors import detect_local_color_mode, ColorMode
 from .keyboard_input import console_input_from_keyboard_context
 from .controller_input import combine_console_input_from_controller_context
 from .file_input import console_input_from_file_context, write_input_context
+from .wayland_input import wayland_key_pressed_context
 
 
 def add_base_arguments(parser: argparse.ArgumentParser) -> None:
