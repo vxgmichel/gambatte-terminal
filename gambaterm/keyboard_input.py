@@ -380,6 +380,26 @@ def console_input_from_keyboard_context(
         yield get_input
 
 
+def _run_input_loop(session, get_pressed, mapping):
+    while True:
+        # Read keys
+        for key in session.input.read_keys():
+            if key.key == "c-c":
+                raise KeyboardInterrupt
+            if key.key == "c-d":
+                raise EOFError
+        # Get codes
+        codes = list(map(mapping, get_pressed()))
+        # Print pressed key codes
+        print(*codes, flush=True, end="")
+        # Tick
+        time.sleep(1 / 30)
+        # Clear line and hide cursor
+        session.output.write_raw("\r")
+        session.output.erase_down()
+        # Flush output
+        session.output.flush()
+
 def main() -> None:
     if sys.platform != "linux":
         print("This input test is only for linux")
@@ -392,49 +412,16 @@ def main() -> None:
                 if os.environ.get("XDG_SESSION_TYPE") == "wayland":
                     key_pressed_context = evdev_key_pressed_context
                     mapping = lambda code: evdev.ecodes.KEY[code]
+                    with key_pressed_context() as get_pressed:
+                        _run_input_loop(session, get_pressed, mapping)
                 else:
                     key_pressed_context = xlib_key_pressed_context
                     reverse_lookup = {
                         v: k[3:] for k, v in XK.__dict__.items() if k.startswith("XK_")
                     }
                     mapping = reverse_lookup.get
-
-                if os.environ.get("XDG_SESSION_TYPE") == "wayland":
-                    with evdev_key_pressed_context() as get_pressed:
-                        while True:
-                            for key in session.input.read_keys():
-                                if key.key == "c-c":
-                                    raise KeyboardInterrupt
-                                if key.key == "c-d":
-                                    raise EOFError
-                            
-                            codes = list(map(mapping, get_pressed()))
-                            
-                            print(*codes, flush=True, end="")
-                            
-                            time.sleep(1 / 30);
-                            
-                            session.output.write_raw("\r")
-                            session.output.erase_down()
-                            session.output.flush()
-                else:
-                    with xlib_key_pressed_context() as get_pressed:
-                        while True:
-                            for key in session.input.read_keys():
-                                if key.key == "c-c":
-                                    raise KeyboardInterrupt
-                                if key.key == "c-d":
-                                    raise EOFError
-                            
-                            codes = list(map(mapping, get_pressed()))
-                            
-                            print(*codes, flush=True, end="")
-                            
-                            time.sleep(1 / 30);
-                            
-                            session.output.write_raw("\r")
-                            session.output.erase_down()
-                            session.output.flush()
+                    with key_pressed_context() as get_pressed:
+                        _run_input_loop(session, get_pressed, mapping)
             except (KeyboardInterrupt, EOFError):
                 pass
             finally:
