@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import time
 import argparse
+import logging
 
 from prompt_toolkit.application import create_app_session
 
@@ -96,7 +97,16 @@ def main(
     parser.add_argument(
         "--disable-audio", "--da", action="store_true", help="Disable audio entirely"
     )
+    parser.add_argument(
+        "--log-file",
+        type=str,
+        default="gambaterm.log",
+        help="Path to a file to write logs to (default is gambaterm.log)",
+    )
     args: argparse.Namespace = parser.parse_args(parser_args)
+
+    logging.basicConfig(filename=args.log_file, level=logging.INFO)
+
     console = console_cls(args)
 
     if args.input_file is not None:

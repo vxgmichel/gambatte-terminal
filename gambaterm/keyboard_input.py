@@ -3,19 +3,194 @@ from __future__ import annotations
 import sys
 import time
 import logging
+import threading
+import os
+import subprocess
+import json
 from contextlib import contextmanager, closing
 from typing import Callable, Iterator, TYPE_CHECKING
 from prompt_toolkit.application import create_app_session
 
 from .console import Console, InputGetter
 
+_last_focus_check_time = 0.0
+_last_focus_state = True # Assume focused initially
+
+def is_terminal_focused() -> bool:
+    """
+    Checks if the terminal running gambaterm is currently focused in Hyprland.
+    Caches the result for a short period to reduce overhead.
+    """
+    # If not running on Hyprland, return True immediately.
+    # This is a workaround for environments where focus detection is not supported
+    # or causes issues.
+    if "Hyprland" not in os.environ.get("XDG_CURRENT_DESKTOP", ""):
+        return True
+
+    global _last_focus_check_time, _last_focus_state
+    
+    # Cache duration in seconds
+    CACHE_DURATION = 0.2 # 200ms
+
+    current_time = time.time()
+    if (current_time - _last_focus_check_time) < CACHE_DURATION:
+        return _last_focus_state
+
+    try:
+        current_pid = os.getpid()
+        logging.debug(f"Current gambaterm PID: {current_pid}")
+
+        def get_process_info(pid: int) -> tuple[str, int]:
+            """Helper to get process name and parent PID."""
+            try:
+                # Use ps to get command name and parent PID
+                ps_output = subprocess.run(
+                    ['ps', '-o', 'comm=', '-o', 'ppid=', '-p', str(pid)],
+                    capture_output=True, text=True, check=True
+                ).stdout.strip()
+                parts = ps_output.split()
+                if len(parts) == 2:
+                    return parts[0], int(parts[1])
+                return "", 0 # Should not happen if ps output is as expected
+            except (subprocess.CalledProcessError, ValueError):
+                return "", 0
+
+        # Find the terminal emulator's PID by traversing the process tree
+        terminal_emulator_pid = 0
+        pid_to_check = current_pid
+        
+        # List of common terminal emulator process names
+        terminal_emulators = ["kitty", "wezterm", "alacritty", "gnome-terminal-", "konsole", "foot"]
+
+        # Traverse up the process tree
+        while pid_to_check != 0:
+            comm, ppid = get_process_info(pid_to_check)
+            logging.debug(f"Checking PID {pid_to_check}: comm='{comm}', ppid={ppid}")
+            
+            if any(term_name in comm for term_name in terminal_emulators):
+                terminal_emulator_pid = pid_to_check
+                logging.debug(f"Identified terminal emulator PID: {terminal_emulator_pid} ({comm})")
+                break
+            
+            if pid_to_check == ppid: # Reached init or systemd, or a loop
+                break
+            
+            pid_to_check = ppid
+            if pid_to_check == 1: # Reached init process, stop
+                break
+
+        if terminal_emulator_pid == 0:
+            logging.warning("Could not identify terminal emulator PID. Assuming focused.")
+            _last_focus_state = True
+            _last_focus_check_time = current_time
+            return True
+
+        # Get active window info from Hyprland
+        result = subprocess.run(['hyprctl', 'activewindow', '-j'], capture_output=True, text=True, check=True)
+        active_window_data = json.loads(result.stdout)
+        logging.debug(f"Hyprctl activewindow data: {active_window_data}")
+
+        focused_pid = active_window_data.get('pid')
+        focused_title = active_window_data.get('title')
+        focused_class = active_window_data.get('class')
+        logging.debug(f"Focused client: PID={focused_pid}, Title='{focused_title}', Class='{focused_class}'")
+
+        is_focused = False
+        if focused_pid == terminal_emulator_pid:
+            logging.debug("Terminal is focused.")
+            is_focused = True
+        else:
+            logging.debug("Terminal is not focused.")
+            is_focused = False
+        
+        _last_focus_state = is_focused
+        _last_focus_check_time = current_time
+        return is_focused
+
+    except FileNotFoundError:
+        logging.warning("Error: 'hyprctl' or 'ps' command not found. Make sure they are installed and in your PATH.")
+        _last_focus_state = True # Assume focused if commands are missing
+        _last_focus_check_time = current_time
+        return True
+    except subprocess.CalledProcessError as e:
+        logging.warning(f"Error executing command: {e}\nStderr: {e.stderr}")
+        _last_focus_state = True # Assume focused on error
+        _last_focus_check_time = current_time
+        return True
+    except json.JSONDecodeError:
+        logging.warning("Error: Could not decode JSON from 'hyprctl activewindow -j'.")
+        _last_focus_state = True # Assume focused on JSON error
+        _last_focus_check_time = current_time
+        return True
+
+
+
+if sys.platform == "linux":
+    try:
+        import evdev
+    except ImportError:
+        evdev = None
+    try:
+        from Xlib import XK
+        from Xlib.ext import xinput
+        from Xlib.display import Display
+    except ImportError:
+        XK = None
+        xinput = None
+        Display = None
+else:
+    evdev = None
+    XK = None
+    xinput = None
+    Display = None
+
 if TYPE_CHECKING:
     import pynput
 
 
-def get_xlib_input_mapping(console: Console) -> dict[int, Console.Input]:
-    from Xlib import XK
+def get_evdev_input_mapping(console: Console) -> dict[int, Console.Input]:
+    return {
+        # Directions
+        evdev.ecodes.KEY_UP: console.Input.UP,
+        evdev.ecodes.KEY_DOWN: console.Input.DOWN,
+        evdev.ecodes.KEY_LEFT: console.Input.LEFT,
+        evdev.ecodes.KEY_RIGHT: console.Input.RIGHT,
+        # A button
+        evdev.ecodes.KEY_F: console.Input.A,
+        evdev.ecodes.KEY_V: console.Input.A,
+        evdev.ecodes.KEY_SPACE: console.Input.A,
+        # B button
+        evdev.ecodes.KEY_D: console.Input.B,
+        evdev.ecodes.KEY_C: console.Input.B,
+        evdev.ecodes.KEY_LEFTALT: console.Input.B,
+        evdev.ecodes.KEY_RIGHTALT: console.Input.B,
+        # Start button
+        evdev.ecodes.KEY_ENTER: console.Input.START,
+        evdev.ecodes.KEY_RIGHTCTRL: console.Input.START,
+        # Select button
+        evdev.ecodes.KEY_RIGHTSHIFT: console.Input.SELECT,
+        evdev.ecodes.KEY_DELETE: console.Input.SELECT,
+    }
 
+
+def get_evdev_event_mapping(console: Console) -> dict[int, Console.Event]:
+    return {
+        evdev.ecodes.KEY_0: console.Event.SELECT_STATE_0,
+        evdev.ecodes.KEY_1: console.Event.SELECT_STATE_1,
+        evdev.ecodes.KEY_2: console.Event.SELECT_STATE_2,
+        evdev.ecodes.KEY_3: console.Event.SELECT_STATE_3,
+        evdev.ecodes.KEY_4: console.Event.SELECT_STATE_4,
+        evdev.ecodes.KEY_5: console.Event.SELECT_STATE_5,
+        evdev.ecodes.KEY_6: console.Event.SELECT_STATE_6,
+        evdev.ecodes.KEY_7: console.Event.SELECT_STATE_7,
+        evdev.ecodes.KEY_8: console.Event.SELECT_STATE_8,
+        evdev.ecodes.KEY_9: console.Event.SELECT_STATE_9,
+        evdev.ecodes.KEY_L: console.Event.LOAD_STATE,
+        evdev.ecodes.KEY_K: console.Event.SAVE_STATE,
+    }
+
+
+def get_xlib_input_mapping(console: Console) -> dict[int, Console.Input]:
     return {
         # Directions
         XK.XK_Up: console.Input.UP,
@@ -41,8 +216,6 @@ def get_xlib_input_mapping(console: Console) -> dict[int, Console.Input]:
 
 
 def get_xlib_event_mapping(console: Console) -> dict[int, Console.Event]:
-    from Xlib import XK
-
     return {
         XK.XK_0: console.Event.SELECT_STATE_0,
         XK.XK_1: console.Event.SELECT_STATE_1,
@@ -59,7 +232,7 @@ def get_xlib_event_mapping(console: Console) -> dict[int, Console.Event]:
     }
 
 
-def get_keyboard_input_mapping(console: Console) -> dict[str, Console.Input]:
+def get_pynput_input_mapping(console: Console) -> dict[str, Console.Input]:
     return {
         # Directions
         "up": console.Input.UP,
@@ -84,7 +257,7 @@ def get_keyboard_input_mapping(console: Console) -> dict[str, Console.Input]:
     }
 
 
-def get_keyboard_event_mapping(console: Console) -> dict[str, Console.Event]:
+def get_pynput_event_mapping(console: Console) -> dict[str, Console.Event]:
     return {
         "0": console.Event.SELECT_STATE_0,
         "1": console.Event.SELECT_STATE_1,
@@ -102,11 +275,75 @@ def get_keyboard_event_mapping(console: Console) -> dict[str, Console.Event]:
 
 
 @contextmanager
+def evdev_key_pressed_context(
+    device_path: str | None = None,
+) -> Iterator[Callable[[], set[int]]]:
+    if evdev is None:
+        raise RuntimeError("evdev library not found.")
+
+    try:
+        if device_path is None:
+            devices = [evdev.InputDevice(path) for path in evdev.list_devices()]
+            keyboards = [
+                device
+                for device in devices
+                if evdev.ecodes.EV_KEY in device.capabilities()
+            ]
+            if not keyboards:
+                logging.warning("No keyboards found.")
+                raise ValueError("No keyboards found")
+            logging.info(f"Found keyboards: {[d.name for d in keyboards]}")
+            keyboard = next((d for d in keyboards if "keyboard" in d.name.lower()), None)
+            if keyboard is None:
+                logging.warning("No keyboard found, falling back to first device.")
+                device = keyboards[0]
+            else:
+                device = keyboard
+            logging.info(f"Using device: {device.name}")
+        else:
+            device = evdev.InputDevice(device_path)
+            logging.info(f"Using device: {device.name}")
+    except PermissionError:
+        print("Permission denied to read from /dev/input/*.", file=sys.stderr)
+        print("Please add your user to the 'input' group:", file=sys.stderr)
+        print(f"  sudo usermod -aG input $USER", file=sys.stderr)
+        print("Then, log out and log back in for the change to take effect.", file=sys.stderr)
+        raise
+
+    pressed: set[int] = set()
+    stop_event = threading.Event()
+
+    def read_loop() -> None:
+        try:
+            for event in device.read_loop():
+                if stop_event.is_set():
+                    break
+                # Only process events if the terminal is focused
+                if not is_terminal_focused():
+                    continue
+                if event.type == evdev.ecodes.EV_KEY:
+                    if event.value == 1:  # Key press
+                        pressed.add(event.code)
+                    elif event.value == 0:  # Key release
+                        pressed.discard(event.code)
+        except OSError as e:
+            logging.warning(f"evdev loop error: {e}")
+
+    thread = threading.Thread(target=read_loop, daemon=True)
+
+    try:
+        thread.start()
+        yield lambda: pressed
+    finally:
+        stop_event.set()
+
+
+@contextmanager
 def xlib_key_pressed_context(
     display: str | None = None,
 ) -> Iterator[Callable[[], set[int]]]:
-    from Xlib.ext import xinput
-    from Xlib.display import Display
+    if XK is None or xinput is None or Display is None:
+        raise RuntimeError("Xlib library not found.")
 
     with closing(Display(display)) as xdisplay:
         extension_info = xdisplay.query_extension("XInputExtension")
@@ -221,19 +458,26 @@ def console_input_from_keyboard_context(
     console: Console, display: str | None = None
 ) -> Iterator[InputGetter]:
     if sys.platform == "linux":
-        current_pressed: set[int] = set()
-        input_mapping = get_xlib_input_mapping(console)
-        event_mapping = get_xlib_event_mapping(console)
-        key_pressed_context = xlib_key_pressed_context
+        if os.environ.get("XDG_SESSION_TYPE") == "wayland":
+            key_pressed_context = evdev_key_pressed_context
+            input_mapping = get_evdev_input_mapping(console)
+            event_mapping = get_evdev_event_mapping(console)
+            current_pressed: set[int] = set()
+        else:
+            key_pressed_context = xlib_key_pressed_context
+            input_mapping = get_xlib_input_mapping(console)
+            event_mapping = get_xlib_event_mapping(console)
+            current_pressed: set[int] = set()
     else:
-        current_pressed: set[str] = set()
-        input_mapping = get_keyboard_input_mapping(console)
-        event_mapping = get_keyboard_event_mapping(console)
         key_pressed_context = pynput_key_pressed_context
+        input_mapping = get_pynput_input_mapping(console)
+        event_mapping = get_pynput_event_mapping(console)
+        current_pressed: set[str] = set()
 
     def get_input() -> set[Console.Input]:
         nonlocal current_pressed
-        old_pressed, current_pressed = current_pressed, set(get_pressed())
+        new_pressed = set(get_pressed())
+        old_pressed, current_pressed = current_pressed, new_pressed
         for event in map(event_mapping.get, current_pressed - old_pressed):
             if event is None:
                 continue
@@ -244,46 +488,57 @@ def console_input_from_keyboard_context(
             if keysym in input_mapping
         }
 
-    with key_pressed_context(display=display) as get_pressed:
+    if key_pressed_context == evdev_key_pressed_context:
+        with key_pressed_context() as get_pressed:
+            yield get_input
+    else:
+        with key_pressed_context(display=display) as get_pressed:
+            yield get_input
         yield get_input
 
 
-def main() -> None:
-    if sys.platform == "linux":
-        from Xlib import XK
+def _run_input_loop(session, get_pressed, mapping):
+    while True:
+        # Read keys
+        for key in session.input.read_keys():
+            if key.key == "c-c":
+                raise KeyboardInterrupt
+            if key.key == "c-d":
+                raise EOFError
+        # Get codes
+        codes = list(map(mapping, get_pressed()))
+        # Print pressed key codes
+        print(*codes, flush=True, end="")
+        # Tick
+        time.sleep(1 / 30)
+        # Clear line and hide cursor
+        session.output.write_raw("\r")
+        session.output.erase_down()
+        # Flush output
+        session.output.flush()
 
-        key_pressed_context = xlib_key_pressed_context
-        reverse_lookup = {
-            v: k[3:] for k, v in XK.__dict__.items() if k.startswith("XK_")
-        }
-        mapping = reverse_lookup.get
-    else:
-        key_pressed_context = pynput_key_pressed_context
-        mapping = str
+def main() -> None:
+    if sys.platform != "linux":
+        print("This input test is only for linux")
+        return
 
     with create_app_session() as session:
         with session.input.raw_mode():
             try:
                 session.output.hide_cursor()
-                with key_pressed_context() as get_pressed:
-                    while True:
-                        # Read keys
-                        for key in session.input.read_keys():
-                            if key.key == "c-c":
-                                raise KeyboardInterrupt
-                            if key.key == "c-d":
-                                raise EOFError
-                        # Get codes
-                        codes = list(map(mapping, get_pressed()))
-                        # Print pressed key codes
-                        print(*codes, flush=True, end="")
-                        # Tick
-                        time.sleep(1 / 30)
-                        # Clear line and hide cursor
-                        session.output.write_raw("\r")
-                        session.output.erase_down()
-                        # Flush output
-                        session.output.flush()
+                if os.environ.get("XDG_SESSION_TYPE") == "wayland":
+                    key_pressed_context = evdev_key_pressed_context
+                    mapping = lambda code: evdev.ecodes.KEY[code]
+                    with key_pressed_context() as get_pressed:
+                        _run_input_loop(session, get_pressed, mapping)
+                else:
+                    key_pressed_context = xlib_key_pressed_context
+                    reverse_lookup = {
+                        v: k[3:] for k, v in XK.__dict__.items() if k.startswith("XK_")
+                    }
+                    mapping = reverse_lookup.get
+                    with key_pressed_context() as get_pressed:
+                        _run_input_loop(session, get_pressed, mapping)
             except (KeyboardInterrupt, EOFError):
                 pass
             finally:
