@@ -21,6 +21,12 @@ def is_terminal_focused() -> bool:
     Checks if the terminal running gambaterm is currently focused in Hyprland.
     Caches the result for a short period to reduce overhead.
     """
+    # If not running on Hyprland, return True immediately.
+    # This is a workaround for environments where focus detection is not supported
+    # or causes issues.
+    if "Hyprland" not in os.environ.get("XDG_CURRENT_DESKTOP", ""):
+        return True
+
     global _last_focus_check_time, _last_focus_state
     
     # Cache duration in seconds
