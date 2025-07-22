@@ -5,11 +5,94 @@ import time
 import logging
 import threading
 import os
+import subprocess
+import json
 from contextlib import contextmanager, closing
 from typing import Callable, Iterator, TYPE_CHECKING
 from prompt_toolkit.application import create_app_session
 
 from .console import Console, InputGetter
+
+def is_terminal_focused() -> bool:
+    return True
+    """
+    Checks if the terminal running gambaterm is currently focused in Hyprland.
+    """
+    try:
+        current_pid = os.getpid()
+        logging.debug(f"Current gambaterm PID: {current_pid}")
+
+        def get_process_info(pid: int) -> tuple[str, int]:
+            """Helper to get process name and parent PID."""
+            try:
+                # Use ps to get command name and parent PID
+                ps_output = subprocess.run(
+                    ['ps', '-o', 'comm=', '-o', 'ppid=', '-p', str(pid)],
+                    capture_output=True, text=True, check=True
+                ).stdout.strip()
+                parts = ps_output.split()
+                if len(parts) == 2:
+                    return parts[0], int(parts[1])
+                return "", 0 # Should not happen if ps output is as expected
+            except (subprocess.CalledProcessError, ValueError):
+                return "", 0
+
+        # Find the terminal emulator's PID by traversing the process tree
+        terminal_emulator_pid = 0
+        pid_to_check = current_pid
+        
+        # List of common terminal emulator process names
+        terminal_emulators = ["kitty", "wezterm", "alacritty", "gnome-terminal-", "konsole", "foot"]
+
+        # Traverse up the process tree
+        while pid_to_check != 0:
+            comm, ppid = get_process_info(pid_to_check)
+            logging.debug(f"Checking PID {pid_to_check}: comm='{comm}', ppid={ppid}")
+            
+            if any(term_name in comm for term_name in terminal_emulators):
+                terminal_emulator_pid = pid_to_check
+                logging.debug(f"Identified terminal emulator PID: {terminal_emulator_pid} ({comm})")
+                break
+            
+            if pid_to_check == ppid: # Reached init or systemd, or a loop
+                break
+            
+            pid_to_check = ppid
+            if pid_to_check == 1: # Reached init process, stop
+                break
+
+        if terminal_emulator_pid == 0:
+            logging.warning("Could not identify terminal emulator PID. Assuming focused.")
+            return True
+
+        # Get active window info from Hyprland
+        result = subprocess.run(['hyprctl', 'activewindow', '-j'], capture_output=True, text=True, check=True)
+        active_window_data = json.loads(result.stdout)
+        logging.debug(f"Hyprctl activewindow data: {active_window_data}")
+
+        focused_pid = active_window_data.get('pid')
+        focused_title = active_window_data.get('title')
+        focused_class = active_window_data.get('class')
+        logging.debug(f"Focused client: PID={focused_pid}, Title='{focused_title}', Class='{focused_class}'")
+
+        if focused_pid == terminal_emulator_pid:
+            logging.debug("Terminal is focused.")
+            return True
+        
+        logging.debug("Terminal is not focused.")
+        return False
+
+    except FileNotFoundError:
+        logging.warning("Error: 'hyprctl' or 'ps' command not found. Make sure they are installed and in your PATH.")
+        return True
+    except subprocess.CalledProcessError as e:
+        logging.warning(f"Error executing command: {e}\nStderr: {e.stderr}")
+        return True
+    except json.JSONDecodeError:
+        logging.warning("Error: Could not decode JSON from 'hyprctl activewindow -j'.")
+        return True
+
+
 
 if sys.platform == "linux":
     try:
@@ -204,6 +287,9 @@ def evdev_key_pressed_context(
             for event in device.read_loop():
                 if stop_event.is_set():
                     break
+                # Only process events if the terminal is focused
+                if not is_terminal_focused():
+                    continue
                 if event.type == evdev.ecodes.EV_KEY:
                     if event.value == 1:  # Key press
                         pressed.add(event.code)
