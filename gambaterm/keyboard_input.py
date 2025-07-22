@@ -13,11 +13,23 @@ from prompt_toolkit.application import create_app_session
 
 from .console import Console, InputGetter
 
+_last_focus_check_time = 0.0
+_last_focus_state = True # Assume focused initially
+
 def is_terminal_focused() -> bool:
-    return True
     """
     Checks if the terminal running gambaterm is currently focused in Hyprland.
+    Caches the result for a short period to reduce overhead.
     """
+    global _last_focus_check_time, _last_focus_state
+    
+    # Cache duration in seconds
+    CACHE_DURATION = 0.2 # 200ms
+
+    current_time = time.time()
+    if (current_time - _last_focus_check_time) < CACHE_DURATION:
+        return _last_focus_state
+
     try:
         current_pid = os.getpid()
         logging.debug(f"Current gambaterm PID: {current_pid}")
@@ -63,6 +75,8 @@ def is_terminal_focused() -> bool:
 
         if terminal_emulator_pid == 0:
             logging.warning("Could not identify terminal emulator PID. Assuming focused.")
+            _last_focus_state = True
+            _last_focus_check_time = current_time
             return True
 
         # Get active window info from Hyprland
@@ -75,21 +89,32 @@ def is_terminal_focused() -> bool:
         focused_class = active_window_data.get('class')
         logging.debug(f"Focused client: PID={focused_pid}, Title='{focused_title}', Class='{focused_class}'")
 
+        is_focused = False
         if focused_pid == terminal_emulator_pid:
             logging.debug("Terminal is focused.")
-            return True
+            is_focused = True
+        else:
+            logging.debug("Terminal is not focused.")
+            is_focused = False
         
-        logging.debug("Terminal is not focused.")
-        return False
+        _last_focus_state = is_focused
+        _last_focus_check_time = current_time
+        return is_focused
 
     except FileNotFoundError:
         logging.warning("Error: 'hyprctl' or 'ps' command not found. Make sure they are installed and in your PATH.")
+        _last_focus_state = True # Assume focused if commands are missing
+        _last_focus_check_time = current_time
         return True
     except subprocess.CalledProcessError as e:
         logging.warning(f"Error executing command: {e}\nStderr: {e.stderr}")
+        _last_focus_state = True # Assume focused on error
+        _last_focus_check_time = current_time
         return True
     except json.JSONDecodeError:
         logging.warning("Error: Could not decode JSON from 'hyprctl activewindow -j'.")
+        _last_focus_state = True # Assume focused on JSON error
+        _last_focus_check_time = current_time
         return True
 
 
