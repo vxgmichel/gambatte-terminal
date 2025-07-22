@@ -161,9 +161,8 @@ def evdev_key_pressed_context(
     thread = threading.Thread(target=read_loop, daemon=True)
 
     try:
-        with device.grab_context():
-            thread.start()
-            yield lambda: pressed
+        thread.start()
+        yield lambda: pressed
     finally:
         stop_event.set()
 
