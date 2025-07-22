@@ -62,6 +62,7 @@ setup(
         "samplerate~=0.1.0",  # See https://github.com/tuxu/python-samplerate/issues/19
         "python-xlib; sys_platform == 'linux'",
         "pynput; sys_platform != 'linux'",
+        "evdev; sys_platform == 'linux'",
     ],
     extras_require={
         "controller-support": ["pygame~=1.9.5"],
