@@ -2,7 +2,7 @@
 requires = [
     "setuptools>=42",
     "wheel",
-    "Cython>=0.29.13",
+    "Cython>=0.29.13,<3.0",
     "oldest-supported-numpy",
 ]
 build-backend = "setuptools.build_meta"
@@ -23,8 +23,6 @@ ignore_missing_imports = true
 
 [tool.cibuildwheel]
 build = "cp*-win_amd64 cp*-manylinux_x86_64 cp*-macosx_x86_64 cp*-macosx_arm64"
-skip = "cp36*"
-test-skip = "cp38-macosx_*:arm64"
 
 [tool.cibuildwheel.windows]
 test-command = "gambaterm --help"
