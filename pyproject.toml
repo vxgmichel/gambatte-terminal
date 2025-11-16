@@ -1,11 +1,57 @@
 [build-system]
 requires = [
-    "setuptools>=42",
+    "setuptools>=61.0",
     "wheel",
-    "Cython>=0.29.13,<3.0",
+    "Cython>=3.2.1",
     "oldest-supported-numpy",
 ]
 build-backend = "setuptools.build_meta"
+
+[project]
+name = "gambaterm"
+version = "0.12.7"
+description = "A terminal frontend for gambatte game boy color emulator"
+readme = "README.md"
+requires-python = ">=3.7"
+license = "GPL-3.0-only"
+authors = [
+    {name = "Vincent Michel", email = "vxgmichel@gmail.com"}
+]
+classifiers = [
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
+dependencies = [
+    "numpy>=2.0.0,<3.0.0",
+    "asyncssh>=2.9,<3.0.0",
+    "prompt_toolkit>=3.0.29,<4.0.0",
+    "sounddevice>=0.4,<1.0",
+    "samplerate>=0.1.0,<0.2.0",
+    "python-xlib; sys_platform == 'linux'",
+    "pynput; sys_platform != 'linux'",
+]
+
+[project.optional-dependencies]
+controller-support = ["pygame>=1.9.5,<2.0.0"]
+
+[project.urls]
+Homepage = "https://github.com/vxgmichel/gambatte-terminal"
+
+[project.scripts]
+gambaterm = "gambaterm:main"
+gambaterm-ssh = "gambaterm.ssh:main"
+
+[tool.setuptools]
+packages = ["gambaterm"]
+
+[tool.setuptools.package-data]
+gambaterm = ["py.typed", "*.pyi"]
 
 [tool.mypy]
 strict = true
@@ -23,6 +69,7 @@ ignore_missing_imports = true
 
 [tool.cibuildwheel]
 build = "cp*-win_amd64 cp*-manylinux_x86_64 cp*-macosx_x86_64 cp*-macosx_arm64"
+skip = ["cp38-*", "cp3??t-*"]
 
 [tool.cibuildwheel.windows]
 test-command = "gambaterm --help"

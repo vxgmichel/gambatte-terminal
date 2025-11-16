@@ -1,8 +1,9 @@
 # distutils: language = c++
 # distutils: libraries = gambatte
+# cython: language_level=3
 
-cimport numpy as np
 from libcpp.string cimport string
+from libc.stdint cimport uint32_t, int16_t
 from _libgambatte cimport GB as C_GB
 from _libgambatte cimport GetInput as C_GetInput
 
@@ -19,13 +20,13 @@ cdef class GB:
 
     def run_for(
         self,
-        np.ndarray[np.uint32_t, ndim=2] video,
+        uint32_t[:, ::1] video,
         ptrdiff_t pitch,
-        np.ndarray[np.int16_t, ndim=2] audio,
+        int16_t[:, ::1] audio,
         size_t samples,
     ):
-        cdef unsigned int* video_buffer = <unsigned int*> video.data
-        cdef unsigned int* audio_buffer = <unsigned int*> audio.data
+        cdef uint32_t* video_buffer = &video[0, 0]
+        cdef uint32_t* audio_buffer = <uint32_t*>&audio[0, 0]
         result = self.c_gb.runFor(video_buffer, pitch, audio_buffer, samples)
         return result, samples
 
@@ -46,10 +47,10 @@ cdef class GB:
 
     def save_state(
         self,
-        np.ndarray[np.uint32_t, ndim=2] video,
+        uint32_t[:, ::1] video,
         ptrdiff_t pitch,
     ):
         if video is None:
             return self.c_gb.saveState(NULL, 0)
-        cdef unsigned int* video_buffer = <unsigned int*> video.data
+        cdef uint32_t* video_buffer = &video[0, 0]
         return self.c_gb.saveState(video_buffer, pitch)

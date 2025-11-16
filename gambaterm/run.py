@@ -57,8 +57,8 @@ def run(
     assert color_mode > 0
 
     # Prepare buffers with invalid data
-    video = np.full((console.HEIGHT, console.WIDTH), -1, np.uint32)
-    audio = np.full((2 * console.TICKS_IN_FRAME, 2), -1, np.int16)
+    video = np.full((console.HEIGHT, console.WIDTH), 0xFFFFFFFF, np.uint32)
+    audio = np.full((2 * console.TICKS_IN_FRAME, 2), -0x7FFF, np.int16)
     last_frame = video.copy()
 
     # Print area
@@ -133,7 +133,7 @@ def run(
                     app_session.output.flush()
                     height, width = new_size
                     refx, refy = get_ref(width, height, console)
-                    last_frame.fill(-1)
+                    last_frame.fill(0xFFFFFFFF)
                 # Render frame
                 video_data = blit(
                     video, last_frame, refx, refy, width - 1, height, color_mode
