@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import glob
+import platform
 from pathlib import Path
 from setuptools import Extension, setup
+
+# No ZIP support for windows, building with zlib is a pain
+ZIP_SUPPORT = platform.system() != "Windows"
 
 
 def get_extensions() -> list[Extension]:
@@ -13,26 +17,38 @@ def get_extensions() -> list[Extension]:
     libgambatte_sources = [
         p
         for p in glob.glob("libgambatte/**/*.cpp", recursive=True)
-        if not p.endswith("file.cpp")
+        if (ZIP_SUPPORT and not p.endswith("file.cpp"))
+        or (not ZIP_SUPPORT and not p.endswith("file_zip.cpp"))
     ]
 
-    # Add minizip C sources for ZIP support
-    minizip_sources = glob.glob("libgambatte/src/file/unzip/*.c", recursive=True)
+    # Add unzip C sources for ZIP support
+    if ZIP_SUPPORT:
+        libgambatte_sources += glob.glob(
+            "libgambatte/src/file/unzip/*.c", recursive=True
+        )
+
+    # Add zlib library for ZIP support
+    libraries = []
+    if ZIP_SUPPORT:
+        libraries += ["z"]
 
     # Include dirs: parents of all headers
-    include_dirs = list(
+    libgambatte_include_dirs = list(
         {str(Path(h).parent) for h in glob.glob("libgambatte/**/*.h", recursive=True)}
     )
 
     gambatte_extension = Extension(
         "gambaterm.libgambatte",
         language="c++",
-        include_dirs=[*include_dirs, "libgambatte_ext", numpy.get_include()],
+        include_dirs=[
+            *libgambatte_include_dirs,
+            "libgambatte_ext",
+            numpy.get_include(),
+        ],
         extra_compile_args=["-DHAVE_STDINT_H"],
-        libraries=["z"],  # Link against zlib for ZIP support
+        libraries=libraries,
         sources=[
             *libgambatte_sources,
-            *minizip_sources,
             "libgambatte_ext/libgambatte.pyx",
         ],
     )
