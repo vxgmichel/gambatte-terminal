@@ -8,14 +8,18 @@ from setuptools import Extension, setup
 def get_extensions() -> list[Extension]:
     import numpy  # Lazy import; numpy provided via build-system requires
 
-    # Gather C++ sources excluding file_zip.cpp
+    # Gather all C++ sources (including file_zip.cpp for ZIP support)
+    # Exclude file.cpp since file_zip.cpp provides the full implementation
     libgambatte_sources = [
         p
         for p in glob.glob("libgambatte/**/*.cpp", recursive=True)
-        if not p.endswith("file_zip.cpp")
+        if not p.endswith("file.cpp")
     ]
 
-    # Include dirs: parents of all headers + cython wrapper dir + numpy include
+    # Add minizip C sources for ZIP support
+    minizip_sources = glob.glob("libgambatte/src/file/unzip/*.c", recursive=True)
+
+    # Include dirs: parents of all headers
     include_dirs = list(
         {str(Path(h).parent) for h in glob.glob("libgambatte/**/*.h", recursive=True)}
     )
@@ -25,7 +29,12 @@ def get_extensions() -> list[Extension]:
         language="c++",
         include_dirs=[*include_dirs, "libgambatte_ext", numpy.get_include()],
         extra_compile_args=["-DHAVE_STDINT_H"],
-        sources=[*libgambatte_sources, "libgambatte_ext/libgambatte.pyx"],
+        libraries=["z"],  # Link against zlib for ZIP support
+        sources=[
+            *libgambatte_sources,
+            *minizip_sources,
+            "libgambatte_ext/libgambatte.pyx",
+        ],
     )
 
     termblit_extension = Extension(
