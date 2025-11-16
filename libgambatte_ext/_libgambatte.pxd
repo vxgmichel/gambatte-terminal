@@ -1,13 +1,14 @@
 from libcpp.string cimport string
+from libc.stdint cimport uint32_t
 
 cdef extern from "gambatte.h" namespace "gambatte":
     cdef cppclass GB:
         GB() except +;
         int load(string& romfile, unsigned flags);
         ptrdiff_t runFor(
-            unsigned int *videoBuf,
+            uint32_t *videoBuf,
             ptrdiff_t pitch,
-	    unsigned int *audioBuf,
+	        uint32_t *audioBuf,
             size_t& samples,
         );
         void setInputGetter(GetInput *getInput);
@@ -17,7 +18,7 @@ cdef extern from "gambatte.h" namespace "gambatte":
         void selectState(int state);
         int currentState();
         int loadState();
-        int saveState(unsigned int *videoBuf, ptrdiff_t pitch);
+        int saveState(uint32_t *videoBuf, ptrdiff_t pitch);
 
 
 cdef extern from "input.h" namespace "gambatte":

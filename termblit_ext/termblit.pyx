@@ -2,6 +2,7 @@
 
 from libc.stdio cimport sprintf
 from libc.stdlib cimport malloc, free
+from libc.stdint cimport uint32_t
 
 cdef char* move_absolute(char* buff, int x, int y):
     buff += sprintf(buff, "\033[%d;%dH", x, y)
@@ -142,18 +143,18 @@ cdef char* move_from_to(
 
 
 def blit(
-    unsigned int[:, ::1] image,
-    unsigned int[:, ::1] last,
+    uint32_t[:, ::1] image,
+    uint32_t[:, ::1] last,
     int refx, int refy, int width, int height,
     int color_mode,
 ):
 
     cdef int current_x = refx
     cdef int current_y = refy
-    cdef int current_fg = -1
-    cdef int current_bg = -2
+    cdef uint32_t current_fg = -1
+    cdef uint32_t current_bg = -2
     cdef int row_index, column_index
-    cdef int color1, color2
+    cdef uint32_t color1, color2
     cdef int new_x, new_y
     cdef int invert_print
     cdef int image_height = image.shape[0]
