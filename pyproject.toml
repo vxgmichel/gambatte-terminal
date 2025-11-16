@@ -20,7 +20,6 @@ authors = [
 classifiers = [
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -70,6 +69,7 @@ ignore_missing_imports = true
 
 [tool.cibuildwheel]
 build = "cp*-win_amd64 cp*-manylinux_x86_64 cp*-macosx_x86_64 cp*-macosx_arm64"
+skip = "cp38-*"
 
 [tool.cibuildwheel.windows]
 test-command = "gambaterm --help"
