@@ -17,10 +17,21 @@ It supports:
 - Using TAS input files as game input
 - Using keyboard presses as game input
 
+
+Quickstart
+----------
+
+Using [uvx](https://docs.astral.sh/uv/guides/tools/) or [pipx](https://pipx.pypa.io/latest/docs/):
+
+```shell
+$ uvx gambaterm myrom.gbc
+```
+
+
 Installation
 ------------
 
-Wheels are available on linux, windows and macos for python 3.6, 3.7, 3.8 and 3.9:
+Wheels are available on linux, windows and macos for python 3.9 to 3.14:
 
 ```shell
 $ pip3 install gambaterm
