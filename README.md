@@ -21,7 +21,7 @@ It supports:
 Quickstart
 ----------
 
-Using [uvx](https://docs.astral.sh/uv/guides/tools/) or [pipx](https://pipx.pypa.io/latest/docs/):
+Using [uvx](https://docs.astral.sh/uv/guides/tools/):
 
 ```shell
 $ uvx gambaterm myrom.gbc

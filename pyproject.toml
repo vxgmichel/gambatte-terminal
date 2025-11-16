@@ -12,7 +12,7 @@ name = "gambaterm"
 version = "0.13.0"
 description = "A terminal frontend for gambatte game boy color emulator"
 readme = "README.md"
-requires-python = ">=3.7"
+requires-python = ">=3.9"
 license = "GPL-3.0-only"
 authors = [
     {name = "Vincent Michel", email = "vxgmichel@gmail.com"}
