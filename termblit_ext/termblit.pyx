@@ -1,4 +1,5 @@
-cimport numpy as np
+# cython: language_level=3
+
 from libc.stdio cimport sprintf
 from libc.stdlib cimport malloc, free
 
@@ -141,8 +142,8 @@ cdef char* move_from_to(
 
 
 def blit(
-    np.ndarray[np.uint32_t, ndim=2] image,
-    np.ndarray[np.uint32_t, ndim=2] last,
+    unsigned int[:, ::1] image,
+    unsigned int[:, ::1] last,
     int refx, int refy, int width, int height,
     int color_mode,
 ):
