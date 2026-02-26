@@ -82,6 +82,8 @@ def detect_true_color_support(app_session: AppSession, timeout: float = 0.1) -> 
     app_session.output.write_raw("\033P$qm\033\\")
     # Reset
     app_session.output.write_raw("\033[m")
+    # Query primary device attributes
+    app_session.output.write_raw("\033[c")
     # Flush
     app_session.output.flush()
     # Wait for reply

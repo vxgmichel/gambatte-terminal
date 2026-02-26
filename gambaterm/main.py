@@ -99,27 +99,30 @@ def main(
     args: argparse.Namespace = parser.parse_args(parser_args)
     console = console_cls(args)
 
-    if args.input_file is not None:
-        input_context = console_input_from_file_context(
-            console, args.input_file, args.skip_inputs
-        )
-    else:
-        input_context = console_input_from_keyboard_context(console)
-        if args.enable_controller:
-            input_context = combine_console_input_from_controller_context(
-                console, input_context
+    # Use app session to detect kitty keyboard protocol
+    with create_app_session() as app_session:
+        if args.input_file is not None:
+            input_context = console_input_from_file_context(
+                console, args.input_file, args.skip_inputs
+            )
+        else:
+            input_context = console_input_from_keyboard_context(console, app_session)
+            if args.enable_controller:
+                input_context = combine_console_input_from_controller_context(
+                    console, input_context
+                )
+
+        if args.write_input:
+            input_context = write_input_context(
+                console, input_context, args.write_input
             )
 
-    if args.write_input:
-        input_context = write_input_context(console, input_context, args.write_input)
+        if args.color_mode not in [None, 1, 2, 3, 4]:
+            exit(
+                f"Invalid color mode `{args.color_mode}`: the value must be between 1 and 4"
+            )
 
-    if args.color_mode not in [None, 1, 2, 3, 4]:
-        exit(
-            f"Invalid color mode `{args.color_mode}`: the value must be between 1 and 4"
-        )
-
-    # Enter terminal raw mode
-    with create_app_session() as app_session:
+        # Enter terminal raw mode
         with app_session.input.raw_mode():
             try:
                 # Detect color mode

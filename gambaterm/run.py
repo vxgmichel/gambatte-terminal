@@ -19,8 +19,8 @@ from .colors import ColorMode
 
 @contextlib.contextmanager
 def timing(deltas: Deque[float]) -> Iterator[None]:
+    start = time.perf_counter()
     try:
-        start = time.perf_counter()
         yield
     finally:
         deltas.append(time.perf_counter() - start)

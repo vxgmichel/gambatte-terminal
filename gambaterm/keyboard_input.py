@@ -1,65 +1,68 @@
 from __future__ import annotations
 
+from enum import Flag, IntEnum
 import sys
 import time
 import logging
 from contextlib import contextmanager, closing
-from typing import Callable, Iterator, TYPE_CHECKING
-from prompt_toolkit.application import create_app_session
+from typing import Callable, Iterator, TYPE_CHECKING, NamedTuple
+from prompt_toolkit.application import create_app_session, AppSession
+from prompt_toolkit.input.vt100 import Vt100Input
+from prompt_toolkit.input.vt100_parser import Vt100Parser
+from prompt_toolkit.keys import Keys
+from prompt_toolkit.key_binding import KeyPress
 
 from .console import Console, InputGetter
+from .keyboard_protocol import CSI_TO_FUNCTIONAL_KEY, FUNCTIONAL_KEYS_TO_PT_KEYS
+
 
 if TYPE_CHECKING:
     import pynput
 
 
-def get_xlib_input_mapping(console: Console) -> dict[int, Console.Input]:
-    from Xlib import XK
-
+def get_xlib_input_mapping(console: Console) -> dict[str, Console.Input]:
     return {
         # Directions
-        XK.XK_Up: console.Input.UP,
-        XK.XK_Down: console.Input.DOWN,
-        XK.XK_Left: console.Input.LEFT,
-        XK.XK_Right: console.Input.RIGHT,
+        "up": console.Input.UP,
+        "down": console.Input.DOWN,
+        "left": console.Input.LEFT,
+        "right": console.Input.RIGHT,
         # A button
-        XK.XK_f: console.Input.A,
-        XK.XK_v: console.Input.A,
-        XK.XK_space: console.Input.A,
+        "f": console.Input.A,
+        "v": console.Input.A,
+        "space": console.Input.A,
         # B button
-        XK.XK_d: console.Input.B,
-        XK.XK_c: console.Input.B,
-        XK.XK_Alt_L: console.Input.B,
-        XK.XK_Alt_R: console.Input.B,
+        "d": console.Input.B,
+        "c": console.Input.B,
+        "alt_l": console.Input.B,
+        "alt r": console.Input.B,
         # Start button
-        XK.XK_Return: console.Input.START,
-        XK.XK_Control_R: console.Input.START,
+        "return": console.Input.START,
+        "control_r": console.Input.START,
         # Select button
-        XK.XK_Shift_R: console.Input.SELECT,
-        XK.XK_Delete: console.Input.SELECT,
+        "shift_r": console.Input.SELECT,
+        "delete": console.Input.SELECT,
     }
 
 
-def get_xlib_event_mapping(console: Console) -> dict[int, Console.Event]:
-    from Xlib import XK
-
+def get_xlib_event_mapping(console: Console) -> dict[str, Console.Event]:
     return {
-        XK.XK_0: console.Event.SELECT_STATE_0,
-        XK.XK_1: console.Event.SELECT_STATE_1,
-        XK.XK_2: console.Event.SELECT_STATE_2,
-        XK.XK_3: console.Event.SELECT_STATE_3,
-        XK.XK_4: console.Event.SELECT_STATE_4,
-        XK.XK_5: console.Event.SELECT_STATE_5,
-        XK.XK_6: console.Event.SELECT_STATE_6,
-        XK.XK_7: console.Event.SELECT_STATE_7,
-        XK.XK_8: console.Event.SELECT_STATE_8,
-        XK.XK_9: console.Event.SELECT_STATE_9,
-        XK.XK_l: console.Event.LOAD_STATE,
-        XK.XK_k: console.Event.SAVE_STATE,
+        "0": console.Event.SELECT_STATE_0,
+        "1": console.Event.SELECT_STATE_1,
+        "2": console.Event.SELECT_STATE_2,
+        "3": console.Event.SELECT_STATE_3,
+        "4": console.Event.SELECT_STATE_4,
+        "5": console.Event.SELECT_STATE_5,
+        "6": console.Event.SELECT_STATE_6,
+        "7": console.Event.SELECT_STATE_7,
+        "8": console.Event.SELECT_STATE_8,
+        "9": console.Event.SELECT_STATE_9,
+        "l": console.Event.LOAD_STATE,
+        "k": console.Event.SAVE_STATE,
     }
 
 
-def get_keyboard_input_mapping(console: Console) -> dict[str, Console.Input]:
+def get_pynput_input_mapping(console: Console) -> dict[str, Console.Input]:
     return {
         # Directions
         "up": console.Input.UP,
@@ -84,7 +87,49 @@ def get_keyboard_input_mapping(console: Console) -> dict[str, Console.Input]:
     }
 
 
-def get_keyboard_event_mapping(console: Console) -> dict[str, Console.Event]:
+def get_pynput_event_mapping(console: Console) -> dict[str, Console.Event]:
+    return {
+        "0": console.Event.SELECT_STATE_0,
+        "1": console.Event.SELECT_STATE_1,
+        "2": console.Event.SELECT_STATE_2,
+        "3": console.Event.SELECT_STATE_3,
+        "4": console.Event.SELECT_STATE_4,
+        "5": console.Event.SELECT_STATE_5,
+        "6": console.Event.SELECT_STATE_6,
+        "7": console.Event.SELECT_STATE_7,
+        "8": console.Event.SELECT_STATE_8,
+        "9": console.Event.SELECT_STATE_9,
+        "l": console.Event.LOAD_STATE,
+        "k": console.Event.SAVE_STATE,
+    }
+
+
+def get_keyboard_protocol_input_mapping(console: Console) -> dict[str, Console.Input]:
+    return {
+        # Directions
+        "up": console.Input.UP,
+        "down": console.Input.DOWN,
+        "left": console.Input.LEFT,
+        "right": console.Input.RIGHT,
+        # A button
+        "f": console.Input.A,
+        "v": console.Input.A,
+        " ": console.Input.A,
+        # B button
+        "d": console.Input.B,
+        "c": console.Input.B,
+        "left_alt": console.Input.B,
+        "right_alt": console.Input.B,
+        # Start button
+        "enter": console.Input.START,
+        "right_control": console.Input.START,
+        # Select button
+        "right_shift": console.Input.SELECT,
+        "backspace": console.Input.SELECT,
+    }
+
+
+def get_keyboard_protocol_event_mapping(console: Console) -> dict[str, Console.Event]:
     return {
         "0": console.Event.SELECT_STATE_0,
         "1": console.Event.SELECT_STATE_1,
@@ -104,15 +149,16 @@ def get_keyboard_event_mapping(console: Console) -> dict[str, Console.Event]:
 @contextmanager
 def xlib_key_pressed_context(
     display: str | None = None,
-) -> Iterator[Callable[[], set[int]]]:
+) -> Iterator[Callable[[], set[str]]]:
+    from Xlib import XK
     from Xlib.ext import xinput
     from Xlib.display import Display
 
     with closing(Display(display)) as xdisplay:
         extension_info = xdisplay.query_extension("XInputExtension")
-        xinput_major = extension_info.major_opcode
+        xinput_major = extension_info is not None and extension_info.major_opcode
         # Set of currently pressed keys and focused flag
-        pressed: set[int] = set()
+        pressed: set[str] = set()
         focused = True
         # Save current focus, as it is likely to be the terminal window
         term_window = xdisplay.get_input_focus().focus
@@ -127,7 +173,12 @@ def xlib_key_pressed_context(
             [(xinput.AllDevices, xinput.KeyPressMask | xinput.KeyReleaseMask)]
         )
 
-        def get_pressed() -> set[int]:
+        # Build reverse lookup dict
+        reverse_lookup = {
+            v: k[3:].lower() for k, v in XK.__dict__.items() if k.startswith("XK_")
+        }
+
+        def get_pressed() -> set[str]:
             nonlocal focused
             # Loop over pending events
             while xdisplay.pending_events():
@@ -158,15 +209,18 @@ def xlib_key_pressed_context(
                 repeat = event.data.flags & 0x10000
                 is_key_pressed = event.evtype == xinput.KeyPress and not repeat
                 is_key_released = event.evtype == xinput.KeyRelease
+                keystr = reverse_lookup.get(keysym, "<unknown>")
                 # Prepare info string
-                info_string = f"keycode={keycode}, keysym={keysym}, "
-                info_string += f"modkeysym={modkeysym}, keystr={keystr}"
+                info_string = f"keycode={keycode}, keysym={keysym}, keystr={keystr}"
+                info_string += (
+                    f"modkeysym={modkeysym}, keystr={keystr}, keystr={keystr}"
+                )
                 # Update the `pressed` set accordingly
                 if is_key_pressed:
-                    pressed.add(keysym)
+                    pressed.add(keystr)
                     logging.info("Key pressed: " + info_string)
                 if is_key_released:
-                    pressed.discard(keysym)
+                    pressed.discard(keystr)
                     logging.info("Key released: " + info_string)
 
             # Return the currently pressed keys
@@ -179,32 +233,28 @@ def xlib_key_pressed_context(
 
 
 @contextmanager
-def pynput_key_pressed_context(
-    display: str | None = None,
-) -> Iterator[Callable[[], set[str]]]:
+def pynput_key_pressed_context() -> Iterator[Callable[[], set[str]]]:
     from pynput import keyboard
 
-    def on_press(key: pynput.keyboard.Key) -> None:
-        try:
+    def on_press(key: pynput.keyboard.Key | pynput.keyboard.KeyCode | None) -> None:
+        if isinstance(key, pynput.keyboard.KeyCode):
             value = key.char
-        except AttributeError:
+        elif isinstance(key, pynput.keyboard.Key):
             value = key.name
-        try:
-            value = value.lower()
-        except AttributeError:
+        else:
             return
-        pressed.add(value)
+        if value is not None:
+            pressed.add(value.lower())
 
-    def on_release(key: pynput.keyboard.Key) -> None:
-        try:
+    def on_release(key: pynput.keyboard.Key | pynput.keyboard.KeyCode | None) -> None:
+        if isinstance(key, pynput.keyboard.KeyCode):
             value = key.char
-        except AttributeError:
+        elif isinstance(key, pynput.keyboard.Key):
             value = key.name
-        try:
-            value = value.lower()
-        except AttributeError:
+        else:
             return
-        pressed.discard(value)
+        if value is not None:
+            pressed.discard(value.lower())
 
     pressed: set[str] = set()
     listener = keyboard.Listener(on_press=on_press, on_release=on_release)
@@ -218,18 +268,10 @@ def pynput_key_pressed_context(
 
 @contextmanager
 def console_input_from_keyboard_context(
-    console: Console, display: str | None = None
+    console: Console, app_session: AppSession, display: str | None = None
 ) -> Iterator[InputGetter]:
-    if sys.platform == "linux":
-        current_pressed: set[int] = set()
-        input_mapping = get_xlib_input_mapping(console)
-        event_mapping = get_xlib_event_mapping(console)
-        key_pressed_context = xlib_key_pressed_context
-    else:
-        current_pressed: set[str] = set()
-        input_mapping = get_keyboard_input_mapping(console)
-        event_mapping = get_keyboard_event_mapping(console)
-        key_pressed_context = pynput_key_pressed_context
+    get_pressed: Callable[[], set[str]]
+    current_pressed: set[str] = set()
 
     def get_input() -> set[Console.Input]:
         nonlocal current_pressed
@@ -244,51 +286,249 @@ def console_input_from_keyboard_context(
             if keysym in input_mapping
         }
 
-    with key_pressed_context(display=display) as get_pressed:
-        yield get_input
+    if detect_keyboard_protocol_support(app_session):
+        input_mapping = get_keyboard_protocol_input_mapping(console)
+        event_mapping = get_keyboard_protocol_event_mapping(console)
+        with keyboard_protocol_key_pressed_context(app_session) as get_pressed:
+            yield get_input
+    elif sys.platform == "linux":
+        input_mapping = get_xlib_input_mapping(console)
+        event_mapping = get_xlib_event_mapping(console)
+        with xlib_key_pressed_context(display) as get_pressed:
+            yield get_input
+    else:
+        input_mapping = get_pynput_input_mapping(console)
+        event_mapping = get_pynput_event_mapping(console)
+        with pynput_key_pressed_context() as get_pressed:
+            yield get_input
+
+
+def detect_keyboard_protocol_support(app_session: AppSession) -> bool:
+    # Query current progressive enhancement
+    app_session.output.write_raw("\033[?u")
+    # Query primary device attributes
+    app_session.output.write_raw("\033[c")
+    # Flush
+    app_session.output.flush()
+    # Wait for reply
+    data = ""
+    while "\033[?" not in data:
+        keys = app_session.input.read_keys()
+        data += "".join(x.data for x in keys)
+    # Return whether comprehensive keyboard handling is supported
+    _, first, *_ = data.split("\033[?")
+    for c in first:
+        if c.isalpha():
+            return c == "u"
+    return False
+
+
+class EventType(IntEnum):
+    PRESSED = 1
+    REPEAT = 2
+    RELEASED = 3
+
+
+class Modifiers(Flag):
+    shift = 0b1
+    alt = 0b10
+    ctrl = 0b100
+    super = 0b1000
+    hyper = 0b10000
+    meta = 0b100000
+    caps_lock = 0b1000000
+    num_lock = 0b10000000
+
+
+ASCII_SYMBOL_TO_NAME = {
+    "@": "At",
+    "\\": "Backslash",
+    "]": "SquareClose",
+    "^": "ControlCircumflex",
+    "_": "Underscore",
+}
+
+
+class Event(NamedTuple):
+    code: str
+    char: int
+    modifiers: Modifiers
+    event_type: EventType
+    raw_data: str
+
+    def to_key(self) -> Keys | str:
+        ctrl = "Control" if Modifiers.ctrl in self.modifiers else ""
+        shift = "Shift" if Modifiers.shift in self.modifiers else ""
+        # Functional keys
+        maybe_key = CSI_TO_FUNCTIONAL_KEY.get((self.code, self.char))
+        if maybe_key is not None:
+            key = FUNCTIONAL_KEYS_TO_PT_KEYS.get(maybe_key, Keys.Ignore)
+            name = f"{ctrl}{shift}{key.name}"
+            return getattr(Keys, name, key)
+        # ASCII keys
+        if self.code == "u" and 0 <= self.char < 128:
+            ascii = chr(self.char)
+            upper = ascii.upper()
+            name = f"{ctrl}{shift}{ASCII_SYMBOL_TO_NAME.get(ascii, upper)}"
+            return getattr(Keys, name, upper if shift else ascii)
+        # Ignore
+        return Keys.Ignore
+
+    def to_key_press(self) -> KeyPress | None:
+        if self.event_type == self.event_type.RELEASED:
+            return None
+        return KeyPress(self.to_key(), self.raw_data)
+
+
+class KeyboardProtocolParser(Vt100Parser):
+    def __init__(self, vt100_input: Vt100Parser) -> None:
+        super().__init__(vt100_input.feed_key_callback)
+        self.pressed: set[str] = set()
+
+    def get_pressed(self) -> set[str]:
+        return self.pressed
+
+    def _handle_event(self, event: Event) -> None:
+        maybe_key = CSI_TO_FUNCTIONAL_KEY.get((event.code, event.char))
+        if maybe_key is not None:
+            str_key = maybe_key.value
+        elif event.code == "u" and 0 <= event.char < 128:
+            str_key = chr(event.char)
+        else:
+            return None
+        if event.event_type == event.event_type.PRESSED:
+            self.pressed.add(str_key)
+        elif event.event_type == event.event_type.RELEASED:
+            self.pressed.discard(str_key)
+
+    def feed(self, data: str) -> None:
+        it = iter(enumerate(data))
+        i = 0
+        for j, x in it:
+            if x != "\033":
+                continue
+            k = self._extract_csi(it)
+            if k is None:
+                continue
+            event = self._process_csi(data[j:k])
+            if event is None:
+                continue
+            self._handle_event(event)
+            key_press = event.to_key_press()
+            if key_press is not None:
+                self.feed_key_callback(key_press)
+            if i != j:
+                super().feed(data[i:j])
+            i = k
+        super().feed(data[i:])
+
+    def _extract_csi(self, it: Iterator[tuple[int, str]]) -> int | None:
+        k, c = next(it)
+        if c != "[":
+            return None
+        for k, c in it:
+            if c.isalpha() or c == "~":
+                break
+        else:
+            return None
+        return k + 1
+
+    def _process_csi(self, data: str) -> Event | None:
+        assert data[0:2] == "\033["
+        code = data[-1]
+        if code not in "ABCDEFHPQSu~":
+            return None
+        raw = data[2:-1]
+        if ";" not in raw:
+            raw_char = raw
+            raw_modifier = "1"
+            raw_event = "1"
+        else:
+            raw_char, raw = raw.split(";", maxsplit=1)
+            if ":" not in raw:
+                raw_modifier = raw
+                raw_event = "1"
+            else:
+                raw_modifier, raw_event = raw.split(":", maxsplit=1)
+        try:
+            char = int(raw_char)
+        except ValueError:
+            return None
+        try:
+            modifier = Modifiers(int(raw_modifier) - 1)
+        except ValueError:
+            return None
+        try:
+            event = EventType(int(raw_event))
+        except ValueError:
+            return None
+        return Event(code, char, modifier, event, data)
+
+
+@contextmanager
+def keyboard_protocol_key_pressed_context(
+    app_session: AppSession,
+) -> Iterator[Callable[[], set[str]]]:
+    app_session.output.write_raw("\033[>11u")
+    app_session.output.flush()
+    assert isinstance(app_session.input, Vt100Input)
+    parser = KeyboardProtocolParser(app_session.input.vt100_parser)
+    app_session.input.vt100_parser = parser
+    try:
+        yield parser.get_pressed
+    finally:
+        app_session.output.write_raw("\033[<u")
+        app_session.output.flush()
+
+
+@contextmanager
+def key_pressed_context(
+    app_session: AppSession,
+    display: str | None = None,
+) -> Iterator[Callable[[], set[str]]]:
+    if detect_keyboard_protocol_support(app_session):
+        with keyboard_protocol_key_pressed_context(app_session) as get_pressed:
+            yield get_pressed
+    elif sys.platform == "linux":
+        with xlib_key_pressed_context(display) as get_pressed:
+            yield get_pressed
+    else:
+        with pynput_key_pressed_context() as get_pressed:
+            yield get_pressed
 
 
 def main() -> None:
-    if sys.platform == "linux":
-        from Xlib import XK
+    with create_app_session() as app_session:
+        from prompt_toolkit.application import get_app_session
 
-        key_pressed_context = xlib_key_pressed_context
-        reverse_lookup = {
-            v: k[3:] for k, v in XK.__dict__.items() if k.startswith("XK_")
-        }
-        mapping = reverse_lookup.get
-    else:
-        key_pressed_context = pynput_key_pressed_context
-        mapping = str
-
-    with create_app_session() as session:
-        with session.input.raw_mode():
+        assert get_app_session() is app_session
+        with app_session.input.raw_mode():
             try:
-                session.output.hide_cursor()
-                with key_pressed_context() as get_pressed:
+                app_session.output.hide_cursor()
+                with key_pressed_context(app_session) as get_pressed:
                     while True:
                         # Read keys
-                        for key in session.input.read_keys():
+                        for key in app_session.input.read_keys():
                             if key.key == "c-c":
                                 raise KeyboardInterrupt
                             if key.key == "c-d":
                                 raise EOFError
                         # Get codes
-                        codes = list(map(mapping, get_pressed()))
+                        codes = list(get_pressed())
                         # Print pressed key codes
                         print(*codes, flush=True, end="")
                         # Tick
                         time.sleep(1 / 30)
                         # Clear line and hide cursor
-                        session.output.write_raw("\r")
-                        session.output.erase_down()
+                        app_session.output.write_raw("\r")
+                        app_session.output.erase_down()
                         # Flush output
-                        session.output.flush()
+                        app_session.output.flush()
             except (KeyboardInterrupt, EOFError):
                 pass
             finally:
-                session.output.show_cursor()
-                session.output.flush()
+                app_session.output.show_cursor()
+                app_session.output.flush()
                 print()
 
 

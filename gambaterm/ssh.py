@@ -152,7 +152,7 @@ def thread_target(
     app_session: AppSession,
     app_config: argparse.Namespace,
     username: str,
-    display: str,
+    display: str | None,
     color_mode: ColorMode,
 ) -> int:
     # Create save directory for user
@@ -171,7 +171,7 @@ def thread_target(
         )
     else:
         console_input_context = console_input_from_keyboard_context(
-            console, display=display
+            console, app_session, display=display
         )
 
     with console_input_context as get_console_input:
