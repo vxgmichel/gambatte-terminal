@@ -44,7 +44,7 @@ controller-support = ["pygame>=1.9.5,<2.0.0"]
 Homepage = "https://github.com/vxgmichel/gambatte-terminal"
 
 [project.scripts]
-gambaterm = "gambaterm:main"
+gambaterm = "gambaterm.main:main"
 gambaterm-ssh = "gambaterm.ssh:main"
 
 [tool.setuptools]

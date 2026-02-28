@@ -21,29 +21,43 @@ from .main import add_base_arguments, add_optional_arguments
 from .console import Console, GameboyColor
 
 from .ssh_app_session import process_to_app_session
+from .ansi_escape_code import (
+    detect_keyboard_protocol_support_parser,
+    detect_true_color_support_parser,
+    run_parser_in_ssh_server_process,
+)
+
+
+async def detect_keyboard_protocol_support(
+    process: SSHServerProcess[str],
+    timeout: float = 1.0,
+) -> bool:
+    try:
+        status = await asyncio.wait_for(
+            run_parser_in_ssh_server_process(
+                process, detect_keyboard_protocol_support_parser
+            ),
+            timeout,
+        )
+    except TimeoutError:
+        return False
+    else:
+        return status.is_supported()
 
 
 async def detect_true_color_support(
-    process: SSHServerProcess[str], timeout: float = 0.5
+    process: SSHServerProcess[str],
+    timeout: float = 1.0,
 ) -> bool:
-    # Set unlikely RGB value
-    process.stdout.write("\033[48:2:1:2:3m")
-    # Query current configuration
-    process.stdout.write("\033P$qm\033\\")
-    # Reset
-    process.stdout.write("\033[m")
-    # Wait for reply
-    while True:
-        try:
-            header = await asyncio.wait_for(process.stdin.readuntil("\033\\"), timeout)
-        except asyncssh.TerminalSizeChanged:
-            pass
-        except (asyncio.TimeoutError, asyncio.IncompleteReadError):
-            return False
-        else:
-            break
-    # Return whether true color is supported
-    return "P1$r" in header and "48:2" in header and "1:2:3m" in header
+    try:
+        status = await asyncio.wait_for(
+            run_parser_in_ssh_server_process(process, detect_true_color_support_parser),
+            timeout,
+        )
+    except TimeoutError:
+        return False
+    else:
+        return status.is_supported()
 
 
 async def safe_ssh_process_handler(process: SSHServerProcess[str]) -> None:
@@ -89,24 +103,39 @@ async def ssh_process_handler(process: SSHServerProcess[str]) -> int:
         print(
             "Please use a terminal to access the interactive interface.",
             "Use `-t` to force pseudo-terminal allocation if a command is provided.",
-            sep="\n",
+            sep="\r\n",
             file=process.stdout,
         )
         print(f"< User `{username}` did not use an interactive terminal")
         return 1
 
     # X11 is required
-    if not display and app_config.input_file is None:
-        print(
+    if (
+        not display
+        and app_config.input_file is None
+        and not await detect_keyboard_protocol_support(process)
+    ):
+        process.stdout.write(
             """\
-X11 forwarding is required and can be enabled using the `-X` option.
+Your terminal does not support the kitty keyboard protocol (https://sw.kovidgoyal.net/kitty/keyboard-protocol)
+Here is a list of terminals supporting this protocol:
+- The alacritty terminal
+- The ghostty terminal
+- The foot terminal
+- The iTerm2 terminal
+- The rio terminal
+- The WezTerm terminal
+- The TuiOS terminal (multiplexer)
 
+Alternatively, X11 forwarding can be used in order to give the gambaterm-ssh server access to your keyboard.
 ===============================[ WARNING ]=====================================
 Enabling X11 forwarding while connecting to an untrusted server can greatly
 endanger your machine. Please only do so if you are running the X11 server in a
 sandbox. More information here: https://security.stackexchange.com/a/7496
-===============================[ WARNING ]=====================================""",
-            file=process.stdout,
+===============================[ WARNING ]=====================================
+""".replace(
+                "\n", "\r\n"
+            )
         )
         print(f"< User `{username}` did not enable X11 forwarding")
         return 1
@@ -122,9 +151,9 @@ sandbox. More information here: https://security.stackexchange.com/a/7496
 
     if color_mode == ColorMode.NO_COLOR:
         print(
-            f"""\
-Your terminal `{terminal_type}` doesn't seem to support colors.
-Try to force a color mode by appending `-t -- --color-mode 3` to the ssh command""",
+            f"Your terminal `{terminal_type}` doesn't seem to support colors."
+            f"Try to force a color mode by appending `-t -- --color-mode 3` to the ssh command",
+            sep="\r\n",
             file=process.stdout,
         )
         print(f"< User `{username}`terminal `{terminal_type}` does not support colors")
@@ -174,14 +203,14 @@ def thread_target(
             console, app_session, display=display
         )
 
-    with console_input_context as get_console_input:
-        try:
-            # Prepare alternate screen
-            app_session.output.enter_alternate_screen()
-            app_session.output.erase_screen()
-            app_session.output.hide_cursor()
-            app_session.output.flush()
+    try:
+        # Prepare alternate screen
+        app_session.output.enter_alternate_screen()
+        app_session.output.erase_screen()
+        app_session.output.hide_cursor()
+        app_session.output.flush()
 
+        with console_input_context as get_console_input:
             # Run the emulator
             run(
                 console,
@@ -193,23 +222,24 @@ def thread_target(
                 speed_factor=app_config.speed_factor,
                 use_cpr_sync=app_config.cpr_sync,
             )
-        except (KeyboardInterrupt, OSError):
-            return 0
-        else:
-            return 0
-        finally:
-            # Wait for CPR
-            time.sleep(0.1)
-            # Clear alternate screen
-            app_session.input.read_keys()
-            app_session.output.erase_screen()
-            app_session.output.quit_alternate_screen()
-            app_session.output.show_cursor()
-            # Flush if the connection is still active
-            try:
-                app_session.output.flush()
-            except BrokenPipeError:
-                pass
+
+    except (KeyboardInterrupt, OSError):
+        return 0
+    else:
+        return 0
+    finally:
+        # Wait for CPR
+        time.sleep(0.1)
+        # Clear alternate screen
+        app_session.input.read_keys()
+        app_session.output.erase_screen()
+        app_session.output.quit_alternate_screen()
+        app_session.output.show_cursor()
+        # Flush if the connection is still active
+        try:
+            app_session.output.flush()
+        except BrokenPipeError:
+            pass
 
 
 class SSHServer(asyncssh.SSHServer):

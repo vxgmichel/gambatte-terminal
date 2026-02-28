@@ -14,6 +14,10 @@ from prompt_toolkit.key_binding import KeyPress
 
 from .console import Console, InputGetter
 from .keyboard_protocol import CSI_TO_FUNCTIONAL_KEY, FUNCTIONAL_KEYS_TO_PT_KEYS
+from .ansi_escape_code import (
+    detect_keyboard_protocol_support_parser,
+    run_parser_in_app_session,
+)
 
 
 if TYPE_CHECKING:
@@ -286,7 +290,9 @@ def console_input_from_keyboard_context(
             if keysym in input_mapping
         }
 
-    if detect_keyboard_protocol_support(app_session):
+    if run_parser_in_app_session(
+        app_session, detect_keyboard_protocol_support_parser
+    ).is_supported():
         input_mapping = get_keyboard_protocol_input_mapping(console)
         event_mapping = get_keyboard_protocol_event_mapping(console)
         with keyboard_protocol_key_pressed_context(app_session) as get_pressed:
@@ -301,26 +307,6 @@ def console_input_from_keyboard_context(
         event_mapping = get_pynput_event_mapping(console)
         with pynput_key_pressed_context() as get_pressed:
             yield get_input
-
-
-def detect_keyboard_protocol_support(app_session: AppSession) -> bool:
-    # Query current progressive enhancement
-    app_session.output.write_raw("\033[?u")
-    # Query primary device attributes
-    app_session.output.write_raw("\033[c")
-    # Flush
-    app_session.output.flush()
-    # Wait for reply
-    data = ""
-    while "\033[?" not in data:
-        keys = app_session.input.read_keys()
-        data += "".join(x.data for x in keys)
-    # Return whether comprehensive keyboard handling is supported
-    _, first, *_ = data.split("\033[?")
-    for c in first:
-        if c.isalpha():
-            return c == "u"
-    return False
 
 
 class EventType(IntEnum):
@@ -486,7 +472,9 @@ def key_pressed_context(
     app_session: AppSession,
     display: str | None = None,
 ) -> Iterator[Callable[[], set[str]]]:
-    if detect_keyboard_protocol_support(app_session):
+    if run_parser_in_app_session(
+        app_session, detect_keyboard_protocol_support_parser
+    ).is_supported():
         with keyboard_protocol_key_pressed_context(app_session) as get_pressed:
             yield get_pressed
     elif sys.platform == "linux":

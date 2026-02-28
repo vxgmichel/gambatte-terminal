@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import os
 import time
 from enum import IntEnum
-
+from typing import Generator
+from string import ascii_lowercase, ascii_uppercase
 from prompt_toolkit.application import AppSession
 
 BASIC_TERMINALS = [
@@ -95,3 +97,59 @@ def detect_true_color_support(app_session: AppSession, timeout: float = 0.1) -> 
         time.sleep(0.01)
     # Return whether true color is supported
     return "P1$r" in data and "48:2" in data and "1:2:3m" in data
+
+
+@dataclass
+class CSI:
+    code: str
+    payload: str
+
+    CODES = r"@[\]^_`{|}~"
+    CODES += ascii_uppercase
+    CODES += ascii_lowercase
+
+
+@dataclass
+class OSC:
+    payload: str
+
+    BELL = "\x07"
+    ST1 = "\x5c"
+    ST2 = "\x9c"
+
+
+def parse_ansi_escape_code() -> Generator[CSI | OSC | None, str, None]:
+    while True:
+        while (yield None) == "\033":
+            pass
+        code = yield None
+        if code == "[":
+            yield from parse_csi()
+        if code == "]":
+            yield from parse_osc()
+
+
+def parse_csi() -> Generator[CSI | OSC | None, str, None]:
+    payload = ""
+    while True:
+        char = yield None
+        if char in CSI.CODES:
+            break
+        payload += char
+    yield CSI(char, payload)
+
+
+def parse_osc() -> Generator[CSI | OSC | None, str, None]:
+    payload = ""
+    while True:
+        char = yield None
+        while char == "\033":
+            extra = yield None
+            if extra == OSC.ST1:
+                break
+            payload += char
+            char = extra
+        if char in (OSC.BELL, OSC.ST2):
+            break
+        payload += char
+    yield OSC(payload)
