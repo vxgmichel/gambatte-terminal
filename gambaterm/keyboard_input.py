@@ -7,7 +7,6 @@ import logging
 from contextlib import contextmanager, closing
 from typing import Callable, Iterator, TYPE_CHECKING, NamedTuple
 from prompt_toolkit.application import create_app_session, AppSession
-from prompt_toolkit.input.vt100 import Vt100Input
 from prompt_toolkit.input.vt100_parser import Vt100Parser
 from prompt_toolkit.keys import Keys
 from prompt_toolkit.key_binding import KeyPress
@@ -457,9 +456,18 @@ def keyboard_protocol_key_pressed_context(
 ) -> Iterator[Callable[[], set[str]]]:
     app_session.output.write_raw("\033[>11u")
     app_session.output.flush()
-    assert isinstance(app_session.input, Vt100Input)
-    parser = KeyboardProtocolParser(app_session.input.vt100_parser)
-    app_session.input.vt100_parser = parser
+    if sys.platform == "win32":
+        from prompt_toolkit.input.win32 import Win32Input
+
+        assert isinstance(app_session.input, Win32Input)
+        parser = KeyboardProtocolParser(app_session.input._vt100_parser)
+        app_session.input._vt100_parser = parser
+    else:
+        from prompt_toolkit.input.vt100 import Vt100Input
+
+        assert isinstance(app_session.input, Vt100Input)
+        parser = KeyboardProtocolParser(app_session.input.vt100_parser)
+        app_session.input.vt100_parser = parser
     try:
         yield parser.get_pressed
     finally:
