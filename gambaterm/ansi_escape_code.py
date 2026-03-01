@@ -1,5 +1,5 @@
 import sys
-from enum import StrEnum, auto
+from enum import Enum, auto
 from dataclasses import dataclass
 from string import ascii_lowercase, ascii_uppercase
 from typing import Callable, Generator, TypeAlias, TypeVar, cast
@@ -11,7 +11,7 @@ from prompt_toolkit.application import AppSession, create_app_session
 T = TypeVar("T")
 
 
-class SupportStatus(StrEnum):
+class SupportStatus(Enum):
     Supported = auto()
     Unsupported = auto()
     Undecided = auto()
@@ -277,8 +277,8 @@ def main() -> None:
             )
 
     # Print the results
-    print(f"True color mode   : {true_color_status.value}")
-    print(f"Keyboard terminal : {keyboard_protocol_status.value}")
+    print(f"True color mode   : {true_color_status.name.lower()}")
+    print(f"Keyboard terminal : {keyboard_protocol_status.name.lower()}")
 
 
 if __name__ == "__main__":

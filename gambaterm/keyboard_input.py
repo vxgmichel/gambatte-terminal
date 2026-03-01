@@ -377,7 +377,7 @@ class KeyboardProtocolParser(Vt100Parser):
     def _handle_event(self, event: Event) -> None:
         maybe_key = CSI_TO_FUNCTIONAL_KEY.get((event.code, event.char))
         if maybe_key is not None:
-            str_key = maybe_key.value
+            str_key = maybe_key.name.lower()
         elif event.code == "u" and 0 <= event.char < 128:
             str_key = chr(event.char)
         else:

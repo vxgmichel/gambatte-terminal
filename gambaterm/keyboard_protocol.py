@@ -1,8 +1,8 @@
-from enum import StrEnum, auto
+from enum import Enum, auto
 from prompt_toolkit.keys import Keys
 
 
-class FunctionalKeys(StrEnum):
+class FunctionalKeys(Enum):
     ESCAPE = auto()
     ENTER = auto()
     TAB = auto()
