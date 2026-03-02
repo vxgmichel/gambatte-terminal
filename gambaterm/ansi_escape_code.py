@@ -56,12 +56,12 @@ class DCS:
 EscapeCode: TypeAlias = CSI | OSC | DCS
 
 
-def parse_ansi_escape_code() -> Generator[EscapeCode | None, str, None]:
-    ready: EscapeCode | None = None
+def parse_ansi_escape_code() -> Generator[EscapeCode | str | None, str, None]:
+    ready: EscapeCode | str | None = None
     while True:
         char = yield ready
         while char != "\033":
-            char = yield None
+            char = yield char
         code = yield None
         if code == CSI.CHAR:
             ready = yield from parse_csi()
@@ -70,7 +70,7 @@ def parse_ansi_escape_code() -> Generator[EscapeCode | None, str, None]:
         elif code == DCS.CHAR:
             ready = yield from parse_dcs()
         else:
-            ready = None
+            ready = char + code
 
 
 def parse_csi() -> Generator[None, str, CSI]:

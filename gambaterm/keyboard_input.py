@@ -425,8 +425,12 @@ class KeyboardProtocolParser(Vt100Parser):
             self.pressed.discard(str_key)
 
     def feed(self, data: str) -> None:
+        data_out: list[str] = []
         for char in data:
             item = self.ansi_escape_code_parser.send(char)
+            if isinstance(item, str):
+                data_out.append(item)
+                continue
             if not isinstance(item, CSI):
                 continue
             event = self._process_csi(item)
@@ -437,7 +441,7 @@ class KeyboardProtocolParser(Vt100Parser):
             if key_press is None:
                 continue
             self.feed_key_callback(key_press)
-        super().feed(data)
+        super().feed("".join(data_out))
 
     def _process_csi(self, csi: CSI) -> KeyboardProtocolEvent | None:
         if csi.code not in "ABCDEFHPQSu~":
