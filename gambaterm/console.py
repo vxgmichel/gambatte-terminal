@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import argparse
-import pathlib
+from pathlib import Path
 import tempfile
 from enum import IntEnum
 from typing import Callable, Set
@@ -51,10 +51,17 @@ class Console:
     def add_console_arguments(cls, parser: argparse.ArgumentParser) -> None:
         pass
 
-    def __init__(self, args: argparse.Namespace):
-        self.romfile = args.romfile
+    @classmethod
+    def pop_console_arguments(
+        cls, namespace: argparse.Namespace
+    ) -> Callable[[], Console]:
+        romfile: Path = namespace.romfile
+        return lambda: cls(romfile)
 
-    def set_input(self, value: set[Input]) -> None:
+    def __init__(self, romfile: Path):
+        self.romfile = str(romfile.resolve())
+
+    def set_input(self, input_set: set[Console.Input]) -> None:
         pass
 
     def advance_one_frame(
@@ -113,19 +120,39 @@ class GameboyColor(Console):
         parser.add_argument(
             "--save-directory",
             "--sd",
-            type=pathlib.Path,
+            type=Path,
+            default=Path.cwd(),
             help="Path to the save directory",
         )
 
-    def __init__(self, args: argparse.Namespace):
-        super().__init__(args)
+    @classmethod
+    def pop_console_arguments(
+        cls, namespace: argparse.Namespace
+    ) -> Callable[[], Console]:
+        romfile: Path = namespace.romfile
+        input_file: Path | None = namespace.input_file
+        force_gameboy: bool = namespace.__dict__.pop("force_gameboy")
+        save_directory: Path | None = namespace.__dict__.pop("save_directory")
+        if input_file is not None:
+            save_directory = None
+        return lambda: cls(romfile, save_directory, force_gameboy)
+
+    def __init__(
+        self,
+        romfile: Path,
+        save_directory: Path | None = None,
+        force_gameboy: bool = False,
+    ):
+        super().__init__(romfile)
+
         self.gb = GB()
-        self.force_gameboy = args.force_gameboy
+        self.force_gameboy = force_gameboy
 
         # Set save_directory
-        if args.save_directory is not None:
-            self.gb.set_save_directory(str(args.save_directory.absolute()))
-        elif args.input_file is not None:
+        if save_directory is not None:
+            save_directory.mkdir(parents=True, exist_ok=True)
+            self.gb.set_save_directory(str(save_directory.resolve()))
+        else:
             self.gb.set_save_directory(tempfile.mkdtemp())
 
         # Load the rom
@@ -147,8 +174,8 @@ class GameboyColor(Console):
     def get_current_state(self) -> int:
         return self.gb.current_state() % 10
 
-    def set_current_state(self, value: int) -> None:
-        self.gb.select_state(value % 10)
+    def set_current_state(self, state: int) -> None:
+        self.gb.select_state(state % 10)
 
     def load_state(self) -> None:
         self.gb.load_state()

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from io import TextIOWrapper
 from contextlib import contextmanager
 from zipfile import ZipFile, BadZipFile
@@ -30,7 +31,7 @@ def value_to_line(console: Console, input_set: set[Console.Input]) -> str:
 
 
 @contextmanager
-def open_input_log_file(path: str) -> Iterator[TextIOWrapper]:
+def open_input_log_file(path: Path) -> Iterator[TextIOWrapper]:
     try:
         with ZipFile(path) as myzip:
             with myzip.open("Input Log.txt") as myfile:
@@ -44,7 +45,7 @@ def open_input_log_file(path: str) -> Iterator[TextIOWrapper]:
 
 @contextmanager
 def console_input_from_file_context(
-    console: Console, path: str, skip_first_frames: int = 188
+    console: Console, path: Path, skip_first_frames: int = 188
 ) -> Iterator[InputGetter]:
     inputs_ref = get_inputs_ref(console)
     with open_input_log_file(path) as f:
@@ -66,7 +67,7 @@ def console_input_from_file_context(
 
 @contextmanager
 def write_input_context(
-    console: Console, context: ContextManager[InputGetter], path: str
+    console: Console, context: ContextManager[InputGetter], path: Path
 ) -> Iterator[InputGetter]:
     with open(path, "w") as f:
         with context as getter:

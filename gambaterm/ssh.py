@@ -17,7 +17,7 @@ from .run import run
 from .colors import ColorMode, detect_color_mode
 from .file_input import console_input_from_file_context
 from .keyboard_input import console_input_from_keyboard_context
-from .main import add_base_arguments, add_optional_arguments
+from .main import add_base_arguments, add_optional_arguments, AppConfig
 from .console import Console, GameboyColor
 
 from .ssh_app_session import process_to_app_session
@@ -77,8 +77,9 @@ async def safe_ssh_process_handler(process: SSHServerProcess[str]) -> None:
 
 
 async def ssh_process_handler(process: SSHServerProcess[str]) -> int:
-    executor = process.get_extra_info("executor")
-    app_config = process.get_extra_info("app_config")
+    console_cls: type[Console] = process.get_extra_info("console_cls")
+    namespace: argparse.Namespace = process.get_extra_info("namespace")
+    executor: ThreadPoolExecutor = process.get_extra_info("executor")
     display = process.channel.get_x11_display()
     command = process.channel.get_command()
     environment = dict(process.channel.get_environment())
@@ -88,6 +89,9 @@ async def ssh_process_handler(process: SSHServerProcess[str]) -> int:
     peername, port = connection.get_extra_info("peername")
     print(f"> User `{username}` is connected ({peername}:{port})")
 
+    # Copy namespace before mutating
+    namespace = argparse.Namespace(**vars(namespace))
+
     # Check command
     if command is not None:
         parser = argparse.ArgumentParser()
@@ -95,8 +99,18 @@ async def ssh_process_handler(process: SSHServerProcess[str]) -> int:
             parser, message, file=cast(IO[str], process.stdout)
         )
         add_optional_arguments(parser)
-        app_config.console_cls.add_console_arguments(parser)
-        parser.parse_args(command.split(), app_config)
+        console_cls.add_console_arguments(parser)
+        namespace = parser.parse_args(command.split(), namespace)
+
+    # Manage save directory
+    save_directory: Path | None = None
+    if "save_directory" in namespace.__dict__:
+        save_directory = Path("ssh_save") / username
+        setattr(namespace, "save_directory", save_directory)
+
+    # Pop console arguments and extract configuration
+    console_callback = console_cls.pop_console_arguments(namespace)
+    app_config = AppConfig(**vars(namespace))
 
     # Check terminal
     if terminal_type is None:
@@ -109,7 +123,7 @@ async def ssh_process_handler(process: SSHServerProcess[str]) -> int:
         print(f"< User `{username}` did not use an interactive terminal")
         return 1
 
-    # X11 is required
+    # X11 or Kitty keyboard protocol is required
     if (
         not display
         and app_config.input_file is None
@@ -159,6 +173,10 @@ sandbox. More information here: https://security.stackexchange.com/a/7496
         print(f"< User `{username}`terminal `{terminal_type}` does not support colors")
         return 1
 
+    # Now is a good time to instanciate the console
+    # (it might fail if the ROM does not exist for instance)
+    console = console_callback()
+
     async with process_to_app_session(process) as app_session:
         loop = asyncio.get_event_loop()
         height, width = app_session.output.get_size()
@@ -170,6 +188,7 @@ sandbox. More information here: https://security.stackexchange.com/a/7496
             executor,
             thread_target,
             app_session,
+            console,
             app_config,
             username,
             display,
@@ -179,21 +198,12 @@ sandbox. More information here: https://security.stackexchange.com/a/7496
 
 def thread_target(
     app_session: AppSession,
-    app_config: argparse.Namespace,
+    console: Console,
+    app_config: AppConfig,
     username: str,
     display: str | None,
     color_mode: ColorMode,
 ) -> int:
-    # Create save directory for user
-    if app_config.input_file is None:
-        save_directory = Path("ssh_save") / username
-        save_directory.mkdir(parents=True, exist_ok=True)
-        app_config.save_directory = save_directory
-    # Otherwise, use a temporary directory for when an input file is provided
-    else:
-        app_config.save_directory = None
-
-    console: Console = app_config.console_cls(app_config)
     if app_config.input_file is not None:
         console_input_context = console_input_from_file_context(
             console, app_config.input_file, app_config.skip_inputs
@@ -243,14 +253,22 @@ def thread_target(
 
 
 class SSHServer(asyncssh.SSHServer):
-    def __init__(self, app_config: argparse.Namespace, executor: ThreadPoolExecutor):
-        # Copy app config so we can mutate it later if necessary
-        self._app_config = argparse.Namespace(**vars(app_config))
-        self._executor = executor
+    def __init__(
+        self,
+        password: str | None,
+        console_cls: type[Console],
+        namespace: argparse.Namespace,
+        executor: ThreadPoolExecutor,
+    ):
+        self._gambaterm_console_cls = console_cls
+        self._gambaterm_namespace = namespace
+        self._gambaterm_executor = executor
+        self._gambaterm_password = password
 
     def connection_made(self, conn: asyncssh.SSHServerConnection) -> None:
-        conn.set_extra_info(executor=self._executor)
-        conn.set_extra_info(app_config=self._app_config)
+        conn.set_extra_info(console_cls=self._gambaterm_console_cls)
+        conn.set_extra_info(executor=self._gambaterm_executor)
+        conn.set_extra_info(namespace=self._gambaterm_namespace)
 
     def begin_auth(self, username: str) -> bool:
         return True
@@ -261,15 +279,20 @@ class SSHServer(asyncssh.SSHServer):
         )
 
     def password_auth_supported(self) -> bool:
-        return bool(self._app_config.password)
+        return bool(self._gambaterm_password)
 
     def validate_password(self, username: str, password: str) -> bool:
-        expected: str = self._app_config.password
-        return password == expected
+        assert self._gambaterm_password is not None
+        return password == self._gambaterm_password
 
 
 async def run_server(
-    app_config: argparse.Namespace, executor: ThreadPoolExecutor
+    bind: str,
+    port: int,
+    password: str | None,
+    console_cls: type[Console],
+    namespace: argparse.Namespace,
+    executor: ThreadPoolExecutor,
 ) -> None:
     ssh_key_dir = Path(os.environ.get("GAMBATERM_SSH_KEY_DIR", "~/.ssh"))
     user_private_key = (ssh_key_dir / "id_rsa").expanduser()
@@ -296,9 +319,9 @@ async def run_server(
     ]
 
     server = await asyncssh.create_server(
-        lambda: SSHServer(app_config, executor),
-        app_config.bind,
-        app_config.port,
+        lambda: SSHServer(password, console_cls, namespace, executor),
+        bind,
+        port,
         server_host_keys=server_host_keys,
         authorized_client_keys=authorized_client_keys,
         x11_forwarding=True,
@@ -339,17 +362,20 @@ def main(
         "--password",
         "--pw",
         type=str,
+        default=None,
         help="Enable password authentification with the given global password",
     )
 
     # Parse arguments
-    app_config = parser.parse_args(parser_args)
-    app_config.console_cls = console_cls
+    namespace = parser.parse_args(parser_args)
+    bind: str = namespace.__dict__.pop("bind")
+    port: int = namespace.__dict__.pop("port")
+    password: str = namespace.__dict__.pop("password")
 
     # Run an executor with no limit on the number of threads
     with ThreadPoolExecutor(max_workers=32) as executor:
         # Run the server in asyncio
-        asyncio.run(run_server(app_config, executor))
+        asyncio.run(run_server(bind, port, password, console_cls, namespace, executor))
 
 
 if __name__ == "__main__":
