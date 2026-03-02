@@ -16,7 +16,10 @@ from prompt_toolkit.application import AppSession
 from .run import run
 from .colors import ColorMode, detect_color_mode
 from .file_input import console_input_from_file_context
-from .keyboard_input import console_input_from_keyboard_context
+from .keyboard_input import (
+    console_input_from_x11_keyboard_context,
+    console_input_from_keyboard_protocol_context,
+)
 from .main import add_base_arguments, add_optional_arguments, AppConfig
 from .console import Console, GameboyColor
 
@@ -124,11 +127,12 @@ async def ssh_process_handler(process: SSHServerProcess[str]) -> int:
         return 1
 
     # X11 or Kitty keyboard protocol is required
-    if (
-        not display
-        and app_config.input_file is None
-        and not await detect_keyboard_protocol_support(process)
-    ):
+    use_keyboard_protocol = (
+        False
+        if app_config.input_file is not None
+        else await detect_keyboard_protocol_support(process)
+    )
+    if app_config.input_file is None and not use_keyboard_protocol and not display:
         process.stdout.write(
             """\
 Your terminal does not support the kitty keyboard protocol (https://sw.kovidgoyal.net/kitty/keyboard-protocol)
@@ -190,8 +194,8 @@ sandbox. More information here: https://security.stackexchange.com/a/7496
             app_session,
             console,
             app_config,
-            username,
             display,
+            use_keyboard_protocol,
             color_mode,
         )
 
@@ -200,17 +204,22 @@ def thread_target(
     app_session: AppSession,
     console: Console,
     app_config: AppConfig,
-    username: str,
     display: str | None,
+    use_keyboard_protocol: bool,
     color_mode: ColorMode,
 ) -> int:
     if app_config.input_file is not None:
         console_input_context = console_input_from_file_context(
             console, app_config.input_file, app_config.skip_inputs
         )
+    elif use_keyboard_protocol:
+        console_input_context = console_input_from_keyboard_protocol_context(
+            console,
+            app_session,
+        )
     else:
-        console_input_context = console_input_from_keyboard_context(
-            console, app_session, display=display
+        console_input_context = console_input_from_x11_keyboard_context(
+            console, display
         )
 
     try:
@@ -373,9 +382,14 @@ def main(
     password: str = namespace.__dict__.pop("password")
 
     # Run an executor with no limit on the number of threads
-    with ThreadPoolExecutor(max_workers=32) as executor:
-        # Run the server in asyncio
-        asyncio.run(run_server(bind, port, password, console_cls, namespace, executor))
+    try:
+        with ThreadPoolExecutor(max_workers=32) as executor:
+            # Run the server in asyncio
+            asyncio.run(
+                run_server(bind, port, password, console_cls, namespace, executor)
+            )
+    except KeyboardInterrupt:
+        pass
 
 
 if __name__ == "__main__":

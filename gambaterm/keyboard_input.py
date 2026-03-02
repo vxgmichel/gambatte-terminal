@@ -269,11 +269,12 @@ def pynput_key_pressed_context() -> Iterator[Callable[[], set[str]]]:
         listener.stop()
 
 
-@contextmanager
-def console_input_from_keyboard_context(
-    console: Console, app_session: AppSession, display: str | None = None
-) -> Iterator[InputGetter]:
-    get_pressed: Callable[[], set[str]]
+def make_get_input(
+    console: Console,
+    input_mapping: dict[str, Console.Input],
+    event_mapping: dict[str, Console.Event],
+    get_pressed: Callable[[], set[str]],
+) -> InputGetter:
     current_pressed: set[str] = set()
 
     def get_input() -> set[Console.Input]:
@@ -289,22 +290,55 @@ def console_input_from_keyboard_context(
             if keysym in input_mapping
         }
 
+    return get_input
+
+
+@contextmanager
+def console_input_from_keyboard_protocol_context(
+    console: Console, app_session: AppSession
+) -> Iterator[InputGetter]:
+    input_mapping = get_keyboard_protocol_input_mapping(console)
+    event_mapping = get_keyboard_protocol_event_mapping(console)
+    with keyboard_protocol_key_pressed_context(app_session) as get_pressed:
+        yield make_get_input(console, input_mapping, event_mapping, get_pressed)
+
+
+@contextmanager
+def console_input_from_x11_keyboard_context(
+    console: Console, display: str | None = None
+) -> Iterator[InputGetter]:
+    input_mapping = get_xlib_input_mapping(console)
+    event_mapping = get_xlib_event_mapping(console)
+    with xlib_key_pressed_context(display) as get_pressed:
+        yield make_get_input(console, input_mapping, event_mapping, get_pressed)
+
+
+@contextmanager
+def console_input_from_pynput_keyboard_context(
+    console: Console,
+) -> Iterator[InputGetter]:
+    input_mapping = get_pynput_input_mapping(console)
+    event_mapping = get_pynput_event_mapping(console)
+    with pynput_key_pressed_context() as get_pressed:
+        yield make_get_input(console, input_mapping, event_mapping, get_pressed)
+
+
+@contextmanager
+def console_input_from_keyboard_context(
+    console: Console, app_session: AppSession, display: str | None = None
+) -> Iterator[InputGetter]:
     if run_parser_in_app_session(
         app_session, detect_keyboard_protocol_support_parser
     ).is_supported():
-        input_mapping = get_keyboard_protocol_input_mapping(console)
-        event_mapping = get_keyboard_protocol_event_mapping(console)
-        with keyboard_protocol_key_pressed_context(app_session) as get_pressed:
+        with console_input_from_keyboard_protocol_context(
+            console, app_session
+        ) as get_input:
             yield get_input
     elif sys.platform == "linux":
-        input_mapping = get_xlib_input_mapping(console)
-        event_mapping = get_xlib_event_mapping(console)
-        with xlib_key_pressed_context(display) as get_pressed:
+        with console_input_from_x11_keyboard_context(console, display) as get_input:
             yield get_input
     else:
-        input_mapping = get_pynput_input_mapping(console)
-        event_mapping = get_pynput_event_mapping(console)
-        with pynput_key_pressed_context() as get_pressed:
+        with console_input_from_pynput_keyboard_context(console) as get_input:
             yield get_input
 
 
