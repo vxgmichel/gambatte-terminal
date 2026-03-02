@@ -25,15 +25,20 @@ class CSI:
     code: str
     payload: str
 
+    CHAR = "["
     CODES = r"@[\]^_`{|}~"
     CODES += ascii_uppercase
     CODES += ascii_lowercase
+
+    def raw(self) -> str:
+        return f"\033{self.CHAR}{self.payload}{self.code}"
 
 
 @dataclass
 class OSC:
     payload: str
 
+    CHAR = "]"
     BELL = "\x07"
     ST1 = "\x5c"
     ST2 = "\x9c"
@@ -43,6 +48,7 @@ class OSC:
 class DCS:
     payload: str
 
+    CHAR = "P"
     ST1 = "\x5c"
     ST2 = "\x9c"
 
@@ -57,11 +63,11 @@ def parse_ansi_escape_code() -> Generator[EscapeCode | None, str, None]:
         while char != "\033":
             char = yield None
         code = yield None
-        if code == "[":
+        if code == CSI.CHAR:
             ready = yield from parse_csi()
-        elif code == "]":
+        elif code == OSC.CHAR:
             ready = yield from parse_osc()
-        elif code == "P":
+        elif code == DCS.CHAR:
             ready = yield from parse_dcs()
         else:
             ready = None

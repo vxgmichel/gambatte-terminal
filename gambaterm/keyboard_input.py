@@ -14,7 +14,9 @@ from prompt_toolkit.key_binding import KeyPress
 from .console import Console, InputGetter
 from .keyboard_protocol import CSI_TO_FUNCTIONAL_KEY, FUNCTIONAL_KEYS_TO_PT_KEYS
 from .ansi_escape_code import (
+    CSI,
     detect_keyboard_protocol_support_parser,
+    parse_ansi_escape_code,
     run_parser_in_app_session,
 )
 
@@ -368,7 +370,7 @@ ASCII_SYMBOL_TO_NAME = {
 }
 
 
-class Event(NamedTuple):
+class KeyboardProtocolEvent(NamedTuple):
     code: str
     char: int
     modifiers: Modifiers
@@ -403,11 +405,13 @@ class KeyboardProtocolParser(Vt100Parser):
     def __init__(self, vt100_input: Vt100Parser) -> None:
         super().__init__(vt100_input.feed_key_callback)
         self.pressed: set[str] = set()
+        self.ansi_escape_code_parser = parse_ansi_escape_code()
+        assert next(self.ansi_escape_code_parser) is None
 
     def get_pressed(self) -> set[str]:
         return self.pressed
 
-    def _handle_event(self, event: Event) -> None:
+    def _handle_event(self, event: KeyboardProtocolEvent) -> None:
         maybe_key = CSI_TO_FUNCTIONAL_KEY.get((event.code, event.char))
         if maybe_key is not None:
             str_key = maybe_key.name.lower()
@@ -421,54 +425,34 @@ class KeyboardProtocolParser(Vt100Parser):
             self.pressed.discard(str_key)
 
     def feed(self, data: str) -> None:
-        it = iter(enumerate(data))
-        i = 0
-        for j, x in it:
-            if x != "\033":
+        for char in data:
+            item = self.ansi_escape_code_parser.send(char)
+            if not isinstance(item, CSI):
                 continue
-            k = self._extract_csi(it)
-            if k is None:
-                continue
-            event = self._process_csi(data[j:k])
+            event = self._process_csi(item)
             if event is None:
                 continue
             self._handle_event(event)
             key_press = event.to_key_press()
-            if key_press is not None:
-                self.feed_key_callback(key_press)
-            if i != j:
-                super().feed(data[i:j])
-            i = k
-        super().feed(data[i:])
+            if key_press is None:
+                continue
+            self.feed_key_callback(key_press)
+        super().feed(data)
 
-    def _extract_csi(self, it: Iterator[tuple[int, str]]) -> int | None:
-        k, c = next(it)
-        if c != "[":
+    def _process_csi(self, csi: CSI) -> KeyboardProtocolEvent | None:
+        if csi.code not in "ABCDEFHPQSu~":
             return None
-        for k, c in it:
-            if c.isalpha() or c == "~":
-                break
-        else:
-            return None
-        return k + 1
-
-    def _process_csi(self, data: str) -> Event | None:
-        assert data[0:2] == "\033["
-        code = data[-1]
-        if code not in "ABCDEFHPQSu~":
-            return None
-        raw = data[2:-1]
-        if ";" not in raw:
-            raw_char = raw
+        if ";" not in csi.payload:
+            raw_char = csi.payload
             raw_modifier = "1"
             raw_event = "1"
         else:
-            raw_char, raw = raw.split(";", maxsplit=1)
-            if ":" not in raw:
-                raw_modifier = raw
+            raw_char, subpayload = csi.payload.split(";", maxsplit=1)
+            if ":" not in subpayload:
+                raw_modifier = subpayload
                 raw_event = "1"
             else:
-                raw_modifier, raw_event = raw.split(":", maxsplit=1)
+                raw_modifier, raw_event = subpayload.split(":", maxsplit=1)
         try:
             char = int(raw_char)
         except ValueError:
@@ -481,7 +465,7 @@ class KeyboardProtocolParser(Vt100Parser):
             event = EventType(int(raw_event))
         except ValueError:
             return None
-        return Event(code, char, modifier, event, data)
+        return KeyboardProtocolEvent(csi.code, char, modifier, event, csi.raw())
 
 
 @contextmanager
