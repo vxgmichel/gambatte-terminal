@@ -43,6 +43,9 @@ class OSC:
     ST1 = "\x5c"
     ST2 = "\x9c"
 
+    def raw(self) -> str:
+        return f"\033{self.CHAR}{self.payload}{self.BELL}"
+
 
 @dataclass
 class DCS:
@@ -51,6 +54,9 @@ class DCS:
     CHAR = "P"
     ST1 = "\x5c"
     ST2 = "\x9c"
+
+    def raw(self) -> str:
+        return f"\033{self.CHAR}{self.payload}\033{self.ST1}"
 
 
 EscapeCode: TypeAlias = CSI | OSC | DCS

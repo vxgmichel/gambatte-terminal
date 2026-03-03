@@ -301,24 +301,25 @@ class KeyboardProtocolEvent(NamedTuple):
     def to_prompt_toolkit_key(self) -> PromptToolkitKeys | str:
         ctrl = "Control" if Modifiers.ctrl in self.modifiers else ""
         shift = "Shift" if Modifiers.shift in self.modifiers else ""
-        # Functional keys
-        maybe_key = CSI_TO_FUNCTIONAL_KEY.get((self.code, self.char))
-        if maybe_key is not None:
-            key = FUNCTIONAL_KEYS_TO_PT_KEYS.get(maybe_key, PromptToolkitKeys.Ignore)
-            name = f"{ctrl}{shift}{key.name}"
-            return getattr(PromptToolkitKeys, name, key)
         # ASCII keys
         if self.code == "u" and 0 <= self.char < 256:
             ascii = chr(self.char)
             upper = ascii.upper()
             name = f"{ctrl}{shift}{ASCII_SYMBOL_TO_NAME.get(ascii, upper)}"
             return getattr(PromptToolkitKeys, name, upper if shift else ascii)
-        # Ignore
-        return PromptToolkitKeys.Ignore
+        # Functional keys
+        maybe_key = CSI_TO_FUNCTIONAL_KEY.get((self.code, self.char))
+        if maybe_key is None:
+            return PromptToolkitKeys.Ignore
+        prompt_toolkit_key = FUNCTIONAL_KEYS_TO_PT_KEYS.get(maybe_key)
+        if prompt_toolkit_key is None:
+            return PromptToolkitKeys.Ignore
+        name = f"{ctrl}{shift}{prompt_toolkit_key.name}"
+        return getattr(PromptToolkitKeys, name, PromptToolkitKeys.Ignore)
 
     def to_prompt_toolkit_key_press(self) -> KeyPress | None:
         if self.event_type == self.event_type.RELEASED:
-            return None
+            return KeyPress(PromptToolkitKeys.Ignore, self.raw_data)
         return KeyPress(self.to_prompt_toolkit_key(), self.raw_data)
 
 
@@ -345,13 +346,17 @@ class KeyboardProtocolParser(Vt100Parser):
         data_out: list[str] = []
         for char in data:
             item = self.ansi_escape_code_parser.send(char)
+            if item is None:
+                continue
             if isinstance(item, str):
                 data_out.append(item)
                 continue
             if not isinstance(item, CSI):
+                data_out.append(item.raw())
                 continue
             event = self._process_csi(item)
             if event is None:
+                data_out.append(item.raw())
                 continue
             self._handle_event(event)
             key_press = event.to_prompt_toolkit_key_press()
