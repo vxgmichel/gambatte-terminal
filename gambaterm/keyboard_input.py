@@ -120,7 +120,8 @@ def xlib_key_pressed_context(
                 # Extract key press/release information
                 keycode = event.data.detail
                 mods = event.data.mods.effective_mods
-                keysym = xdisplay.keycode_to_keysym(keycode, 0)
+                group = event.data.groups.effective_group * 2
+                keysym = xdisplay.keycode_to_keysym(keycode, group)
                 modkeysym = xdisplay.keycode_to_keysym(keycode, mods)
                 keystr = xdisplay.lookup_string(keysym)
                 repeat = event.data.flags & 0x10000
