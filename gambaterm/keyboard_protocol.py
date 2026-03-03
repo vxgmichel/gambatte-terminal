@@ -1,5 +1,433 @@
+from __future__ import annotations
+
 from enum import Enum, auto
-from prompt_toolkit.keys import Keys
+from prompt_toolkit.keys import Keys as PromptToolkitKeys
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import pynput.keyboard  # type: ignore
+
+
+XLIB_SYMKEY_TO_FUNCTIONAL_KEY_MAPPING: dict[int, FunctionalKeys] = {}
+PYNPUT_KEY_TO_FUNCTIONAL_KEY_MAPPING: dict[pynput.keyboard.Key, Keys] = {}
+
+
+def initialize_xlib_symkey_to_functional_key_mapping() -> None:
+    from Xlib import XK
+
+    XLIB_SYMKEY_TO_FUNCTIONAL_KEY_MAPPING.update(
+        {
+            XK.XK_BackSpace: FunctionalKeys.BACKSPACE,
+            XK.XK_Tab: FunctionalKeys.TAB,
+            # XK.XK_Linefeed: FunctionalKeys.NOT_FOUND,
+            # XK.XK_Clear: FunctionalKeys.NOT_FOUND,
+            XK.XK_Return: FunctionalKeys.ENTER,
+            XK.XK_Pause: FunctionalKeys.PAUSE,
+            XK.XK_Scroll_Lock: FunctionalKeys.SCROLL_LOCK,
+            # XK.XK_Sys_Req: FunctionalKeys.NOT_FOUND,
+            XK.XK_Escape: FunctionalKeys.ESCAPE,
+            # XK.XK_Multi_key: FunctionalKeys.NOT_FOUND,
+            # XK.XK_Kanji: FunctionalKeys.NOT_FOUND,
+            # XK.XK_Muhenkan: FunctionalKeys.NOT_FOUND,
+            # XK.XK_Henkan_Mode: FunctionalKeys.NOT_FOUND,
+            # XK.XK_Romaji: FunctionalKeys.NOT_FOUND,
+            # XK.XK_Hiragana: FunctionalKeys.NOT_FOUND,
+            # XK.XK_Katakana: FunctionalKeys.NOT_FOUND,
+            # XK.XK_Hiragana_Katakana: FunctionalKeys.NOT_FOUND,
+            # XK.XK_Zenkaku: FunctionalKeys.NOT_FOUND,
+            # XK.XK_Hankaku: FunctionalKeys.NOT_FOUND,
+            # XK.XK_Zenkaku_Hankaku: FunctionalKeys.NOT_FOUND,
+            # XK.XK_Touroku: FunctionalKeys.NOT_FOUND,
+            # XK.XK_Massyo: FunctionalKeys.NOT_FOUND,
+            # XK.XK_Kana_Lock: FunctionalKeys.NOT_FOUND,
+            # XK.XK_Kana_Shift: FunctionalKeys.NOT_FOUND,
+            # XK.XK_Eisu_Shift: FunctionalKeys.NOT_FOUND,
+            # XK.XK_Eisu_toggle: FunctionalKeys.NOT_FOUND,
+            # XK.XK_SingleCandidate: FunctionalKeys.NOT_FOUND,
+            # XK.XK_Zen_Koho: FunctionalKeys.NOT_FOUND,
+            # XK.XK_PreviousCandidate: FunctionalKeys.NOT_FOUND,
+            XK.XK_Home: FunctionalKeys.HOME,
+            XK.XK_Left: FunctionalKeys.LEFT,
+            XK.XK_Up: FunctionalKeys.UP,
+            XK.XK_Right: FunctionalKeys.RIGHT,
+            XK.XK_Down: FunctionalKeys.DOWN,
+            XK.XK_Page_Up: FunctionalKeys.PAGE_UP,
+            XK.XK_Page_Down: FunctionalKeys.PAGE_DOWN,
+            XK.XK_End: FunctionalKeys.END,
+            XK.XK_Begin: FunctionalKeys.KP_BEGIN,
+            # XK.XK_Select: FunctionalKeys.NOT_FOUND,
+            XK.XK_Print: FunctionalKeys.PRINT_SCREEN,
+            # XK.XK_Execute: FunctionalKeys.NOT_FOUND,
+            XK.XK_Insert: FunctionalKeys.INSERT,
+            # XK.XK_Undo: FunctionalKeys.NOT_FOUND,
+            # XK.XK_Redo: FunctionalKeys.NOT_FOUND,
+            XK.XK_Menu: FunctionalKeys.MENU,
+            # XK.XK_Find: FunctionalKeys.NOT_FOUND,
+            # XK.XK_Cancel: FunctionalKeys.NOT_FOUND,
+            # XK.XK_Help: FunctionalKeys.NOT_FOUND,
+            # XK.XK_Break: FunctionalKeys.NOT_FOUND,
+            # XK.XK_Mode_switch: FunctionalKeys.NOT_FOUND,
+            XK.XK_Num_Lock: FunctionalKeys.NUM_LOCK,
+            # XK.XK_KP_Space: FunctionalKeys.NOT_FOUND,
+            # XK.XK_KP_Tab: FunctionalKeys.NOT_FOUND,
+            XK.XK_KP_Enter: FunctionalKeys.KP_ENTER,
+            # XK.XK_KP_F1: FunctionalKeys.NOT_FOUND,
+            # XK.XK_KP_F2: FunctionalKeys.NOT_FOUND,
+            # XK.XK_KP_F3: FunctionalKeys.NOT_FOUND,
+            # XK.XK_KP_F4: FunctionalKeys.NOT_FOUND,
+            XK.XK_KP_Home: FunctionalKeys.KP_HOME,
+            XK.XK_KP_Left: FunctionalKeys.KP_LEFT,
+            XK.XK_KP_Up: FunctionalKeys.KP_UP,
+            XK.XK_KP_Right: FunctionalKeys.KP_RIGHT,
+            XK.XK_KP_Down: FunctionalKeys.KP_DOWN,
+            # XK.XK_KP_Prior: FunctionalKeys.NOT_FOUND,
+            XK.XK_KP_Page_Down: FunctionalKeys.KP_PAGE_DOWN,
+            XK.XK_KP_End: FunctionalKeys.KP_END,
+            XK.XK_KP_Begin: FunctionalKeys.KP_BEGIN,
+            XK.XK_KP_Insert: FunctionalKeys.KP_INSERT,
+            XK.XK_KP_Delete: FunctionalKeys.KP_DELETE,
+            XK.XK_KP_Multiply: FunctionalKeys.KP_MULTIPLY,
+            XK.XK_KP_Add: FunctionalKeys.KP_ADD,
+            XK.XK_KP_Separator: FunctionalKeys.KP_SEPARATOR,
+            XK.XK_KP_Subtract: FunctionalKeys.KP_SUBTRACT,
+            XK.XK_KP_Decimal: FunctionalKeys.KP_DECIMAL,
+            XK.XK_KP_Divide: FunctionalKeys.KP_DIVIDE,
+            XK.XK_KP_0: FunctionalKeys.KP_0,
+            XK.XK_KP_1: FunctionalKeys.KP_1,
+            XK.XK_KP_2: FunctionalKeys.KP_2,
+            XK.XK_KP_3: FunctionalKeys.KP_3,
+            XK.XK_KP_4: FunctionalKeys.KP_4,
+            XK.XK_KP_5: FunctionalKeys.KP_5,
+            XK.XK_KP_6: FunctionalKeys.KP_6,
+            XK.XK_KP_7: FunctionalKeys.KP_7,
+            XK.XK_KP_8: FunctionalKeys.KP_8,
+            XK.XK_KP_9: FunctionalKeys.KP_9,
+            XK.XK_KP_Equal: FunctionalKeys.KP_EQUAL,
+            XK.XK_F1: FunctionalKeys.F1,
+            XK.XK_F2: FunctionalKeys.F2,
+            XK.XK_F3: FunctionalKeys.F3,
+            XK.XK_F4: FunctionalKeys.F4,
+            XK.XK_F5: FunctionalKeys.F5,
+            XK.XK_F6: FunctionalKeys.F6,
+            XK.XK_F7: FunctionalKeys.F7,
+            XK.XK_F8: FunctionalKeys.F8,
+            XK.XK_F9: FunctionalKeys.F9,
+            XK.XK_F10: FunctionalKeys.F10,
+            XK.XK_F11: FunctionalKeys.F11,
+            XK.XK_F12: FunctionalKeys.F12,
+            XK.XK_F13: FunctionalKeys.F13,
+            XK.XK_F14: FunctionalKeys.F14,
+            XK.XK_F15: FunctionalKeys.F15,
+            XK.XK_F16: FunctionalKeys.F16,
+            XK.XK_F17: FunctionalKeys.F17,
+            XK.XK_F18: FunctionalKeys.F18,
+            XK.XK_F19: FunctionalKeys.F19,
+            XK.XK_F20: FunctionalKeys.F20,
+            XK.XK_F21: FunctionalKeys.F21,
+            XK.XK_F22: FunctionalKeys.F22,
+            XK.XK_F23: FunctionalKeys.F23,
+            XK.XK_F24: FunctionalKeys.F24,
+            XK.XK_F25: FunctionalKeys.F25,
+            XK.XK_F26: FunctionalKeys.F26,
+            XK.XK_F27: FunctionalKeys.F27,
+            XK.XK_F28: FunctionalKeys.F28,
+            XK.XK_F29: FunctionalKeys.F29,
+            XK.XK_F30: FunctionalKeys.F30,
+            XK.XK_F31: FunctionalKeys.F31,
+            XK.XK_F32: FunctionalKeys.F32,
+            XK.XK_F33: FunctionalKeys.F33,
+            XK.XK_F34: FunctionalKeys.F34,
+            XK.XK_F35: FunctionalKeys.F35,
+            XK.XK_Shift_L: FunctionalKeys.LEFT_SHIFT,
+            XK.XK_Shift_R: FunctionalKeys.RIGHT_SHIFT,
+            XK.XK_Control_L: FunctionalKeys.LEFT_CONTROL,
+            XK.XK_Control_R: FunctionalKeys.RIGHT_CONTROL,
+            XK.XK_Caps_Lock: FunctionalKeys.CAPS_LOCK,
+            # XK.XK_Shift_Lock: FunctionalKeys.NOT_FOUND,
+            XK.XK_Meta_L: FunctionalKeys.LEFT_META,
+            XK.XK_Meta_R: FunctionalKeys.RIGHT_META,
+            XK.XK_Alt_L: FunctionalKeys.LEFT_ALT,
+            XK.XK_Alt_R: FunctionalKeys.RIGHT_ALT,
+            XK.XK_Super_L: FunctionalKeys.LEFT_SUPER,
+            XK.XK_Super_R: FunctionalKeys.RIGHT_SUPER,
+            XK.XK_Hyper_L: FunctionalKeys.LEFT_HYPER,
+            XK.XK_Hyper_R: FunctionalKeys.RIGHT_HYPER,
+            XK.XK_Delete: FunctionalKeys.DELETE,
+        }
+    )
+
+
+def initialize_pynput_key_to_functional_key_mapping() -> None:
+    import pynput.keyboard
+
+    PYNPUT_KEY_TO_FUNCTIONAL_KEY_MAPPING.update(
+        {
+            pynput.keyboard.Key.alt: FunctionalKeys.LEFT_ALT,
+            pynput.keyboard.Key.alt_l: FunctionalKeys.LEFT_ALT,
+            pynput.keyboard.Key.alt_r: FunctionalKeys.RIGHT_ALT,
+            pynput.keyboard.Key.alt_gr: FunctionalKeys.RIGHT_ALT,
+            pynput.keyboard.Key.backspace: FunctionalKeys.BACKSPACE,
+            pynput.keyboard.Key.caps_lock: FunctionalKeys.CAPS_LOCK,
+            pynput.keyboard.Key.cmd: FunctionalKeys.LEFT_META,
+            pynput.keyboard.Key.cmd_l: FunctionalKeys.LEFT_META,
+            pynput.keyboard.Key.cmd_r: FunctionalKeys.RIGHT_META,
+            pynput.keyboard.Key.ctrl: FunctionalKeys.LEFT_CONTROL,
+            pynput.keyboard.Key.ctrl_l: FunctionalKeys.LEFT_CONTROL,
+            pynput.keyboard.Key.ctrl_r: FunctionalKeys.RIGHT_CONTROL,
+            pynput.keyboard.Key.delete: FunctionalKeys.DELETE,
+            pynput.keyboard.Key.down: FunctionalKeys.DOWN,
+            pynput.keyboard.Key.end: FunctionalKeys.END,
+            pynput.keyboard.Key.enter: FunctionalKeys.ENTER,
+            pynput.keyboard.Key.esc: FunctionalKeys.ESCAPE,
+            pynput.keyboard.Key.f1: FunctionalKeys.F1,
+            pynput.keyboard.Key.f2: FunctionalKeys.F2,
+            pynput.keyboard.Key.f3: FunctionalKeys.F3,
+            pynput.keyboard.Key.f4: FunctionalKeys.F4,
+            pynput.keyboard.Key.f5: FunctionalKeys.F5,
+            pynput.keyboard.Key.f6: FunctionalKeys.F6,
+            pynput.keyboard.Key.f7: FunctionalKeys.F7,
+            pynput.keyboard.Key.f8: FunctionalKeys.F8,
+            pynput.keyboard.Key.f9: FunctionalKeys.F9,
+            pynput.keyboard.Key.f10: FunctionalKeys.F10,
+            pynput.keyboard.Key.f11: FunctionalKeys.F11,
+            pynput.keyboard.Key.f12: FunctionalKeys.F12,
+            pynput.keyboard.Key.f13: FunctionalKeys.F13,
+            pynput.keyboard.Key.f14: FunctionalKeys.F14,
+            pynput.keyboard.Key.f15: FunctionalKeys.F15,
+            pynput.keyboard.Key.f16: FunctionalKeys.F16,
+            pynput.keyboard.Key.f17: FunctionalKeys.F17,
+            pynput.keyboard.Key.f18: FunctionalKeys.F18,
+            pynput.keyboard.Key.f19: FunctionalKeys.F19,
+            pynput.keyboard.Key.f20: FunctionalKeys.F20,
+            pynput.keyboard.Key.home: FunctionalKeys.HOME,
+            pynput.keyboard.Key.left: FunctionalKeys.LEFT,
+            pynput.keyboard.Key.page_down: FunctionalKeys.PAGE_DOWN,
+            pynput.keyboard.Key.page_up: FunctionalKeys.PAGE_UP,
+            pynput.keyboard.Key.right: FunctionalKeys.RIGHT,
+            pynput.keyboard.Key.shift: FunctionalKeys.LEFT_SHIFT,
+            pynput.keyboard.Key.shift_l: FunctionalKeys.LEFT_SHIFT,
+            pynput.keyboard.Key.shift_r: FunctionalKeys.RIGHT_SHIFT,
+            pynput.keyboard.Key.space: LatinKeys.SPACE,  # Somehow, pynput exposes space as a functional key
+            pynput.keyboard.Key.tab: FunctionalKeys.TAB,
+            pynput.keyboard.Key.up: FunctionalKeys.UP,
+            pynput.keyboard.Key.media_play_pause: FunctionalKeys.MEDIA_PLAY_PAUSE,
+            pynput.keyboard.Key.media_stop: FunctionalKeys.MEDIA_STOP,
+            pynput.keyboard.Key.media_volume_mute: FunctionalKeys.MUTE_VOLUME,
+            pynput.keyboard.Key.media_volume_down: FunctionalKeys.LOWER_VOLUME,
+            pynput.keyboard.Key.media_volume_up: FunctionalKeys.RAISE_VOLUME,
+            pynput.keyboard.Key.media_previous: FunctionalKeys.MEDIA_TRACK_PREVIOUS,
+            pynput.keyboard.Key.media_next: FunctionalKeys.MEDIA_TRACK_NEXT,
+            pynput.keyboard.Key.insert: FunctionalKeys.INSERT,
+            pynput.keyboard.Key.menu: FunctionalKeys.MENU,
+            pynput.keyboard.Key.num_lock: FunctionalKeys.NUM_LOCK,
+            pynput.keyboard.Key.pause: FunctionalKeys.PAUSE,
+            pynput.keyboard.Key.print_screen: FunctionalKeys.PRINT_SCREEN,
+            pynput.keyboard.Key.scroll_lock: FunctionalKeys.SCROLL_LOCK,
+        }
+    )
+
+
+class LatinKeys(Enum):
+    SPACE = " "
+    EXCLAM = "!"
+    QUOTEDBL = '"'
+    NUMBERSIGN = "#"
+    DOLLAR = "$"
+    PERCENT = "%"
+    AMPERSAND = "&"
+    QUOTERIGHT = "'"
+    PARENLEFT = "("
+    PARENRIGHT = ")"
+    ASTERISK = "*"
+    PLUS = "+"
+    COMMA = ","
+    MINUS = "-"
+    PERIOD = "."
+    SLASH = "/"
+    DIGIT_0 = "0"
+    DIGIT_1 = "1"
+    DIGIT_2 = "2"
+    DIGIT_3 = "3"
+    DIGIT_4 = "4"
+    DIGIT_5 = "5"
+    DIGIT_6 = "6"
+    DIGIT_7 = "7"
+    DIGIT_8 = "8"
+    DIGIT_9 = "9"
+    COLON = ":"
+    SEMICOLON = ";"
+    LESS = "<"
+    EQUAL = "="
+    GREATER = ">"
+    QUESTION = "?"
+    AT = "@"
+    CAPITAL_A = "A"
+    CAPITAL_B = "B"
+    CAPITAL_C = "C"
+    CAPITAL_D = "D"
+    CAPITAL_E = "E"
+    CAPITAL_F = "F"
+    CAPITAL_G = "G"
+    CAPITAL_H = "H"
+    CAPITAL_I = "I"
+    CAPITAL_J = "J"
+    CAPITAL_K = "K"
+    CAPITAL_L = "L"
+    CAPITAL_M = "M"
+    CAPITAL_N = "N"
+    CAPITAL_O = "O"
+    CAPITAL_P = "P"
+    CAPITAL_Q = "Q"
+    CAPITAL_R = "R"
+    CAPITAL_S = "S"
+    CAPITAL_T = "T"
+    CAPITAL_U = "U"
+    CAPITAL_V = "V"
+    CAPITAL_W = "W"
+    CAPITAL_X = "X"
+    CAPITAL_Y = "Y"
+    CAPITAL_Z = "Z"
+    BRACKETLEFT = "["
+    BACKSLASH = "\\"
+    BRACKETRIGHT = "]"
+    ASCIICIRCUM = "^"
+    UNDERSCORE = "_"
+    QUOTELEFT = "`"
+    A = "a"
+    B = "b"
+    C = "c"
+    D = "d"
+    E = "e"
+    F = "f"
+    G = "g"
+    H = "h"
+    I = "i"  # noqa: E741
+    J = "j"
+    K = "k"
+    L = "l"
+    M = "m"
+    N = "n"
+    O = "o"  # noqa: E741
+    P = "p"
+    Q = "q"
+    R = "r"
+    S = "s"
+    T = "t"
+    U = "u"
+    V = "v"
+    W = "w"
+    X = "x"
+    Y = "y"
+    Z = "z"
+    BRACELEFT = "{"
+    BAR = "|"
+    BRACERIGHT = "}"
+    ASCIITILDE = "~"
+    NOBREAKSPACE = "\xa0"
+    EXCLAMDOWN = "¡"
+    CENT = "¢"
+    STERLING = "£"
+    CURRENCY = "¤"
+    YEN = "¥"
+    BROKENBAR = "¦"
+    SECTION = "§"
+    DIAERESIS = "¨"
+    COPYRIGHT = "©"
+    ORDFEMININE = "ª"
+    GUILLEMOTLEFT = "«"
+    NOTSIGN = "¬"
+    HYPHEN = "\xad"
+    REGISTERED = "®"
+    MACRON = "¯"
+    DEGREE = "°"
+    PLUSMINUS = "±"
+    TWOSUPERIOR = "²"
+    THREESUPERIOR = "³"
+    ACUTE = "´"
+    MU = "µ"
+    PARAGRAPH = "¶"
+    PERIODCENTERED = "·"
+    CEDILLA = "¸"
+    ONESUPERIOR = "¹"
+    MASCULINE = "º"
+    GUILLEMOTRIGHT = "»"
+    ONEQUARTER = "¼"
+    ONEHALF = "½"
+    THREEQUARTERS = "¾"
+    QUESTIONDOWN = "¿"
+    CAPITAL_A_GRAVE = "À"
+    CAPITAL_A_ACUTE = "Á"
+    CAPITAL_A_CIRCUMFLEX = "Â"
+    CAPITAL_A_TILDE = "Ã"
+    CAPITAL_A_DIAERESIS = "Ä"
+    CAPITAL_A_RING = "Å"
+    CAPITAL_A_E = "Æ"
+    CAPITAL_C_CEDILLA = "Ç"
+    CAPITAL_E_GRAVE = "È"
+    CAPITAL_E_ACUTE = "É"
+    CAPITAL_E_CIRCUMFLEX = "Ê"
+    CAPITAL_E_DIAERESIS = "Ë"
+    CAPITAL_I_GRAVE = "Ì"
+    CAPITAL_I_ACUTE = "Í"
+    CAPITAL_I_CIRCUMFLEX = "Î"
+    CAPITAL_I_DIAERESIS = "Ï"
+    CAPITAL_E_TH = "Ð"
+    CAPITAL_N_TILDE = "Ñ"
+    CAPITAL_O_GRAVE = "Ò"
+    CAPITAL_O_ACUTE = "Ó"
+    CAPITAL_O_CIRCUMFLEX = "Ô"
+    CAPITAL_O_TILDE = "Õ"
+    CAPITAL_O_DIAERESIS = "Ö"
+    MULTIPLY = "×"
+    CAPITAL_O_OBLIQUE = "Ø"
+    CAPITAL_U_GRAVE = "Ù"
+    CAPITAL_U_ACUTE = "Ú"
+    CAPITAL_U_CIRCUMFLEX = "Û"
+    CAPITAL_U_DIAERESIS = "Ü"
+    CAPITAL_Y_ACUTE = "Ý"
+    CAPITAL_T_HORN = "Þ"
+    SSHARP = "ß"
+    A_GRAVE = "à"
+    A_ACUTE = "á"
+    A_CIRCUMFLEX = "â"
+    A_TILDE = "ã"
+    A_DIAERESIS = "ä"
+    A_RING = "å"
+    A_E = "æ"
+    C_CEDILLA = "ç"
+    E_GRAVE = "è"
+    E_ACUTE = "é"
+    E_CIRCUMFLEX = "ê"
+    E_DIAERESIS = "ë"
+    I_GRAVE = "ì"
+    I_ACUTE = "í"
+    I_CIRCUMFLEX = "î"
+    I_DIAERESIS = "ï"
+    E_TH = "ð"
+    N_TILDE = "ñ"
+    O_GRAVE = "ò"
+    O_ACUTE = "ó"
+    O_CIRCUMFLEX = "ô"
+    O_TILDE = "õ"
+    O_DIAERESIS = "ö"
+    DIVISION = "÷"
+    OSLASH = "ø"
+    U_GRAVE = "ù"
+    U_ACUTE = "ú"
+    U_CIRCUMFLEX = "û"
+    U_DIAERESIS = "ü"
+    Y_ACUTE = "ý"
+    T_HORN = "þ"
+    Y_DIAERESIS = "ÿ"
+
+    @classmethod
+    def from_latin(cls, code: int | str) -> LatinKeys | None:
+        try:
+            as_str = code if isinstance(code, str) else chr(code)
+            return cls(as_str)
+        except ValueError:
+            return None
 
 
 class FunctionalKeys(Enum):
@@ -114,6 +542,21 @@ class FunctionalKeys(Enum):
     RIGHT_META = auto()
     ISO_LEVEL3_SHIFT = auto()
     ISO_LEVEL5_SHIFT = auto()
+
+    @classmethod
+    def from_xlib_keysym(cls, keysym: int) -> FunctionalKeys | None:
+        if not XLIB_SYMKEY_TO_FUNCTIONAL_KEY_MAPPING:
+            initialize_xlib_symkey_to_functional_key_mapping()
+        return XLIB_SYMKEY_TO_FUNCTIONAL_KEY_MAPPING.get(keysym)
+
+    @classmethod
+    def from_pynput_key(cls, key: pynput.keyboard.Key) -> Keys | None:
+        if not PYNPUT_KEY_TO_FUNCTIONAL_KEY_MAPPING:
+            initialize_pynput_key_to_functional_key_mapping()
+        return PYNPUT_KEY_TO_FUNCTIONAL_KEY_MAPPING.get(key)
+
+
+Keys = LatinKeys | FunctionalKeys
 
 
 CSI_TO_FUNCTIONAL_KEY = {
@@ -237,115 +680,115 @@ CSI_TO_FUNCTIONAL_KEY = {
 }
 
 FUNCTIONAL_KEYS_TO_PT_KEYS = {
-    FunctionalKeys.ESCAPE: Keys.Escape,
-    FunctionalKeys.ENTER: Keys.Enter,
-    FunctionalKeys.TAB: Keys.Tab,
-    FunctionalKeys.BACKSPACE: Keys.Backspace,
-    FunctionalKeys.INSERT: Keys.Insert,
-    FunctionalKeys.DELETE: Keys.Delete,
-    FunctionalKeys.LEFT: Keys.Left,
-    FunctionalKeys.RIGHT: Keys.Right,
-    FunctionalKeys.UP: Keys.Up,
-    FunctionalKeys.DOWN: Keys.Down,
-    FunctionalKeys.PAGE_UP: Keys.PageUp,
-    FunctionalKeys.PAGE_DOWN: Keys.PageDown,
-    FunctionalKeys.HOME: Keys.Home,
-    FunctionalKeys.END: Keys.End,
-    # FunctionalKeys.CAPS_LOCK: Keys.CapsLock,
-    # FunctionalKeys.SCROLL_LOCK: Keys.ScrollLock,
-    # FunctionalKeys.NUM_LOCK: Keys.NumLock,
-    # FunctionalKeys.PRINT_SCREEN: Keys.PrintScreen,
-    # FunctionalKeys.PAUSE: Keys.Pause,
-    # FunctionalKeys.MENU: Keys.Menu,
-    FunctionalKeys.F1: Keys.F1,
-    FunctionalKeys.F2: Keys.F2,
-    FunctionalKeys.F3: Keys.F3,
-    FunctionalKeys.F4: Keys.F4,
-    FunctionalKeys.F5: Keys.F5,
-    FunctionalKeys.F6: Keys.F6,
-    FunctionalKeys.F7: Keys.F7,
-    FunctionalKeys.F8: Keys.F8,
-    FunctionalKeys.F9: Keys.F9,
-    FunctionalKeys.F10: Keys.F10,
-    FunctionalKeys.F11: Keys.F11,
-    FunctionalKeys.F12: Keys.F12,
-    FunctionalKeys.F13: Keys.F13,
-    FunctionalKeys.F14: Keys.F14,
-    FunctionalKeys.F15: Keys.F15,
-    FunctionalKeys.F16: Keys.F16,
-    FunctionalKeys.F17: Keys.F17,
-    FunctionalKeys.F18: Keys.F18,
-    FunctionalKeys.F19: Keys.F19,
-    FunctionalKeys.F20: Keys.F20,
-    FunctionalKeys.F21: Keys.F21,
-    FunctionalKeys.F22: Keys.F22,
-    FunctionalKeys.F23: Keys.F23,
-    FunctionalKeys.F24: Keys.F24,
-    # FunctionalKeys.F25: Keys.F25,
-    # FunctionalKeys.F26: Keys.F26,
-    # FunctionalKeys.F27: Keys.F27,
-    # FunctionalKeys.F28: Keys.F28,
-    # FunctionalKeys.F29: Keys.F29,
-    # FunctionalKeys.F30: Keys.F30,
-    # FunctionalKeys.F31: Keys.F31,
-    # FunctionalKeys.F32: Keys.F32,
-    # FunctionalKeys.F33: Keys.F33,
-    # FunctionalKeys.F34: Keys.F34,
-    # FunctionalKeys.F35: Keys.F35,
-    # FunctionalKeys.KP_0: Keys.Kp0,
-    # FunctionalKeys.KP_1: Keys.Kp1,
-    # FunctionalKeys.KP_2: Keys.Kp2,
-    # FunctionalKeys.KP_3: Keys.Kp3,
-    # FunctionalKeys.KP_4: Keys.Kp4,
-    # FunctionalKeys.KP_5: Keys.Kp5,
-    # FunctionalKeys.KP_6: Keys.Kp6,
-    # FunctionalKeys.KP_7: Keys.Kp7,
-    # FunctionalKeys.KP_8: Keys.Kp8,
-    # FunctionalKeys.KP_9: Keys.Kp9,
-    # FunctionalKeys.KP_DECIMAL: Keys.KpDecimal,
-    # FunctionalKeys.KP_DIVIDE: Keys.KpDivide,
-    # FunctionalKeys.KP_MULTIPLY: Keys.KpMultiply,
-    # FunctionalKeys.KP_SUBTRACT: Keys.KpSubtract,
-    # FunctionalKeys.KP_ADD: Keys.KpAdd,
-    # FunctionalKeys.KP_ENTER: Keys.KpEnter,
-    # FunctionalKeys.KP_EQUAL: Keys.KpEqual,
-    # FunctionalKeys.KP_SEPARATOR: Keys.KpSeparator,
-    # FunctionalKeys.KP_LEFT: Keys.KpLeft,
-    # FunctionalKeys.KP_RIGHT: Keys.KpRight,
-    # FunctionalKeys.KP_UP: Keys.KpUp,
-    # FunctionalKeys.KP_DOWN: Keys.KpDown,
-    # FunctionalKeys.KP_PAGE_UP: Keys.KpPageUp,
-    # FunctionalKeys.KP_PAGE_DOWN: Keys.KpPageDown,
-    # FunctionalKeys.KP_HOME: Keys.KpHome,
-    # FunctionalKeys.KP_END: Keys.KpEnd,
-    # FunctionalKeys.KP_INSERT: Keys.KpInsert,
-    # FunctionalKeys.KP_DELETE: Keys.KpDelete,
-    # FunctionalKeys.KP_BEGIN: Keys.KpBegin,
-    # FunctionalKeys.MEDIA_PLAY: Keys.MediaPlay,
-    # FunctionalKeys.MEDIA_PAUSE: Keys.MediaPause,
-    # FunctionalKeys.MEDIA_PLAY_PAUSE: Keys.MediaPlayPause,
-    # FunctionalKeys.MEDIA_REVERSE: Keys.MediaReverse,
-    # FunctionalKeys.MEDIA_STOP: Keys.MediaStop,
-    # FunctionalKeys.MEDIA_FAST_FORWARD: Keys.MediaFastForward,
-    # FunctionalKeys.MEDIA_REWIND: Keys.MediaRewind,
-    # FunctionalKeys.MEDIA_TRACK_NEXT: Keys.MediaTrackNext,
-    # FunctionalKeys.MEDIA_TRACK_PREVIOUS: Keys.MediaTrackPrevious,
-    # FunctionalKeys.MEDIA_RECORD: Keys.MediaRecord,
-    # FunctionalKeys.LOWER_VOLUME: Keys.LowerVolume,
-    # FunctionalKeys.RAISE_VOLUME: Keys.RaiseVolume,
-    # FunctionalKeys.MUTE_VOLUME: Keys.MuteVolume,
-    # FunctionalKeys.LEFT_SHIFT: Keys.LeftShift,
-    # FunctionalKeys.LEFT_CONTROL: Keys.LeftControl,
-    # FunctionalKeys.LEFT_ALT: Keys.LeftAlt,
-    # FunctionalKeys.LEFT_SUPER: Keys.LeftSuper,
-    # FunctionalKeys.LEFT_HYPER: Keys.LeftHyper,
-    # FunctionalKeys.LEFT_META: Keys.LeftMeta,
-    # FunctionalKeys.RIGHT_SHIFT: Keys.RightShift,
-    # FunctionalKeys.RIGHT_CONTROL: Keys.RightControl,
-    # FunctionalKeys.RIGHT_ALT: Keys.RightAlt,
-    # FunctionalKeys.RIGHT_SUPER: Keys.RightSuper,
-    # FunctionalKeys.RIGHT_HYPER: Keys.RightHyper,
-    # FunctionalKeys.RIGHT_META: Keys.RightMeta,
-    # FunctionalKeys.ISO_LEVEL3_SHIFT: Keys.IsoLevel3Shift,
-    # FunctionalKeys.ISO_LEVEL5_SHIFT: Keys.IsoLevel5Shift,
+    FunctionalKeys.ESCAPE: PromptToolkitKeys.Escape,
+    FunctionalKeys.ENTER: PromptToolkitKeys.Enter,
+    FunctionalKeys.TAB: PromptToolkitKeys.Tab,
+    FunctionalKeys.BACKSPACE: PromptToolkitKeys.Backspace,
+    FunctionalKeys.INSERT: PromptToolkitKeys.Insert,
+    FunctionalKeys.DELETE: PromptToolkitKeys.Delete,
+    FunctionalKeys.LEFT: PromptToolkitKeys.Left,
+    FunctionalKeys.RIGHT: PromptToolkitKeys.Right,
+    FunctionalKeys.UP: PromptToolkitKeys.Up,
+    FunctionalKeys.DOWN: PromptToolkitKeys.Down,
+    FunctionalKeys.PAGE_UP: PromptToolkitKeys.PageUp,
+    FunctionalKeys.PAGE_DOWN: PromptToolkitKeys.PageDown,
+    FunctionalKeys.HOME: PromptToolkitKeys.Home,
+    FunctionalKeys.END: PromptToolkitKeys.End,
+    # FunctionalKeys.CAPS_LOCK: PromptToolkitKeys.CapsLock,
+    # FunctionalKeys.SCROLL_LOCK: PromptToolkitKeys.ScrollLock,
+    # FunctionalKeys.NUM_LOCK: PromptToolkitKeys.NumLock,
+    # FunctionalKeys.PRINT_SCREEN: PromptToolkitKeys.PrintScreen,
+    # FunctionalKeys.PAUSE: PromptToolkitKeys.Pause,
+    # FunctionalKeys.MENU: PromptToolkitKeys.Menu,
+    FunctionalKeys.F1: PromptToolkitKeys.F1,
+    FunctionalKeys.F2: PromptToolkitKeys.F2,
+    FunctionalKeys.F3: PromptToolkitKeys.F3,
+    FunctionalKeys.F4: PromptToolkitKeys.F4,
+    FunctionalKeys.F5: PromptToolkitKeys.F5,
+    FunctionalKeys.F6: PromptToolkitKeys.F6,
+    FunctionalKeys.F7: PromptToolkitKeys.F7,
+    FunctionalKeys.F8: PromptToolkitKeys.F8,
+    FunctionalKeys.F9: PromptToolkitKeys.F9,
+    FunctionalKeys.F10: PromptToolkitKeys.F10,
+    FunctionalKeys.F11: PromptToolkitKeys.F11,
+    FunctionalKeys.F12: PromptToolkitKeys.F12,
+    FunctionalKeys.F13: PromptToolkitKeys.F13,
+    FunctionalKeys.F14: PromptToolkitKeys.F14,
+    FunctionalKeys.F15: PromptToolkitKeys.F15,
+    FunctionalKeys.F16: PromptToolkitKeys.F16,
+    FunctionalKeys.F17: PromptToolkitKeys.F17,
+    FunctionalKeys.F18: PromptToolkitKeys.F18,
+    FunctionalKeys.F19: PromptToolkitKeys.F19,
+    FunctionalKeys.F20: PromptToolkitKeys.F20,
+    FunctionalKeys.F21: PromptToolkitKeys.F21,
+    FunctionalKeys.F22: PromptToolkitKeys.F22,
+    FunctionalKeys.F23: PromptToolkitKeys.F23,
+    FunctionalKeys.F24: PromptToolkitKeys.F24,
+    # FunctionalKeys.F25: PromptToolkitKeys.F25,
+    # FunctionalKeys.F26: PromptToolkitKeys.F26,
+    # FunctionalKeys.F27: PromptToolkitKeys.F27,
+    # FunctionalKeys.F28: PromptToolkitKeys.F28,
+    # FunctionalKeys.F29: PromptToolkitKeys.F29,
+    # FunctionalKeys.F30: PromptToolkitKeys.F30,
+    # FunctionalKeys.F31: PromptToolkitKeys.F31,
+    # FunctionalKeys.F32: PromptToolkitKeys.F32,
+    # FunctionalKeys.F33: PromptToolkitKeys.F33,
+    # FunctionalKeys.F34: PromptToolkitKeys.F34,
+    # FunctionalKeys.F35: PromptToolkitKeys.F35,
+    # FunctionalKeys.KP_0: PromptToolkitKeys.Kp0,
+    # FunctionalKeys.KP_1: PromptToolkitKeys.Kp1,
+    # FunctionalKeys.KP_2: PromptToolkitKeys.Kp2,
+    # FunctionalKeys.KP_3: PromptToolkitKeys.Kp3,
+    # FunctionalKeys.KP_4: PromptToolkitKeys.Kp4,
+    # FunctionalKeys.KP_5: PromptToolkitKeys.Kp5,
+    # FunctionalKeys.KP_6: PromptToolkitKeys.Kp6,
+    # FunctionalKeys.KP_7: PromptToolkitKeys.Kp7,
+    # FunctionalKeys.KP_8: PromptToolkitKeys.Kp8,
+    # FunctionalKeys.KP_9: PromptToolkitKeys.Kp9,
+    # FunctionalKeys.KP_DECIMAL: PromptToolkitKeys.KpDecimal,
+    # FunctionalKeys.KP_DIVIDE: PromptToolkitKeys.KpDivide,
+    # FunctionalKeys.KP_MULTIPLY: PromptToolkitKeys.KpMultiply,
+    # FunctionalKeys.KP_SUBTRACT: PromptToolkitKeys.KpSubtract,
+    # FunctionalKeys.KP_ADD: PromptToolkitKeys.KpAdd,
+    # FunctionalKeys.KP_ENTER: PromptToolkitKeys.KpEnter,
+    # FunctionalKeys.KP_EQUAL: PromptToolkitKeys.KpEqual,
+    # FunctionalKeys.KP_SEPARATOR: PromptToolkitKeys.KpSeparator,
+    # FunctionalKeys.KP_LEFT: PromptToolkitKeys.KpLeft,
+    # FunctionalKeys.KP_RIGHT: PromptToolkitKeys.KpRight,
+    # FunctionalKeys.KP_UP: PromptToolkitKeys.KpUp,
+    # FunctionalKeys.KP_DOWN: PromptToolkitKeys.KpDown,
+    # FunctionalKeys.KP_PAGE_UP: PromptToolkitKeys.KpPageUp,
+    # FunctionalKeys.KP_PAGE_DOWN: PromptToolkitKeys.KpPageDown,
+    # FunctionalKeys.KP_HOME: PromptToolkitKeys.KpHome,
+    # FunctionalKeys.KP_END: PromptToolkitKeys.KpEnd,
+    # FunctionalKeys.KP_INSERT: PromptToolkitKeys.KpInsert,
+    # FunctionalKeys.KP_DELETE: PromptToolkitKeys.KpDelete,
+    # FunctionalKeys.KP_BEGIN: PromptToolkitKeys.KpBegin,
+    # FunctionalKeys.MEDIA_PLAY: PromptToolkitKeys.MediaPlay,
+    # FunctionalKeys.MEDIA_PAUSE: PromptToolkitKeys.MediaPause,
+    # FunctionalKeys.MEDIA_PLAY_PAUSE: PromptToolkitKeys.MediaPlayPause,
+    # FunctionalKeys.MEDIA_REVERSE: PromptToolkitKeys.MediaReverse,
+    # FunctionalKeys.MEDIA_STOP: PromptToolkitKeys.MediaStop,
+    # FunctionalKeys.MEDIA_FAST_FORWARD: PromptToolkitKeys.MediaFastForward,
+    # FunctionalKeys.MEDIA_REWIND: PromptToolkitKeys.MediaRewind,
+    # FunctionalKeys.MEDIA_TRACK_NEXT: PromptToolkitKeys.MediaTrackNext,
+    # FunctionalKeys.MEDIA_TRACK_PREVIOUS: PromptToolkitKeys.MediaTrackPrevious,
+    # FunctionalKeys.MEDIA_RECORD: PromptToolkitKeys.MediaRecord,
+    # FunctionalKeys.LOWER_VOLUME: PromptToolkitKeys.LowerVolume,
+    # FunctionalKeys.RAISE_VOLUME: PromptToolkitKeys.RaiseVolume,
+    # FunctionalKeys.MUTE_VOLUME: PromptToolkitKeys.MuteVolume,
+    # FunctionalKeys.LEFT_SHIFT: PromptToolkitKeys.LeftShift,
+    # FunctionalKeys.LEFT_CONTROL: PromptToolkitKeys.LeftControl,
+    # FunctionalKeys.LEFT_ALT: PromptToolkitKeys.LeftAlt,
+    # FunctionalKeys.LEFT_SUPER: PromptToolkitKeys.LeftSuper,
+    # FunctionalKeys.LEFT_HYPER: PromptToolkitKeys.LeftHyper,
+    # FunctionalKeys.LEFT_META: PromptToolkitKeys.LeftMeta,
+    # FunctionalKeys.RIGHT_SHIFT: PromptToolkitKeys.RightShift,
+    # FunctionalKeys.RIGHT_CONTROL: PromptToolkitKeys.RightControl,
+    # FunctionalKeys.RIGHT_ALT: PromptToolkitKeys.RightAlt,
+    # FunctionalKeys.RIGHT_SUPER: PromptToolkitKeys.RightSuper,
+    # FunctionalKeys.RIGHT_HYPER: PromptToolkitKeys.RightHyper,
+    # FunctionalKeys.RIGHT_META: PromptToolkitKeys.RightMeta,
+    # FunctionalKeys.ISO_LEVEL3_SHIFT: PromptToolkitKeys.IsoLevel3Shift,
+    # FunctionalKeys.ISO_LEVEL5_SHIFT: PromptToolkitKeys.IsoLevel5Shift,
 }
