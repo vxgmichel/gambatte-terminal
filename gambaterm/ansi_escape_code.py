@@ -1,3 +1,4 @@
+from itertools import count
 import sys
 from enum import Enum, auto
 from dataclasses import dataclass
@@ -40,8 +41,8 @@ class OSC:
 
     CHAR = "]"
     BELL = "\x07"
-    ST1 = "\x5c"
-    ST2 = "\x9c"
+    ESC_ST = "\x5c"
+    SINGLE_ST = "\x9c"
 
     def raw(self) -> str:
         return f"\033{self.CHAR}{self.payload}{self.BELL}"
@@ -52,77 +53,128 @@ class DCS:
     payload: str
 
     CHAR = "P"
-    ST1 = "\x5c"
-    ST2 = "\x9c"
+    ESC_ST = "\x5c"
+    SINGLE_ST = "\x9c"
 
     def raw(self) -> str:
-        return f"\033{self.CHAR}{self.payload}\033{self.ST1}"
+        return f"\033{self.CHAR}{self.payload}\033{self.ESC_ST}"
 
 
 EscapeCode: TypeAlias = CSI | OSC | DCS
+Ready: TypeAlias = list[EscapeCode | str]
 
 
-def parse_ansi_escape_code() -> Generator[EscapeCode | str | None, str, None]:
-    ready: EscapeCode | str | None = None
+def parse_ansi_escape_code() -> Generator[Ready, str, None]:
+    # Initialize result list
+    ready: Ready = []
+
+    # Get first data
+    data = yield ready
+
+    # Loop over ansi escape code
     while True:
-        char = yield ready
-        while char != "\033":
-            char = yield char
-        code = yield None
+        # Wait for escape
+        while "\033" not in data:
+            if data:
+                ready.append(data)
+            data = yield ready
+            ready = []
+
+        # Split the data
+        before, data = data.split("\033", maxsplit=1)
+        if before:
+            ready.append(before)
+
+        # Wait for new data if necessary
+        while not data:
+            data = yield ready
+            ready = []
+
+        # Match code
+        code = data[0]
         if code == CSI.CHAR:
-            ready = yield from parse_csi()
+            data, ready = yield from parse_csi(data, ready)
         elif code == OSC.CHAR:
-            ready = yield from parse_osc()
+            data, ready = yield from parse_osc(data, ready)
         elif code == DCS.CHAR:
-            ready = yield from parse_dcs()
+            data, ready = yield from parse_dcs(data, ready)
         else:
-            ready = char + code
+            ready.append("\033")
 
 
-def parse_csi() -> Generator[None, str, CSI]:
-    payload = ""
-    while True:
-        char = yield None
+def parse_csi(
+    data: str, ready: list[EscapeCode | str]
+) -> Generator[Ready, str, tuple[str, Ready]]:
+    # Loop over characters
+    for i in count(1):
+        # Get more data if necessary
+        if i == len(data):
+            data += yield ready
+            ready = []
+        char = data[i]
+
+        # Check for stop code
         if char in CSI.CODES:
-            break
-        payload += char
-    return CSI(char, payload)
+            ready.append(CSI(char, data[1:i]))
+            return data[i + 1 :], ready
+
+    assert False
 
 
-def parse_osc() -> Generator[None, str, OSC]:
-    payload = ""
-    while True:
-        char = yield None
-        while char == "\033":
-            extra = yield None
-            if extra == OSC.ST1:
-                return OSC(payload)
-            payload += char
-            char = extra
-        if char in (OSC.BELL, OSC.ST2):
-            return OSC(payload)
-        payload += char
+def parse_osc(
+    data: str, ready: list[EscapeCode | str]
+) -> Generator[Ready, str, tuple[str, Ready]]:
+    # Loop over characters
+    for i in count(1):
+        # Get more data if necessary
+        if i == len(data):
+            data += yield ready
+            ready = []
+        before = data[i - 1]
+        char = data[i]
+
+        # Check for double character stop code
+        if before == "\033" and char == OSC.ESC_ST:
+            ready.append(OSC(data[1 : i - 1]))
+            return data[i + 1 :], ready
+
+        # Check for single character stop code
+        if char in (OSC.BELL, OSC.SINGLE_ST):
+            ready.append(OSC(data[1:i]))
+            return data[i + 1 :], ready
+
+    assert False
 
 
-def parse_dcs() -> Generator[None, str, DCS]:
-    payload = ""
-    while True:
-        char = yield None
-        while char == "\033":
-            extra = yield None
-            if extra == OSC.ST1:
-                return DCS(payload)
-            payload += char
-            char = extra
-        if char == OSC.ST2:
-            return DCS(payload)
-        payload += char
+def parse_dcs(
+    data: str, ready: list[EscapeCode | str]
+) -> Generator[Ready, str, tuple[str, Ready]]:
+    # Loop over characters
+    for i in count(1):
+        # Get more data if necessary
+        if i == len(data):
+            data += yield ready
+            ready = []
+        before = data[i - 1]
+        char = data[i]
+
+        # Check for double character stop code
+        if before == "\033" and char == DCS.ESC_ST:
+            ready.append(DCS(data[1 : i - 1]))
+            return data[i + 1 :], ready
+
+        # Check for single character stop code
+        if char == DCS.SINGLE_ST:
+            ready.append(DCS(data[1:i]))
+            return data[i + 1 :], ready
+
+    assert False
 
 
 def detect_true_color_support_with_DCS() -> Generator[str | None, str, SupportStatus]:
     """
-    This detection is restrictive, i.e it has not known positive
-    However, it falsely reports no support for gnome terminal
+    This detection is restrictive, i.e it has no known false positive.
+    However, it falsely reports no support for gnome-terminal
     """
     # Set unlikely RGB value
     command = "\033[48;2;1;2;3m"
@@ -133,21 +185,22 @@ def detect_true_color_support_with_DCS() -> Generator[str | None, str, SupportSt
     # Query primary device attributes
     command += "\033[c"
     # Send command
-    char = yield command
+    data = yield command
     # Prepare coroutine
     coro = parse_ansi_escape_code()
-    assert next(coro) is None
+    assert not next(coro)
     # Loop over characters
     result = SupportStatus.Undecided
     while True:
-        item = coro.send(char)
-        if isinstance(item, CSI):
-            if item.code == "c":
-                return result
-        if isinstance(item, DCS):
-            if item.payload.endswith(":1:2:3m"):
-                result = SupportStatus.Supported
-        char = yield None
+        ready = coro.send(data)
+        for item in ready:
+            if isinstance(item, CSI):
+                if item.code == "c":
+                    return result
+            if isinstance(item, DCS):
+                if item.payload.endswith(":1:2:3m"):
+                    result = SupportStatus.Supported
+        data = yield None
 
 
 def detect_true_color_support_with_OSC() -> Generator[str | None, str, SupportStatus]:
@@ -160,21 +213,22 @@ def detect_true_color_support_with_OSC() -> Generator[str | None, str, SupportSt
     # Query primary device attributes
     command += "\033[c"
     # Send command
-    char = yield command
+    data = yield command
     # Prepare coroutine
     coro = parse_ansi_escape_code()
-    assert next(coro) is None
+    assert not next(coro)
     # Loop over characters
     result = SupportStatus.Unsupported
     while True:
-        item = coro.send(char)
-        if isinstance(item, CSI):
-            if item.code == "c":
-                return result
-        if isinstance(item, OSC):
-            if "rgb" in item.payload:
-                result = SupportStatus.Undecided
-        char = yield None
+        ready = coro.send(data)
+        for item in ready:
+            if isinstance(item, CSI):
+                if item.code == "c":
+                    return result
+            if isinstance(item, OSC):
+                if "rgb" in item.payload:
+                    result = SupportStatus.Undecided
+        data = yield None
 
 
 def detect_true_color_support_parser() -> Generator[str | None, str, SupportStatus]:
@@ -195,20 +249,21 @@ def detect_keyboard_protocol_support_parser() -> (
     # Query primary device attributes
     command += "\033[c"
     # Send command
-    char = yield command
+    data = yield command
     # Prepare coroutine
     coro = parse_ansi_escape_code()
-    assert next(coro) is None
+    assert not next(coro)
     # Loop over characters
     result = SupportStatus.Unsupported
     while True:
-        item = coro.send(char)
-        if isinstance(item, CSI):
-            if item.code == "c":
-                return result
-            if item.code == "u":
-                result = SupportStatus.Supported
-        char = yield None
+        ready = coro.send(data)
+        for item in ready:
+            if isinstance(item, CSI):
+                if item.code == "c":
+                    return result
+                if item.code == "u":
+                    result = SupportStatus.Supported
+        data = yield None
 
 
 def run_parser_in_app_session(
@@ -229,13 +284,12 @@ def run_parser_in_app_session(
                     raise KeyboardInterrupt
 
                 # Send each char of the key into the coroutine
-                for char in key.data:
-                    command = coro.send(char)
+                command = coro.send(key.data)
 
-                    # Send extra command
-                    if command is not None:
-                        app_session.output.write_raw(command)
-                        app_session.output.flush()
+                # Send extra command
+                if command is not None:
+                    app_session.output.write_raw(command)
+                    app_session.output.flush()
 
     # Get the result
     except StopIteration as exc:

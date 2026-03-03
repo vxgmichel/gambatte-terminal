@@ -326,15 +326,15 @@ class KeyboardProtocolParser(Vt100Parser):
         super().__init__(vt100_input.feed_key_callback)
         self.pressed: set[Keys] = set()
         self.ansi_escape_code_parser = parse_ansi_escape_code()
-        assert next(self.ansi_escape_code_parser) is None
+        assert not next(self.ansi_escape_code_parser)
 
     def get_pressed(self) -> set[Keys]:
         return self.pressed
 
     def feed(self, data: str) -> None:
         data_out: list[str] = []
-        for char in data:
-            item = self.ansi_escape_code_parser.send(char)
+        ready = self.ansi_escape_code_parser.send(data)
+        for item in ready:
             if item is None:
                 continue
             if isinstance(item, str):

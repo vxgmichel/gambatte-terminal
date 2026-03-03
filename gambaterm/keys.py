@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import TypeAlias
 from enum import Enum, auto
 
 
@@ -319,4 +320,4 @@ class FunctionalKeys(Enum):
     ISO_LEVEL5_SHIFT = auto()
 
 
-Keys = LatinKeys | FunctionalKeys
+Keys: TypeAlias = LatinKeys | FunctionalKeys
