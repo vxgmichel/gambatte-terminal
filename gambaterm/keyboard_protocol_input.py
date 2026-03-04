@@ -285,8 +285,11 @@ ASCII_SYMBOL_TO_NAME = {
 class KeyboardProtocolEvent(NamedTuple):
     code: str
     char: int
+    shifted: int | None
+    base_layout: int | None
     modifiers: Modifiers
     event_type: EventType
+    codepoints: str
     raw_data: str
 
     def to_key(self) -> Keys | None:
@@ -357,30 +360,79 @@ class KeyboardProtocolParser(Vt100Parser):
     def _process_csi(self, csi: CSI) -> KeyboardProtocolEvent | None:
         if csi.code not in "ABCDEFHPQSu~":
             return None
-        if ";" not in csi.payload:
-            raw_char = csi.payload
-            raw_modifier = "1"
-            raw_event = "1"
+
+        # Parse payload
+        payload_splitted = csi.payload.split(";", maxsplit=2)
+        raw_event_info: str = ""
+        raw_codepoints: str = ""
+        if len(payload_splitted) == 1:
+            (raw_keycode,) = payload_splitted
+        elif len(payload_splitted) == 2:
+            raw_keycode, raw_event_info = payload_splitted
+        elif len(payload_splitted) == 3:
+            raw_keycode, raw_event_info, raw_codepoints = payload_splitted
         else:
-            raw_char, subpayload = csi.payload.split(";", maxsplit=1)
-            if ":" not in subpayload:
-                raw_modifier = subpayload
-                raw_event = "1"
+            assert False
+
+        # Parse key code
+        keycode_splitted = raw_keycode.split(":", maxsplit=2)
+        raw_shifted: str = ""
+        raw_base_layout: str = ""
+        if len(keycode_splitted) == 1:
+            (raw_char,) = keycode_splitted
+        elif len(keycode_splitted) == 2:
+            raw_char, raw_shifted = keycode_splitted
+        elif len(keycode_splitted) == 3:
+            raw_char, raw_shifted, raw_base_layout = keycode_splitted
+        else:
+            assert False
+
+        # Parse event info
+        raw_modifier: str = ""
+        raw_event: str = ""
+        if raw_event_info is not None:
+            event_info_splitted = raw_event_info.split(":", maxsplit=1)
+            if len(event_info_splitted) == 1:
+                (raw_modifier,) = event_info_splitted
+            elif len(event_info_splitted) == 2:
+                raw_modifier, raw_event = event_info_splitted
             else:
-                raw_modifier, raw_event = subpayload.split(":", maxsplit=1)
+                assert False
+
+        # Parse codepoints
+        codepoints = ""
+        if raw_codepoints:
+            for raw_codepoint in raw_codepoints.split(":"):
+                try:
+                    codepoints += chr(int(raw_codepoint))
+                except ValueError:
+                    return None
+
         try:
             char = int(raw_char)
         except ValueError:
             return None
         try:
-            modifier = Modifiers(int(raw_modifier) - 1)
+            shifted = int(raw_shifted) if raw_shifted else None
         except ValueError:
             return None
         try:
-            event = EventType(int(raw_event))
+            base_layout = int(raw_base_layout) if raw_base_layout else None
         except ValueError:
             return None
-        return KeyboardProtocolEvent(csi.code, char, modifier, event, csi.raw())
+        try:
+            modifier = (
+                Modifiers(int(raw_modifier) - 1) if raw_modifier else Modifiers(0)
+            )
+        except ValueError:
+            return None
+        try:
+            event = EventType(int(raw_event)) if raw_event else EventType.PRESSED
+        except ValueError:
+            return None
+        return KeyboardProtocolEvent(
+            csi.code, char, shifted, base_layout, modifier, event, codepoints, csi.raw()
+        )
 
     def _handle_event(self, event: KeyboardProtocolEvent) -> None:
         key = event.to_key()
@@ -396,7 +448,7 @@ class KeyboardProtocolParser(Vt100Parser):
 def keyboard_protocol_key_pressed_context(
     app_session: AppSession,
 ) -> Iterator[Callable[[], set[Keys]]]:
-    app_session.output.write_raw("\033[>11u")
+    app_session.output.write_raw("\033[>31u")
     app_session.output.flush()
     if sys.platform == "win32":
         from prompt_toolkit.input.win32 import Win32Input
