@@ -27,7 +27,8 @@ cdef class GB:
     ):
         cdef uint32_t* video_buffer = &video[0, 0]
         cdef uint32_t* audio_buffer = <uint32_t*>&audio[0, 0]
-        result = self.c_gb.runFor(video_buffer, pitch, audio_buffer, samples)
+        with nogil:
+            result = self.c_gb.runFor(video_buffer, pitch, audio_buffer, samples)
         return result, samples
 
     def set_input(self, unsigned int value):

@@ -1,15 +1,16 @@
 # cython: language_level=3
 
+from cython import boundscheck
 from libc.stdio cimport sprintf
 from libc.stdlib cimport malloc, free
 from libc.stdint cimport uint32_t
 
-cdef char* move_absolute(char* buff, int x, int y):
+cdef char* move_absolute(char* buff, int x, int y) noexcept nogil:
     buff += sprintf(buff, "\033[%d;%dH", x, y)
     return buff
 
 
-cdef char* move_relative(char* buff, int dx, int dy):
+cdef char* move_relative(char* buff, int dx, int dy) noexcept nogil:
     # Vertical move
     if dx < -1:
         buff += sprintf(buff, "\033[%dA", -dx)
@@ -32,25 +33,25 @@ cdef char* move_relative(char* buff, int dx, int dy):
 
 
 
-cdef int scale_256_to_6_shift(int x):
+cdef int scale_256_to_6_shift(int x) noexcept nogil:
     x >>= 5
     x -= x > 0
     x -= x > 1
     return x
 
 
-cdef int scale_256_to_6_closest(int x):
+cdef int scale_256_to_6_closest(int x) noexcept nogil:
     if x < 48:
         return 0
     if x < 115:
         return 1
     return (x - 35) // 40
 
-cdef int scale_256_to_6_spread(int x):
+cdef int scale_256_to_6_spread(int x) noexcept nogil:
     return x // 43
 
 
-cdef int scale_rgb_to_16_colors(int r, int g, int b):
+cdef int scale_rgb_to_16_colors(int r, int g, int b) noexcept nogil:
     r >>= 6
     g >>= 6
     b >>= 6
@@ -71,7 +72,7 @@ cdef int scale_rgb_to_16_colors(int r, int g, int b):
     return 90 + (b << 2 | g << 1 | r)
 
 
-cdef int scale_rgb_to_4_colors(int r, int g, int b):
+cdef int scale_rgb_to_4_colors(int r, int g, int b) noexcept nogil:
     # Square the values
     r *= r
     g *= g
@@ -94,7 +95,7 @@ cdef int scale_rgb_to_4_colors(int r, int g, int b):
     # White color
     return 97
 
-cdef char* set_color(char* buff, int n, int color_mode, int foreground):
+cdef char* set_color(char* buff, int n, int color_mode, int foreground) noexcept nogil:
     cdef int c
     # Extract RGB components
     cdef int b = n & 0xff
@@ -128,26 +129,28 @@ cdef char* set_color(char* buff, int n, int color_mode, int foreground):
     return buff
 
 
-cdef char* set_background(char* buff, int n, int color_mode):
+cdef char* set_background(char* buff, int n, int color_mode) noexcept nogil:
     return set_color(buff, n, color_mode, False)
 
 
-cdef char* set_foreground(char* buff, int n, int color_mode):
+cdef char* set_foreground(char* buff, int n, int color_mode) noexcept nogil:
     return set_color(buff, n, color_mode, True)
 
 
 cdef char* move_from_to(
     char *buff, int from_x, int from_y, int to_x, int to_y
-):
+) noexcept nogil:
     return move_relative(buff, to_x - from_x, to_y - from_y)
 
 
-def blit(
+@boundscheck(False)
+cdef char* _blit(
     uint32_t[:, ::1] image,
     uint32_t[:, ::1] last,
     int refx, int refy, int width, int height,
     int color_mode,
-):
+    char* base,
+) noexcept nogil:
 
     cdef int current_x = refx
     cdef int current_y = refy
@@ -159,7 +162,6 @@ def blit(
     cdef int invert_print
     cdef int image_height = image.shape[0]
     cdef int image_width = image.shape[1]
-    cdef char* base = <char *> malloc(image_height * image_width * 30)
     cdef char* result = base
 
     # Move at reference point
@@ -228,7 +230,23 @@ def blit(
 
     # Reset attributes before returning the buffer
     result += sprintf(result, "\033[0m")
+    return result
+
+
+def blit(
+    uint32_t[:, ::1] image,
+    uint32_t[:, ::1] last,
+    int refx, int refy, int width, int height,
+    int color_mode,
+):
+    cdef char* base
+
+    with nogil:
+        base = <char *> malloc(image.shape[0] * image.shape[1] * 30)
+        result = _blit(image, last, refx, refy, width, height, color_mode, base)
+
     try:
-        return base[:result-base]
+        return base[:result - base]
     finally:
         free(base)
+
