@@ -7,6 +7,7 @@ import argparse
 import traceback
 from pathlib import Path
 from typing import IO, cast
+from enum import Enum, auto
 from concurrent.futures import ThreadPoolExecutor
 
 import asyncssh
@@ -29,6 +30,46 @@ from .ansi_escape_code import (
     detect_true_color_support_parser,
     run_parser_in_ssh_server_process,
 )
+
+
+async def is_x11_display_functional(
+    display: str,
+    executor: ThreadPoolExecutor,
+    timeout: float = 3.0,
+) -> bool:
+    from .x11_keyboard_input import is_x11_display_functional
+
+    try:
+        return await asyncio.wait_for(
+            asyncio.get_running_loop().run_in_executor(
+                executor, is_x11_display_functional, display
+            ),
+            timeout=timeout,
+        )
+    except asyncio.TimeoutError:
+        return False
+
+
+class InputSource(Enum):
+    INPUT_FILE = auto()
+    KEYBOARD_PROTOCOL = auto()
+    X11 = auto()
+
+    @classmethod
+    async def detect(
+        cls,
+        app_config: AppConfig,
+        process: SSHServerProcess[str],
+        display: str | None,
+        executor: ThreadPoolExecutor,
+    ) -> InputSource | None:
+        if app_config.input_file is not None:
+            return InputSource.INPUT_FILE
+        if await detect_keyboard_protocol_support(process):
+            return InputSource.KEYBOARD_PROTOCOL
+        if display and await is_x11_display_functional(display, executor):
+            return InputSource.X11
+        return None
 
 
 async def detect_keyboard_protocol_support(
@@ -127,15 +168,10 @@ async def ssh_process_handler(process: SSHServerProcess[str]) -> int:
         return 1
 
     # X11 or Kitty keyboard protocol is required
-    use_keyboard_protocol = (
-        False
-        if app_config.input_file is not None
-        else await detect_keyboard_protocol_support(process)
-    )
-    if app_config.input_file is None and not use_keyboard_protocol and not display:
-        process.stdout.write(
-            """\
-Your terminal does not support the kitty keyboard protocol (https://sw.kovidgoyal.net/kitty/keyboard-protocol)
+    input_source = await InputSource.detect(app_config, process, display, executor)
+    if input_source is None:
+        message = """\
+Your terminal does not support the kitty keyboard protocol
 Here is a list of terminals supporting this protocol:
 - The alacritty terminal
 - The ghostty terminal
@@ -144,18 +180,20 @@ Here is a list of terminals supporting this protocol:
 - The rio terminal
 - The WezTerm terminal
 - The TuiOS terminal (multiplexer)
+More information here: (https://sw.kovidgoyal.net/kitty/keyboard-protocol)
 
-Alternatively, X11 forwarding can be used in order to give the gambaterm-ssh server access to your keyboard.
+Alternatively, X11 forwarding can be used in order to give the gambaterm-ssh
+server access to your keyboard.
 ===============================[ WARNING ]=====================================
 Enabling X11 forwarding while connecting to an untrusted server can greatly
 endanger your machine. Please only do so if you are running the X11 server in a
 sandbox. More information here: https://security.stackexchange.com/a/7496
 ===============================[ WARNING ]=====================================
-""".replace(
-                "\n", "\r\n"
-            )
+"""
+        process.stdout.write(message.replace("\n", "\r\n"))
+        print(
+            f"< User `{username}` did not support keyboard protocol nor enable X11 forwarding"
         )
-        print(f"< User `{username}` did not enable X11 forwarding")
         return 1
 
     # Detect true color support by interracting with the terminal
@@ -185,8 +223,7 @@ sandbox. More information here: https://security.stackexchange.com/a/7496
         loop = asyncio.get_event_loop()
         height, width = app_session.output.get_size()
         print(
-            "[Terminal Info] "
-            f"{username}: {terminal_type}, {color_mode}, {width}x{height}"
+            f"[Terminal Info] {username}: {terminal_type}, {input_source}, {color_mode}, {width}x{height}"
         )
         return await loop.run_in_executor(
             executor,
@@ -195,7 +232,7 @@ sandbox. More information here: https://security.stackexchange.com/a/7496
             console,
             app_config,
             display,
-            use_keyboard_protocol,
+            input_source,
             color_mode,
         )
 
@@ -205,22 +242,25 @@ def thread_target(
     console: Console,
     app_config: AppConfig,
     display: str | None,
-    use_keyboard_protocol: bool,
+    input_source: InputSource,
     color_mode: ColorMode,
 ) -> int:
-    if app_config.input_file is not None:
+    if input_source == InputSource.INPUT_FILE:
+        assert app_config.input_file is not None
         console_input_context = console_input_from_file_context(
             console, app_config.input_file, app_config.skip_inputs
         )
-    elif use_keyboard_protocol:
+    elif input_source == InputSource.KEYBOARD_PROTOCOL:
         console_input_context = console_input_from_keyboard_protocol_context(
             console,
             app_session,
         )
-    else:
+    elif input_source == InputSource.X11:
         console_input_context = console_input_from_x11_keyboard_context(
             console, display
         )
+    else:
+        assert False
 
     try:
         # Prepare alternate screen

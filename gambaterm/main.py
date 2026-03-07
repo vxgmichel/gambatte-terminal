@@ -181,6 +181,10 @@ Try to force a color mode using the `--color-mode` option with a value between 1
             except (KeyboardInterrupt, EOFError):
                 pass
 
+            # Report runtime error without a stacktrace
+            except RuntimeError as error:
+                exit(str(error))
+
             # Exit normally
             else:
                 exit()

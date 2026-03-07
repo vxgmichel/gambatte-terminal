@@ -165,6 +165,22 @@ def initialize_xlib_symkey_to_functional_key_mapping() -> None:
     )
 
 
+def is_x11_display_functional(display: str | None = None) -> bool:
+    from Xlib.display import Display
+
+    try:
+        with closing(Display(display)) as xdisplay:
+            extension_info = xdisplay.query_extension("XInputExtension")
+            if extension_info is None:
+                return False
+            xinput_major = extension_info.major_opcode
+            if xinput_major is None:
+                return False
+    except OSError:
+        return False
+    return True
+
+
 @contextmanager
 def x11_key_pressed_context(
     display: str | None = None,

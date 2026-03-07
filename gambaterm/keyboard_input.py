@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 import time
 from contextlib import contextmanager
@@ -20,6 +21,20 @@ from .ansi_escape_code import (
 from .pynput_keyboard_input import pynput_key_pressed_context
 from .x11_keyboard_input import x11_key_pressed_context
 from .keyboard_protocol_input import keyboard_protocol_key_pressed_context
+
+
+MESSAGE_FOR_WAYLAND_USERS = """\
+Your terminal does not support the kitty keyboard protocol
+Here is a list of terminals supporting this protocol:
+- The alacritty terminal
+- The ghostty terminal
+- The foot terminal
+- The iTerm2 terminal
+- The rio terminal
+- The WezTerm terminal
+- The TuiOS terminal (multiplexer)
+More information here: (https://sw.kovidgoyal.net/kitty/keyboard-protocol)\
+"""
 
 
 def get_input_mapping(console: Console) -> dict[Keys, Console.Input]:
@@ -114,7 +129,10 @@ def console_input_from_pynput_keyboard_context(
 
 @contextmanager
 def console_input_from_keyboard_context(
-    console: Console, app_session: AppSession, display: str | None = None
+    console: Console,
+    app_session: AppSession,
+    display: str | None = None,
+    xdg_session_type: str | None = None,
 ) -> Iterator[InputGetter]:
     if run_parser_in_app_session(
         app_session, detect_keyboard_protocol_support_parser
@@ -124,6 +142,10 @@ def console_input_from_keyboard_context(
         ) as get_input:
             yield get_input
     elif sys.platform == "linux":
+        if xdg_session_type is None:
+            xdg_session_type = os.environ.get("XDG_SESSION_TYPE", "")
+        if xdg_session_type != "x11":
+            raise RuntimeError(MESSAGE_FOR_WAYLAND_USERS)
         with console_input_from_x11_keyboard_context(console, display) as get_input:
             yield get_input
     else:
@@ -135,6 +157,7 @@ def console_input_from_keyboard_context(
 def key_pressed_context(
     app_session: AppSession,
     display: str | None = None,
+    xdg_session_type: str | None = None,
 ) -> Iterator[Callable[[], set[Keys]]]:
     if run_parser_in_app_session(
         app_session, detect_keyboard_protocol_support_parser
@@ -142,6 +165,10 @@ def key_pressed_context(
         with keyboard_protocol_key_pressed_context(app_session) as get_pressed:
             yield get_pressed
     elif sys.platform == "linux":
+        if xdg_session_type is None:
+            xdg_session_type = os.environ.get("XDG_SESSION_TYPE", "")
+        if xdg_session_type != "x11":
+            raise RuntimeError(MESSAGE_FOR_WAYLAND_USERS)
         with x11_key_pressed_context(display) as get_pressed:
             yield get_pressed
     else:
@@ -178,6 +205,8 @@ def main() -> None:
                         app_session.output.flush()
             except (KeyboardInterrupt, EOFError):
                 pass
+            except RuntimeError as error:
+                exit(str(error))
             finally:
                 app_session.output.show_cursor()
                 app_session.output.flush()
