@@ -167,6 +167,7 @@ def initialize_xlib_symkey_to_functional_key_mapping() -> None:
 
 def is_x11_display_functional(display: str | None = None) -> bool:
     from Xlib.display import Display
+    from Xlib.xobject.drawable import Window
 
     try:
         with closing(Display(display)) as xdisplay:
@@ -175,6 +176,12 @@ def is_x11_display_functional(display: str | None = None) -> bool:
                 return False
             xinput_major = extension_info.major_opcode
             if xinput_major is None:
+                return False
+            term_window = xdisplay.get_input_focus().focus
+            if not isinstance(term_window, Window):
+                return False
+            root = xdisplay.screen().root
+            if not isinstance(root, Window):
                 return False
     except OSError:
         return False
