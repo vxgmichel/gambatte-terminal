@@ -376,6 +376,7 @@ async def run_server(
         x11_forwarding=True,
         encryption_algs=encryption_algs,
         line_editor=False,
+        reuse_address=True,
     )
     bind, port = server.sockets[0].getsockname()
     print(f"Running ssh server on {bind}:{port}...", flush=True)
