@@ -79,7 +79,6 @@ def initialize_pynput_key_to_functional_key_mapping() -> None:
             pynput.keyboard.Key.tab: FunctionalKeys.TAB,
             pynput.keyboard.Key.up: FunctionalKeys.UP,
             pynput.keyboard.Key.media_play_pause: FunctionalKeys.MEDIA_PLAY_PAUSE,
-            pynput.keyboard.Key.media_stop: FunctionalKeys.MEDIA_STOP,
             pynput.keyboard.Key.media_volume_mute: FunctionalKeys.MUTE_VOLUME,
             pynput.keyboard.Key.media_volume_down: FunctionalKeys.LOWER_VOLUME,
             pynput.keyboard.Key.media_volume_up: FunctionalKeys.RAISE_VOLUME,
