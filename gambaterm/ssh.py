@@ -7,6 +7,7 @@ import argparse
 import traceback
 from pathlib import Path
 from typing import IO, cast
+from enum import Enum, auto
 from concurrent.futures import ThreadPoolExecutor
 
 import asyncssh
@@ -16,34 +17,91 @@ from prompt_toolkit.application import AppSession
 from .run import run
 from .colors import ColorMode, detect_color_mode
 from .file_input import console_input_from_file_context
-from .keyboard_input import console_input_from_keyboard_context
-from .main import add_base_arguments, add_optional_arguments
+from .keyboard_input import (
+    console_input_from_x11_keyboard_context,
+    console_input_from_keyboard_protocol_context,
+)
+from .main import add_base_arguments, add_optional_arguments, AppConfig
 from .console import Console, GameboyColor
 
 from .ssh_app_session import process_to_app_session
+from .ansi_escape_code import (
+    detect_keyboard_protocol_support_parser,
+    detect_true_color_support_parser,
+    run_parser_in_ssh_server_process,
+)
+
+
+async def is_x11_display_functional(
+    display: str,
+    executor: ThreadPoolExecutor,
+    timeout: float = 3.0,
+) -> bool:
+    from .x11_keyboard_input import is_x11_display_functional
+
+    try:
+        return await asyncio.wait_for(
+            asyncio.get_running_loop().run_in_executor(
+                executor, is_x11_display_functional, display
+            ),
+            timeout=timeout,
+        )
+    except asyncio.TimeoutError:
+        return False
+
+
+class InputSource(Enum):
+    INPUT_FILE = auto()
+    KEYBOARD_PROTOCOL = auto()
+    X11 = auto()
+
+    @classmethod
+    async def detect(
+        cls,
+        app_config: AppConfig,
+        process: SSHServerProcess[str],
+        display: str | None,
+        executor: ThreadPoolExecutor,
+    ) -> InputSource | None:
+        if app_config.input_file is not None:
+            return InputSource.INPUT_FILE
+        if await detect_keyboard_protocol_support(process):
+            return InputSource.KEYBOARD_PROTOCOL
+        if display and await is_x11_display_functional(display, executor):
+            return InputSource.X11
+        return None
+
+
+async def detect_keyboard_protocol_support(
+    process: SSHServerProcess[str],
+    timeout: float = 1.0,
+) -> bool:
+    try:
+        status = await asyncio.wait_for(
+            run_parser_in_ssh_server_process(
+                process, detect_keyboard_protocol_support_parser
+            ),
+            timeout,
+        )
+    except TimeoutError:
+        return False
+    else:
+        return status.is_supported()
 
 
 async def detect_true_color_support(
-    process: SSHServerProcess[str], timeout: float = 0.5
+    process: SSHServerProcess[str],
+    timeout: float = 1.0,
 ) -> bool:
-    # Set unlikely RGB value
-    process.stdout.write("\033[48:2:1:2:3m")
-    # Query current configuration
-    process.stdout.write("\033P$qm\033\\")
-    # Reset
-    process.stdout.write("\033[m")
-    # Wait for reply
-    while True:
-        try:
-            header = await asyncio.wait_for(process.stdin.readuntil("\033\\"), timeout)
-        except asyncssh.TerminalSizeChanged:
-            pass
-        except (asyncio.TimeoutError, asyncio.IncompleteReadError):
-            return False
-        else:
-            break
-    # Return whether true color is supported
-    return "P1$r" in header and "48:2" in header and "1:2:3m" in header
+    try:
+        status = await asyncio.wait_for(
+            run_parser_in_ssh_server_process(process, detect_true_color_support_parser),
+            timeout,
+        )
+    except TimeoutError:
+        return False
+    else:
+        return status.is_supported()
 
 
 async def safe_ssh_process_handler(process: SSHServerProcess[str]) -> None:
@@ -63,8 +121,9 @@ async def safe_ssh_process_handler(process: SSHServerProcess[str]) -> None:
 
 
 async def ssh_process_handler(process: SSHServerProcess[str]) -> int:
-    executor = process.get_extra_info("executor")
-    app_config = process.get_extra_info("app_config")
+    console_cls: type[Console] = process.get_extra_info("console_cls")
+    namespace: argparse.Namespace = process.get_extra_info("namespace")
+    executor: ThreadPoolExecutor = process.get_extra_info("executor")
     display = process.channel.get_x11_display()
     command = process.channel.get_command()
     environment = dict(process.channel.get_environment())
@@ -74,6 +133,9 @@ async def ssh_process_handler(process: SSHServerProcess[str]) -> int:
     peername, port = connection.get_extra_info("peername")
     print(f"> User `{username}` is connected ({peername}:{port})")
 
+    # Copy namespace before mutating
+    namespace = argparse.Namespace(**vars(namespace))
+
     # Check command
     if command is not None:
         parser = argparse.ArgumentParser()
@@ -81,34 +143,57 @@ async def ssh_process_handler(process: SSHServerProcess[str]) -> int:
             parser, message, file=cast(IO[str], process.stdout)
         )
         add_optional_arguments(parser)
-        app_config.console_cls.add_console_arguments(parser)
-        parser.parse_args(command.split(), app_config)
+        console_cls.add_console_arguments(parser)
+        namespace = parser.parse_args(command.split(), namespace)
+
+    # Manage save directory
+    save_directory: Path | None = None
+    if "save_directory" in namespace.__dict__:
+        save_directory = Path("ssh_save") / username
+        setattr(namespace, "save_directory", save_directory)
+
+    # Pop console arguments and extract configuration
+    console_callback = console_cls.pop_console_arguments(namespace)
+    app_config = AppConfig(**vars(namespace))
 
     # Check terminal
     if terminal_type is None:
         print(
             "Please use a terminal to access the interactive interface.",
             "Use `-t` to force pseudo-terminal allocation if a command is provided.",
-            sep="\n",
+            sep="\r\n",
             file=process.stdout,
         )
         print(f"< User `{username}` did not use an interactive terminal")
         return 1
 
-    # X11 is required
-    if not display and app_config.input_file is None:
-        print(
-            """\
-X11 forwarding is required and can be enabled using the `-X` option.
+    # X11 or Kitty keyboard protocol is required
+    input_source = await InputSource.detect(app_config, process, display, executor)
+    if input_source is None:
+        message = """\
+Your terminal does not support the kitty keyboard protocol
+Here is a list of terminals supporting this protocol:
+- The alacritty terminal
+- The ghostty terminal
+- The foot terminal
+- The iTerm2 terminal
+- The rio terminal
+- The WezTerm terminal
+- The TuiOS terminal (multiplexer)
+More information here: (https://sw.kovidgoyal.net/kitty/keyboard-protocol)
 
+Alternatively, X11 forwarding can be used in order to give the gambaterm-ssh
+server access to your keyboard.
 ===============================[ WARNING ]=====================================
 Enabling X11 forwarding while connecting to an untrusted server can greatly
 endanger your machine. Please only do so if you are running the X11 server in a
 sandbox. More information here: https://security.stackexchange.com/a/7496
-===============================[ WARNING ]=====================================""",
-            file=process.stdout,
+===============================[ WARNING ]=====================================
+"""
+        process.stdout.write(message.replace("\n", "\r\n"))
+        print(
+            f"< User `{username}` did not support keyboard protocol nor enable X11 forwarding"
         )
-        print(f"< User `{username}` did not enable X11 forwarding")
         return 1
 
     # Detect true color support by interracting with the terminal
@@ -122,66 +207,69 @@ sandbox. More information here: https://security.stackexchange.com/a/7496
 
     if color_mode == ColorMode.NO_COLOR:
         print(
-            f"""\
-Your terminal `{terminal_type}` doesn't seem to support colors.
-Try to force a color mode by appending `-t -- --color-mode 3` to the ssh command""",
+            f"Your terminal `{terminal_type}` doesn't seem to support colors."
+            f"Try to force a color mode by appending `-t -- --color-mode 3` to the ssh command",
+            sep="\r\n",
             file=process.stdout,
         )
         print(f"< User `{username}`terminal `{terminal_type}` does not support colors")
         return 1
 
+    # Now is a good time to instanciate the console
+    # (it might fail if the ROM does not exist for instance)
+    console = console_callback()
+
     async with process_to_app_session(process) as app_session:
         loop = asyncio.get_event_loop()
         height, width = app_session.output.get_size()
         print(
-            "[Terminal Info] "
-            f"{username}: {terminal_type}, {color_mode}, {width}x{height}"
+            f"[Terminal Info] {username}: {terminal_type}, {input_source}, {color_mode}, {width}x{height}"
         )
         return await loop.run_in_executor(
             executor,
             thread_target,
             app_session,
+            console,
             app_config,
-            username,
             display,
+            input_source,
             color_mode,
         )
 
 
 def thread_target(
     app_session: AppSession,
-    app_config: argparse.Namespace,
-    username: str,
-    display: str,
+    console: Console,
+    app_config: AppConfig,
+    display: str | None,
+    input_source: InputSource,
     color_mode: ColorMode,
 ) -> int:
-    # Create save directory for user
-    if app_config.input_file is None:
-        save_directory = Path("ssh_save") / username
-        save_directory.mkdir(parents=True, exist_ok=True)
-        app_config.save_directory = save_directory
-    # Otherwise, use a temporary directory for when an input file is provided
-    else:
-        app_config.save_directory = None
-
-    console: Console = app_config.console_cls(app_config)
-    if app_config.input_file is not None:
+    if input_source == InputSource.INPUT_FILE:
+        assert app_config.input_file is not None
         console_input_context = console_input_from_file_context(
             console, app_config.input_file, app_config.skip_inputs
         )
-    else:
-        console_input_context = console_input_from_keyboard_context(
-            console, display=display
+    elif input_source == InputSource.KEYBOARD_PROTOCOL:
+        console_input_context = console_input_from_keyboard_protocol_context(
+            console,
+            app_session,
         )
+    elif input_source == InputSource.X11:
+        console_input_context = console_input_from_x11_keyboard_context(
+            console, display
+        )
+    else:
+        assert False
 
-    with console_input_context as get_console_input:
-        try:
-            # Prepare alternate screen
-            app_session.output.enter_alternate_screen()
-            app_session.output.erase_screen()
-            app_session.output.hide_cursor()
-            app_session.output.flush()
+    try:
+        # Prepare alternate screen
+        app_session.output.enter_alternate_screen()
+        app_session.output.erase_screen()
+        app_session.output.hide_cursor()
+        app_session.output.flush()
 
+        with console_input_context as get_console_input:
             # Run the emulator
             run(
                 console,
@@ -193,34 +281,43 @@ def thread_target(
                 speed_factor=app_config.speed_factor,
                 use_cpr_sync=app_config.cpr_sync,
             )
-        except (KeyboardInterrupt, OSError):
-            return 0
-        else:
-            return 0
-        finally:
-            # Wait for CPR
-            time.sleep(0.1)
-            # Clear alternate screen
-            app_session.input.read_keys()
-            app_session.output.erase_screen()
-            app_session.output.quit_alternate_screen()
-            app_session.output.show_cursor()
-            # Flush if the connection is still active
-            try:
-                app_session.output.flush()
-            except BrokenPipeError:
-                pass
+
+    except (KeyboardInterrupt, OSError):
+        return 0
+    else:
+        return 0
+    finally:
+        # Wait for CPR
+        time.sleep(0.1)
+        # Clear alternate screen
+        app_session.input.read_keys()
+        app_session.output.erase_screen()
+        app_session.output.quit_alternate_screen()
+        app_session.output.show_cursor()
+        # Flush if the connection is still active
+        try:
+            app_session.output.flush()
+        except BrokenPipeError:
+            pass
 
 
 class SSHServer(asyncssh.SSHServer):
-    def __init__(self, app_config: argparse.Namespace, executor: ThreadPoolExecutor):
-        # Copy app config so we can mutate it later if necessary
-        self._app_config = argparse.Namespace(**vars(app_config))
-        self._executor = executor
+    def __init__(
+        self,
+        password: str | None,
+        console_cls: type[Console],
+        namespace: argparse.Namespace,
+        executor: ThreadPoolExecutor,
+    ):
+        self._gambaterm_console_cls = console_cls
+        self._gambaterm_namespace = namespace
+        self._gambaterm_executor = executor
+        self._gambaterm_password = password
 
     def connection_made(self, conn: asyncssh.SSHServerConnection) -> None:
-        conn.set_extra_info(executor=self._executor)
-        conn.set_extra_info(app_config=self._app_config)
+        conn.set_extra_info(console_cls=self._gambaterm_console_cls)
+        conn.set_extra_info(executor=self._gambaterm_executor)
+        conn.set_extra_info(namespace=self._gambaterm_namespace)
 
     def begin_auth(self, username: str) -> bool:
         return True
@@ -231,15 +328,20 @@ class SSHServer(asyncssh.SSHServer):
         )
 
     def password_auth_supported(self) -> bool:
-        return bool(self._app_config.password)
+        return bool(self._gambaterm_password)
 
     def validate_password(self, username: str, password: str) -> bool:
-        expected: str = self._app_config.password
-        return password == expected
+        assert self._gambaterm_password is not None
+        return password == self._gambaterm_password
 
 
 async def run_server(
-    app_config: argparse.Namespace, executor: ThreadPoolExecutor
+    bind: str,
+    port: int,
+    password: str | None,
+    console_cls: type[Console],
+    namespace: argparse.Namespace,
+    executor: ThreadPoolExecutor,
 ) -> None:
     ssh_key_dir = Path(os.environ.get("GAMBATERM_SSH_KEY_DIR", "~/.ssh"))
     user_private_key = (ssh_key_dir / "id_rsa").expanduser()
@@ -266,14 +368,15 @@ async def run_server(
     ]
 
     server = await asyncssh.create_server(
-        lambda: SSHServer(app_config, executor),
-        app_config.bind,
-        app_config.port,
+        lambda: SSHServer(password, console_cls, namespace, executor),
+        bind,
+        port,
         server_host_keys=server_host_keys,
         authorized_client_keys=authorized_client_keys,
         x11_forwarding=True,
         encryption_algs=encryption_algs,
         line_editor=False,
+        reuse_address=True,
     )
     bind, port = server.sockets[0].getsockname()
     print(f"Running ssh server on {bind}:{port}...", flush=True)
@@ -309,17 +412,25 @@ def main(
         "--password",
         "--pw",
         type=str,
+        default=None,
         help="Enable password authentification with the given global password",
     )
 
     # Parse arguments
-    app_config = parser.parse_args(parser_args)
-    app_config.console_cls = console_cls
+    namespace = parser.parse_args(parser_args)
+    bind: str = namespace.__dict__.pop("bind")
+    port: int = namespace.__dict__.pop("port")
+    password: str = namespace.__dict__.pop("password")
 
     # Run an executor with no limit on the number of threads
-    with ThreadPoolExecutor(max_workers=32) as executor:
-        # Run the server in asyncio
-        asyncio.run(run_server(app_config, executor))
+    try:
+        with ThreadPoolExecutor(max_workers=32) as executor:
+            # Run the server in asyncio
+            asyncio.run(
+                run_server(bind, port, password, console_cls, namespace, executor)
+            )
+    except KeyboardInterrupt:
+        pass
 
 
 if __name__ == "__main__":

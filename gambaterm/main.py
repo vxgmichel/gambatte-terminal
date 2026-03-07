@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import time
 import argparse
+from pathlib import Path
+from dataclasses import dataclass
 
 from prompt_toolkit.application import create_app_session
 
@@ -16,10 +18,24 @@ from .controller_input import combine_console_input_from_controller_context
 from .file_input import console_input_from_file_context, write_input_context
 
 
+@dataclass
+class AppConfig:
+    romfile: Path
+    input_file: Path | None
+    color_mode: ColorMode | None
+    frame_advance: int
+    break_after: int | None
+    speed_factor: float
+    skip_inputs: int
+    cpr_sync: bool
+    enable_controller: bool
+    write_input: Path | None
+
+
 def add_base_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("romfile", metavar="ROM", type=str, help="Path to a rom file")
+    parser.add_argument("romfile", metavar="ROM", type=Path, help="Path to a rom file")
     parser.add_argument(
-        "--input-file", "-i", default=None, help="Path to a bizhawk BK2 file"
+        "--input-file", "-i", type=Path, default=None, help="Path to a bizhawk BK2 file"
     )
 
 
@@ -27,7 +43,7 @@ def add_optional_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--color-mode",
         "-c",
-        type=int,
+        type=lambda x: ColorMode(int(x)),
         default=None,
         help="Force a color mode "
         "(1: 4 greyscale colors, 2: 16 colors, 3: 256 colors, 4: 24-bit colors)",
@@ -78,8 +94,8 @@ def add_optional_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--write-input",
         "--wi",
-        type=str,
-        help="Enable game controller support",
+        type=Path,
+        help="Record inputs into a file",
     )
 
 
@@ -96,30 +112,36 @@ def main(
     parser.add_argument(
         "--disable-audio", "--da", action="store_true", help="Disable audio entirely"
     )
-    args: argparse.Namespace = parser.parse_args(parser_args)
-    console = console_cls(args)
+    namespace = parser.parse_args(parser_args)
+    disable_audio: bool = namespace.__dict__.pop("disable_audio")
+    console_callback = console_cls.pop_console_arguments(namespace)
+    console = console_callback()
+    args = AppConfig(**vars(namespace))
 
-    if args.input_file is not None:
-        input_context = console_input_from_file_context(
-            console, args.input_file, args.skip_inputs
-        )
-    else:
-        input_context = console_input_from_keyboard_context(console)
-        if args.enable_controller:
-            input_context = combine_console_input_from_controller_context(
-                console, input_context
+    # Use app session to detect kitty keyboard protocol
+    with create_app_session() as app_session:
+        if args.input_file is not None:
+            input_context = console_input_from_file_context(
+                console, args.input_file, args.skip_inputs
+            )
+        else:
+            input_context = console_input_from_keyboard_context(console, app_session)
+            if args.enable_controller:
+                input_context = combine_console_input_from_controller_context(
+                    console, input_context
+                )
+
+        if args.write_input:
+            input_context = write_input_context(
+                console, input_context, args.write_input
             )
 
-    if args.write_input:
-        input_context = write_input_context(console, input_context, args.write_input)
+        if args.color_mode not in [None, 1, 2, 3, 4]:
+            exit(
+                f"Invalid color mode `{args.color_mode}`: the value must be between 1 and 4"
+            )
 
-    if args.color_mode not in [None, 1, 2, 3, 4]:
-        exit(
-            f"Invalid color mode `{args.color_mode}`: the value must be between 1 and 4"
-        )
-
-    # Enter terminal raw mode
-    with create_app_session() as app_session:
+        # Enter terminal raw mode
         with app_session.input.raw_mode():
             try:
                 # Detect color mode
@@ -140,7 +162,7 @@ Try to force a color mode using the `--color-mode` option with a value between 1
 
                 # Enter input and audio contexts
                 with input_context as get_gb_input:
-                    player = no_audio if args.disable_audio else audio_player
+                    player = no_audio if disable_audio else audio_player
                     with player(console, args.speed_factor) as audio_out:
                         # Run the emulator
                         run(
@@ -158,6 +180,10 @@ Try to force a color mode using the `--color-mode` option with a value between 1
             # Deal with ctrl+c and ctrl+d exceptions
             except (KeyboardInterrupt, EOFError):
                 pass
+
+            # Report runtime error without a stacktrace
+            except RuntimeError as error:
+                exit(str(error))
 
             # Exit normally
             else:

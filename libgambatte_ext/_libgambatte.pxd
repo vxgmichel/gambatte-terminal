@@ -10,7 +10,7 @@ cdef extern from "gambatte.h" namespace "gambatte":
             ptrdiff_t pitch,
 	        uint32_t *audioBuf,
             size_t& samples,
-        );
+        ) nogil;
         void setInputGetter(GetInput *getInput);
         void setSaveDir(string& sdir);
 
