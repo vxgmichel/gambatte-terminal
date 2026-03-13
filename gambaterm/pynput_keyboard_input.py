@@ -84,7 +84,7 @@ def initialize_pynput_key_to_functional_key_mapping() -> None:
             pynput.keyboard.Key.media_volume_up: FunctionalKeys.RAISE_VOLUME,
             pynput.keyboard.Key.media_previous: FunctionalKeys.MEDIA_TRACK_PREVIOUS,
             pynput.keyboard.Key.media_next: FunctionalKeys.MEDIA_TRACK_NEXT,
-            pynput.keyboard.Key.insert: FunctionalKeys.INSERT,
+            # pynput.keyboard.Key.insert: FunctionalKeys.INSERT,  # Not available on macos
             pynput.keyboard.Key.menu: FunctionalKeys.MENU,
             pynput.keyboard.Key.num_lock: FunctionalKeys.NUM_LOCK,
             pynput.keyboard.Key.pause: FunctionalKeys.PAUSE,
