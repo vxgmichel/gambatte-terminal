@@ -2,11 +2,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import os
-import time
 from enum import IntEnum
 from typing import Generator
 from string import ascii_lowercase, ascii_uppercase
 from prompt_toolkit.application import AppSession
+from .ansi_escape_code import (
+    run_parser_in_app_session,
+    detect_true_color_support_parser,
+)
 
 BASIC_TERMINALS = [
     "screen",
@@ -32,9 +35,10 @@ class ColorMode(IntEnum):
 def detect_local_color_mode(
     app_session: AppSession,
     environ: dict[str, str] | None = None,
-    timeout: float = 0.1,
 ) -> ColorMode:
-    if detect_true_color_support(app_session, timeout):
+    if run_parser_in_app_session(
+        app_session, detect_true_color_support_parser
+    ).is_supported():
         return ColorMode.HAS_24_BIT_COLOR
     if environ is None:
         environ = dict(os.environ)
@@ -75,28 +79,6 @@ def detect_color_mode(env: dict[str, str]) -> ColorMode:
         return ColorMode.HAS_4_BIT_COLOR
     # Does not support color apparently
     return ColorMode.NO_COLOR
-
-
-def detect_true_color_support(app_session: AppSession, timeout: float = 0.1) -> bool:
-    # Set unlikely RGB value
-    app_session.output.write_raw("\033[48:2:1:2:3m")
-    # Query current configuration using a DECRQSS request
-    app_session.output.write_raw("\033P$qm\033\\")
-    # Reset
-    app_session.output.write_raw("\033[m")
-    # Query primary device attributes
-    app_session.output.write_raw("\033[c")
-    # Flush
-    app_session.output.flush()
-    # Wait for reply
-    data = ""
-    deadline = time.time() + timeout
-    while "\033\\" not in data and time.time() < deadline:
-        keys = app_session.input.read_keys()
-        data += "".join(x.data for x in keys)
-        time.sleep(0.01)
-    # Return whether true color is supported
-    return "P1$r" in data and "48:2" in data and "1:2:3m" in data
 
 
 @dataclass
