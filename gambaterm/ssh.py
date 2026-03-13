@@ -147,9 +147,12 @@ async def ssh_process_handler(process: SSHServerProcess[str]) -> int:
         namespace = parser.parse_args(command.split(), namespace)
 
     # Manage save directory
-    save_directory: Path | None = None
     if "save_directory" in namespace.__dict__:
-        save_directory = Path("ssh_save") / username
+        save_directory = (
+            None
+            if getattr(namespace, "input_file", False)
+            else Path("ssh_save") / username
+        )
         setattr(namespace, "save_directory", save_directory)
 
     # Pop console arguments and extract configuration

@@ -121,7 +121,7 @@ class GameboyColor(Console):
             "--save-directory",
             "--sd",
             type=Path,
-            default=Path.cwd(),
+            default=None,
             help="Path to the save directory",
         )
 
@@ -133,8 +133,9 @@ class GameboyColor(Console):
         input_file: Path | None = namespace.input_file
         force_gameboy: bool = namespace.__dict__.pop("force_gameboy")
         save_directory: Path | None = namespace.__dict__.pop("save_directory")
-        if input_file is not None:
-            save_directory = None
+        # Save directory defaults to the rom file directory (unless we read the input from a file)
+        if input_file is None and save_directory is None:
+            save_directory = romfile.parent
         return lambda: cls(romfile, save_directory, force_gameboy)
 
     def __init__(
@@ -152,6 +153,7 @@ class GameboyColor(Console):
         if save_directory is not None:
             save_directory.mkdir(parents=True, exist_ok=True)
             self.gb.set_save_directory(str(save_directory.resolve()))
+        # Use a temporary directory if the save directory is not explicitely provided
         else:
             self.gb.set_save_directory(tempfile.mkdtemp())
 
