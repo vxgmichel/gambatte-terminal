@@ -70,6 +70,7 @@ ignore_missing_imports = true
 skip = ["cp3??t-*", "cp*-musllinux_*"]
 
 [tool.cibuildwheel.windows]
+before-all = "git -C gambatte-core apply ../patches/statesaver_windows.patch"
 test-command = "gambaterm --help"
 
 [tool.cibuildwheel.macos]
