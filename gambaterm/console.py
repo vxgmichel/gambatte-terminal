@@ -158,7 +158,7 @@ class GameboyColor(Console):
             self.gb.set_save_directory(tempfile.mkdtemp())
 
         # Load the rom
-        return_code = self.gb.load(self.romfile, 1 if self.force_gameboy else 0)
+        return_code = self.gb.load(self.romfile, 0 if self.force_gameboy else 1)
         if return_code != 0:
             # Make sure it exists
             open(self.romfile).close()

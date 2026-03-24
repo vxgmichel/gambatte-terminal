@@ -19,7 +19,8 @@ cdef class GB:
         self.c_gb.setInputGetter(&c_getinput, &self.c_input)
 
     def load(self, str rom_file, unsigned flags=0):
-        return self.c_gb.load(rom_file.encode(), flags)
+        no_bios_flags = 32
+        return self.c_gb.load(rom_file.encode(), flags | no_bios_flags)
 
     def run_for(
         self,
