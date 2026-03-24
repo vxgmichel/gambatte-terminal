@@ -1,5 +1,5 @@
 include LICENSE
 include README.md
 
-recursive-include libgambatte *.cpp *.h
+recursive-include gambatte-core *.cpp *.c *.h
 recursive-include *_ext *.pyx *.pxd *.h
