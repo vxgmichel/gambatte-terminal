@@ -67,10 +67,14 @@ module = [
 ignore_missing_imports = true
 
 [tool.cibuildwheel]
-skip = ["cp3??t-*", "cp*-musllinux_*"]
+skip = ["cp3??t-*", "cp*-musllinux_*", "*-win32"]
 
 [tool.cibuildwheel.windows]
-before-all = "git -C gambatte-core apply ../patches/statesaver_windows.patch"
+before-all = [
+    "git -C gambatte-core apply ../patches/statesaver_windows.patch ../patches/unzip_windows.patch",
+    "vcpkg install zlib:x64-windows-static-md",
+]
+environment = { CL = "/I C:/vcpkg/installed/x64-windows-static-md/include", LINK = "/LIBPATH:C:/vcpkg/installed/x64-windows-static-md/lib" }
 test-command = "gambaterm --help"
 
 [tool.cibuildwheel.macos]

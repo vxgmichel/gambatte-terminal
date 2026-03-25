@@ -4,9 +4,6 @@ import glob
 import platform
 from setuptools import Extension, setup
 
-# No ZIP support for windows, building with zlib is a pain
-ZIP_SUPPORT = platform.system() != "Windows"
-
 
 def get_extensions() -> list[Extension]:
     import numpy  # Lazy import; numpy provided via build-system requires
@@ -16,19 +13,21 @@ def get_extensions() -> list[Extension]:
     libgambatte_sources = [
         p
         for p in glob.glob("gambatte-core/libgambatte/src/**/*.cpp", recursive=True)
-        if (ZIP_SUPPORT and not p.endswith("file.cpp"))
-        or (not ZIP_SUPPORT and not p.endswith("file_zip.cpp"))
+        if not p.endswith(
+            "file.cpp"
+        )  # Exclude file.cpp because file_zip.cpp is included
     ]
 
     # Add unzip C sources for ZIP support
-    if ZIP_SUPPORT:
-        libgambatte_sources += glob.glob(
-            "gambatte-core/libgambatte/src/file/unzip/*.c", recursive=True
-        )
+    libgambatte_sources += glob.glob(
+        "gambatte-core/libgambatte/src/file/unzip/*.c", recursive=True
+    )
 
     # Add zlib library for ZIP support
     libraries = []
-    if ZIP_SUPPORT:
+    if platform.system() == "Windows":
+        libraries += ["zlib"]
+    else:
         libraries += ["z"]
 
     libgambatte_include_dirs = [
