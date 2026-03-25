@@ -57,7 +57,7 @@ def run(
     assert color_mode > 0
 
     # Prepare buffers with invalid data
-    video = np.full((console.HEIGHT, console.WIDTH), 0xFFFFFFFF, np.uint32)
+    video = np.full((console.HEIGHT, console.WIDTH), 0, np.uint32)
     audio = np.full((2 * console.TICKS_IN_FRAME, 2), -0x7FFF, np.int16)
     last_frame = video.copy()
 
