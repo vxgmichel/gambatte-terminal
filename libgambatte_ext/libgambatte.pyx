@@ -2,20 +2,34 @@
 # distutils: libraries = gambatte
 # cython: language_level=3
 
+from enum import IntFlag
 from libcpp.string cimport string
 from libc.stdint cimport uint32_t, int16_t
 from _libgambatte cimport GB as C_GB
-from _libgambatte cimport GetInput as C_GetInput
 
+class LoadFlag(IntFlag):
+    CGB_MODE = 1 # Treat the ROM as having CGB support regardless of what its header advertises.
+    GBA_FLAG = 2  # Use GBA intial CPU register values when in CGB mode.
+    RESERVED_FLAG = 4  # Previously a multicart heuristics enable. Reserved for future use.
+    SGB_MODE = 8  # Treat the ROM as having SGB support regardless of what its header advertises.
+    READONLY_SAV = 16 # Prevent implicit saveSavedata calls for the ROM.
+    NO_BIOS = 32  # Use heuristics to boot without a BIOS.
+
+
+cdef unsigned c_getinput(void *context) noexcept nogil:
+    cdef unsigned int* value_ptr = <unsigned int*>context
+    return value_ptr[0]
 
 cdef class GB:
     cdef C_GB c_gb
-    cdef C_GetInput c_getinput
+    cdef unsigned int c_input
+
+    LoadFlag = LoadFlag
 
     def __cinit__(self):
-        self.c_gb.setInputGetter(&self.c_getinput)
+        self.c_gb.setInputGetter(&c_getinput, &self.c_input)
 
-    def load(self, str rom_file, unsigned flags=0):
+    def load(self, str rom_file, unsigned int flags=0):
         return self.c_gb.load(rom_file.encode(), flags)
 
     def run_for(
@@ -32,7 +46,7 @@ cdef class GB:
         return result, samples
 
     def set_input(self, unsigned int value):
-        self.c_getinput.value = value
+        self.c_input = value
 
     def set_save_directory(self, str path):
         self.c_gb.setSaveDir(path.encode())

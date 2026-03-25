@@ -1,0 +1,18 @@
+diff --git a/libgambatte/src/statesaver.cpp b/libgambatte/src/statesaver.cpp
+index c34092a0..2e3f3317 100644
+--- a/libgambatte/src/statesaver.cpp
++++ b/libgambatte/src/statesaver.cpp
+@@ -552,10 +552,10 @@ bool StateSaver::saveState(SaveState const &state,
+ 		return false;
+ 
+ 	std::size_t size = saveState(state, videoBuf, pitch, NULL, mode);
+-	char stateBuf[size];
++	std::vector<char> stateBuf(size);
+ 
+-	saveState(state, videoBuf, pitch, stateBuf, mode);
+-	file.write(stateBuf, size);
++	saveState(state, videoBuf, pitch, stateBuf.data(), mode);
++	file.write(stateBuf.data(), size);
+ 
+ 	return !file.fail();
+ }
