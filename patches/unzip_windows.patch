@@ -1,0 +1,33 @@
+diff --git a/libgambatte/src/file/unzip/crypt.h b/libgambatte/src/file/unzip/crypt.h
+index 7d8597c2..fa890c1b 100644
+--- a/libgambatte/src/file/unzip/crypt.h
++++ b/libgambatte/src/file/unzip/crypt.h
+@@ -27,6 +27,12 @@
+    Encryption is not supported.
+ */
+ 
++#ifdef _MSC_VER
++#ifndef __attribute__
++#define __attribute__(x)
++#endif
++#endif
++
+ #define CRC32(c, b) ((*(pcrc_32_tab+(((int)(c) ^ (b)) & 0xff))) ^ ((c) >> 8))
+ 
+ /***********************************************************************
+diff --git a/libgambatte/src/file/unzip/ioapi.c b/libgambatte/src/file/unzip/ioapi.c
+index 84795e34..9489ad5f 100644
+--- a/libgambatte/src/file/unzip/ioapi.c
++++ b/libgambatte/src/file/unzip/ioapi.c
+@@ -13,6 +13,11 @@
+ #include <zlib.h>
+ #include "ioapi.h"
+ 
++#ifdef _MSC_VER
++#ifndef __attribute__
++#define __attribute__(x)
++#endif
++#endif
+ 
+ 
+ /* I've found an old Unix (a SunOS 4.1.3_U1) without all SEEK_* defined.... */
