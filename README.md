@@ -31,7 +31,7 @@ $ uvx gambaterm myrom.gbc
 Installation
 ------------
 
-Wheels are available on linux, windows and macos for python 3.9 to 3.14:
+Wheels are available on linux, windows and macos for python 3.10 to 3.14:
 
 ```shell
 $ pip3 install gambaterm
@@ -118,39 +118,48 @@ Not all terminals will actually offer a pleasant experience. The main criteria a
   Also, the alignement might be off (e.g small spaces between pixels)
   This is not always well supported.
 
+- **Support for the [kitty keyboard protocol](https://sw.kovidgoyal.net/kitty/keyboard-protocol/)**
+  This is mandatory if you're using Wayland, and recomended on every other platforms.
+  In the case where the kitty keyboard protocol is not detected by `gambaterm`, the following fallbacks are implemented:
+  * Linux: uses X11 through `python-xlib`
+  * Macos: uses `pynput` (it requires granting specific authorizations to the terminal app)
+  * Windows: uses `pynput` (the key presses are detected even if the terminal windows is not focused)
+  It is also mandatory when connecting to a `gambaterm` SSH server.
+
 - **Good rendering performance**
   The terminal has to be able to process about 500KB of requests per seconds for a smooth rendering of "intense" frames.
-  Typically, the most intense frames happen during screen transitions of two detailed scenes.
+  Typically, the most intense bursts happen during screen transitions of two detailed scenes.
 
 The table below sums up my findings when I tried a the most common terminal emulators. Here's about linux:
 
-| Linux            | Status     | Colors        | Unicode rendering      | Performance | Comments                 |
-|------------------|------------|---------------|------------------------|-------------|--------------------------|
-| Gnome terminal   | Excellent  | 24-bit colors | Good                   | 60 FPS      |                          |
-| Terminator       | Excellent  | 24-bit colors | Good                   | 60 FPS      |                          |
-| Kitty            | Excellent  | 24-bit colors | Good                   | 60 FPS      |                          |
-| XTerm            | Good       | 24-bit colors | Good                   | 60 FPS      | No resize shortcuts      |
-| Termit           | Ok         | 24-bit colors | Good                   | 60 FPS      | No window title          |
-| Rxvt             | Ok         | 256 colors    | Good                   | 60 FPS      | No resize shortcuts      |
-| Mlterm           | Ok         | 24-bit colors | Light misalignments    | 60 FPS      | No resize shortcuts      |
-| Terminology      | Ok         | 24-bit colors | Possible misalignments | 30 FPS      | Weird colors             |
+| Linux            | Status     | Colors        | Unicode rendering      | Kitty keyboard protocol | Performance | Comments                 |
+|------------------|------------|---------------|------------------------|-------------------------|-------------|--------------------------|
+| Ghostty          | Excellent  | 24-bit colors | Good                   | Yes                     | 60 FPS      |                          |
+| Kitty            | Excellent  | 24-bit colors | Good                   | Yes                     | 60 FPS      |                          |
+| Gnome terminal   | Good       | 24-bit colors | Good                   | No                      | 60 FPS      |                          |
+| Terminator       | Good       | 24-bit colors | Good                   | No                      | 60 FPS      |                          |
+| XTerm            | Good       | 24-bit colors | Good                   | No                      | 60 FPS      | No resize shortcuts      |
+| Termit           | Ok         | 24-bit colors | Good                   | No                      | 60 FPS      | No window title          |
+| Rxvt             | Ok         | 256 colors    | Good                   | No                      | 60 FPS      | No resize shortcuts      |
+| Mlterm           | Ok         | 24-bit colors | Light misalignments    | No                      | 60 FPS      | No resize shortcuts      |
+| Terminology      | Ok         | 24-bit colors | Possible misalignments | No                      | 30 FPS      | Weird colors             |
 
 About MacOS:
 
-| MacOS            | Status     | Colors        | Unicode rendering      | Performance | Comments                 |
-|------------------|------------|---------------|------------------------|-------------|--------------------------|
-| iTerm2           | Good       | 24-bit colors | Good                   | 30 FPS      |                          |
-| Terminal         | Unplayable | 256 colors    | Misalignments          | 20 FPS      |                          |
+| MacOS            | Status     | Colors        | Unicode rendering      | Kitty keyboard protocol | Performance | Comments                 |
+|------------------|------------|---------------|------------------------|-------------------------|-------------|--------------------------|
+| iTerm2           | Good       | 24-bit colors | Good                   | Yes                     | 30 FPS      |                          |
+| Terminal         | Unplayable | 256 colors    | Misalignments          | No                      | 20 FPS      |                          |
 
 About Windows:
 
-| Windows          | Status     | Colors        | Unicode rendering      | Performance | Comments                 |
-|------------------|------------|---------------|------------------------|-------------|--------------------------|
-| Windows terminal | Unpleasant | 24-bit colors | Good                   | 30 FPS      | Buggy display            |
-| Cmder            | Unplayable | 24-bit colors | Good                   | 2 FPS       | No window title          |
-| Terminus         | Unplayable | 24-bit colors | Misalignments          | 10 FPS      |                          |
-| Command prompt   | Broken     | N/A           | N/A                    | N/A         | No ANSI code support     |
-| Git bash         | Broken     | N/A           | N/A                    | N/A         | Doesn't work with winpty |
+| Windows          | Status     | Colors        | Unicode rendering      | Kitty keyboard protocol | Performance | Comments                 |
+|------------------|------------|---------------|------------------------|-------------------------|-------------|--------------------------|
+| Windows terminal | Good       | 24-bit colors | Good                   | Soon                    | 60 FPS      |                          |
+| Cmder            | Unplayable | 24-bit colors | Good                   | Yes                     | 2 FPS       | No window title          |
+| Terminus         | Unplayable | 24-bit colors | Misalignments          | No                      | 10 FPS      |                          |
+| Command prompt   | Broken     | N/A           | N/A                    | No                      | N/A         | No ANSI code support     |
+| Git bash         | Broken     | N/A           | N/A                    | No                      | N/A         | Doesn't work with winpty |
 
 Terminal size
 -------------
@@ -193,7 +202,7 @@ Dependencies
 
 Here is the list of the dependencies used in this project, all great open source libraries:
 
-- [gambatte](https://github.com/sinamas/gambatte) - Gameboy emulation
+- [gambatte-core](https://github.com/pokemon-speedrunning/gambatte-core) - Gameboy emulation
 - [Cython](https://cython.org/) - Binding to gambatte C++ API, and fast video frame conversion
 - [prompt-toolkit](https://github.com/prompt-toolkit/python-prompt-toolkit) - Cross-platform terminal handling
 - [samplerate](https://github.com/tuxu/python-samplerate) - Resampling the audio stream
