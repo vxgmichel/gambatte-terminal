@@ -35,26 +35,23 @@ More information here: (https://sw.kovidgoyal.net/kitty/keyboard-protocol)\
 
 def get_input_mapping(console: Console) -> dict[DomCode, Console.Input]:
     return {
-        # Directions
+        # Generic start/select
+        DomCode.ENTER: console.Input.START,
+        DomCode.SHIFT_RIGHT: console.Input.SELECT,
+        # Arrow controls
         DomCode.ARROW_UP: console.Input.UP,
         DomCode.ARROW_DOWN: console.Input.DOWN,
         DomCode.ARROW_LEFT: console.Input.LEFT,
         DomCode.ARROW_RIGHT: console.Input.RIGHT,
-        # A button
-        DomCode.US_F: console.Input.A,
-        DomCode.US_V: console.Input.A,
-        DomCode.SPACE: console.Input.A,
-        # B button
-        DomCode.US_D: console.Input.B,
-        DomCode.US_C: console.Input.B,
-        DomCode.ALT_LEFT: console.Input.B,
-        DomCode.ALT_RIGHT: console.Input.B,
-        # Start button
-        DomCode.ENTER: console.Input.START,
-        DomCode.CONTROL_RIGHT: console.Input.START,
-        # Select button
-        DomCode.SHIFT_RIGHT: console.Input.SELECT,
-        DomCode.BACKSPACE: console.Input.SELECT,
+        DomCode.US_Z: console.Input.A,
+        DomCode.US_X: console.Input.B,
+        # WASD controls
+        DomCode.US_W: console.Input.UP,
+        DomCode.US_S: console.Input.DOWN,
+        DomCode.US_A: console.Input.LEFT,
+        DomCode.US_D: console.Input.RIGHT,
+        DomCode.US_K: console.Input.A,
+        DomCode.US_J: console.Input.B,
     }
 
 
@@ -70,8 +67,8 @@ def get_event_mapping(console: Console) -> dict[DomCode, Console.Event]:
         DomCode.DIGIT7: console.Event.SELECT_STATE_7,
         DomCode.DIGIT8: console.Event.SELECT_STATE_8,
         DomCode.DIGIT9: console.Event.SELECT_STATE_9,
-        DomCode.US_L: console.Event.LOAD_STATE,
-        DomCode.US_K: console.Event.SAVE_STATE,
+        DomCode.BRACKET_LEFT: console.Event.SAVE_STATE,
+        DomCode.BRACKET_RIGHT: console.Event.LOAD_STATE,
     }
 
 
