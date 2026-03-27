@@ -7,12 +7,8 @@ from contextlib import contextmanager
 from typing import Callable, Iterator
 from prompt_toolkit.application import create_app_session, AppSession
 
+from .dom_codes import DomCode
 from .console import Console, InputGetter
-from .keys import (
-    FunctionalKeys,
-    LatinKeys,
-    Keys,
-)
 from .ansi_escape_code import (
     detect_keyboard_protocol_support_parser,
     run_parser_in_app_session,
@@ -37,53 +33,53 @@ More information here: (https://sw.kovidgoyal.net/kitty/keyboard-protocol)\
 """
 
 
-def get_input_mapping(console: Console) -> dict[Keys, Console.Input]:
+def get_input_mapping(console: Console) -> dict[DomCode, Console.Input]:
     return {
         # Directions
-        FunctionalKeys.UP: console.Input.UP,
-        FunctionalKeys.DOWN: console.Input.DOWN,
-        FunctionalKeys.LEFT: console.Input.LEFT,
-        FunctionalKeys.RIGHT: console.Input.RIGHT,
+        DomCode.ARROW_UP: console.Input.UP,
+        DomCode.ARROW_DOWN: console.Input.DOWN,
+        DomCode.ARROW_LEFT: console.Input.LEFT,
+        DomCode.ARROW_RIGHT: console.Input.RIGHT,
         # A button
-        LatinKeys.F: console.Input.A,
-        LatinKeys.V: console.Input.A,
-        LatinKeys.SPACE: console.Input.A,
+        DomCode.US_F: console.Input.A,
+        DomCode.US_V: console.Input.A,
+        DomCode.SPACE: console.Input.A,
         # B button
-        LatinKeys.D: console.Input.B,
-        LatinKeys.C: console.Input.B,
-        FunctionalKeys.LEFT_ALT: console.Input.B,
-        FunctionalKeys.RIGHT_ALT: console.Input.B,
+        DomCode.US_D: console.Input.B,
+        DomCode.US_C: console.Input.B,
+        DomCode.ALT_LEFT: console.Input.B,
+        DomCode.ALT_RIGHT: console.Input.B,
         # Start button
-        FunctionalKeys.ENTER: console.Input.START,
-        FunctionalKeys.RIGHT_CONTROL: console.Input.START,
+        DomCode.ENTER: console.Input.START,
+        DomCode.CONTROL_RIGHT: console.Input.START,
         # Select button
-        FunctionalKeys.RIGHT_SHIFT: console.Input.SELECT,
-        FunctionalKeys.BACKSPACE: console.Input.SELECT,
+        DomCode.SHIFT_RIGHT: console.Input.SELECT,
+        DomCode.BACKSPACE: console.Input.SELECT,
     }
 
 
-def get_event_mapping(console: Console) -> dict[Keys, Console.Event]:
+def get_event_mapping(console: Console) -> dict[DomCode, Console.Event]:
     return {
-        LatinKeys.DIGIT_0: console.Event.SELECT_STATE_0,
-        LatinKeys.DIGIT_1: console.Event.SELECT_STATE_1,
-        LatinKeys.DIGIT_2: console.Event.SELECT_STATE_2,
-        LatinKeys.DIGIT_3: console.Event.SELECT_STATE_3,
-        LatinKeys.DIGIT_4: console.Event.SELECT_STATE_4,
-        LatinKeys.DIGIT_5: console.Event.SELECT_STATE_5,
-        LatinKeys.DIGIT_6: console.Event.SELECT_STATE_6,
-        LatinKeys.DIGIT_7: console.Event.SELECT_STATE_7,
-        LatinKeys.DIGIT_8: console.Event.SELECT_STATE_8,
-        LatinKeys.DIGIT_9: console.Event.SELECT_STATE_9,
-        LatinKeys.L: console.Event.LOAD_STATE,
-        LatinKeys.K: console.Event.SAVE_STATE,
+        DomCode.DIGIT0: console.Event.SELECT_STATE_0,
+        DomCode.DIGIT1: console.Event.SELECT_STATE_1,
+        DomCode.DIGIT2: console.Event.SELECT_STATE_2,
+        DomCode.DIGIT3: console.Event.SELECT_STATE_3,
+        DomCode.DIGIT4: console.Event.SELECT_STATE_4,
+        DomCode.DIGIT5: console.Event.SELECT_STATE_5,
+        DomCode.DIGIT6: console.Event.SELECT_STATE_6,
+        DomCode.DIGIT7: console.Event.SELECT_STATE_7,
+        DomCode.DIGIT8: console.Event.SELECT_STATE_8,
+        DomCode.DIGIT9: console.Event.SELECT_STATE_9,
+        DomCode.US_L: console.Event.LOAD_STATE,
+        DomCode.US_K: console.Event.SAVE_STATE,
     }
 
 
 def make_get_input(
     console: Console,
-    get_pressed: Callable[[], set[Keys]],
+    get_pressed: Callable[[], set[DomCode]],
 ) -> InputGetter:
-    current_pressed: set[Keys] = set()
+    current_pressed: set[DomCode] = set()
     input_mapping = get_input_mapping(console)
     event_mapping = get_event_mapping(console)
 
@@ -158,7 +154,7 @@ def key_pressed_context(
     app_session: AppSession,
     display: str | None = None,
     xdg_session_type: str | None = None,
-) -> Iterator[Callable[[], set[Keys]]]:
+) -> Iterator[Callable[[], set[DomCode]]]:
     if run_parser_in_app_session(
         app_session, detect_keyboard_protocol_support_parser
     ).is_supported():
@@ -193,16 +189,14 @@ def main() -> None:
                             if key.key == "c-d":
                                 raise EOFError
                         # Get codes
-                        codes = (x.name for x in get_pressed())
+                        line = " ".join(x.value for x in get_pressed())
                         # Print pressed key codes
-                        print(*codes, flush=True, end="")
-                        # Tick
-                        time.sleep(1 / 30)
-                        # Clear line and hide cursor
-                        app_session.output.write_raw("\r")
+                        app_session.output.write_raw(f"\r{line}")
                         app_session.output.erase_down()
                         # Flush output
                         app_session.output.flush()
+                        # Tick
+                        time.sleep(1 / 30)
             except (KeyboardInterrupt, EOFError):
                 pass
             except RuntimeError as error:

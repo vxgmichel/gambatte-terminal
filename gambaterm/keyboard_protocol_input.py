@@ -9,10 +9,11 @@ from prompt_toolkit.input.vt100_parser import Vt100Parser
 from prompt_toolkit.keys import Keys as PromptToolkitKeys
 from prompt_toolkit.key_binding import KeyPress
 
+from .dom_codes import DomCode
 from .keys import (
     FunctionalKeys,
-    LatinKeys,
-    Keys,
+    ASCII_PRINTABLE_TO_DOM_CODE,
+    FUNCTIONAL_KEY_TO_DOM_CODE,
 )
 from .ansi_escape_code import (
     CSI,
@@ -292,12 +293,17 @@ class KeyboardProtocolEvent(NamedTuple):
     codepoints: str
     raw_data: str
 
-    def to_key(self) -> Keys | None:
-        if self.code == "u":
-            latin_key = LatinKeys.from_latin(self.char)
-            if latin_key is not None:
-                return latin_key
-        return CSI_TO_FUNCTIONAL_KEY.get((self.code, self.char))
+    def to_key(self) -> DomCode | None:
+        char = self.base_layout if self.base_layout is not None else self.char
+        if self.code == "u" and 0 <= char < 128:
+            ascii = chr(char)
+            dom_code = ASCII_PRINTABLE_TO_DOM_CODE.get(ascii)
+            if dom_code is not None:
+                return dom_code
+        functional_key = CSI_TO_FUNCTIONAL_KEY.get((self.code, char))
+        if functional_key is None:
+            return None
+        return FUNCTIONAL_KEY_TO_DOM_CODE.get(functional_key, None)
 
     def to_prompt_toolkit_key(self) -> PromptToolkitKeys | str:
         ctrl = "Control" if Modifiers.ctrl in self.modifiers else ""
@@ -327,11 +333,11 @@ class KeyboardProtocolEvent(NamedTuple):
 class KeyboardProtocolParser(Vt100Parser):
     def __init__(self, vt100_input: Vt100Parser) -> None:
         super().__init__(vt100_input.feed_key_callback)
-        self.pressed: set[Keys] = set()
+        self.pressed: set[DomCode] = set()
         self.ansi_escape_code_parser = parse_ansi_escape_code()
         assert not next(self.ansi_escape_code_parser)
 
-    def get_pressed(self) -> set[Keys]:
+    def get_pressed(self) -> set[DomCode]:
         return self.pressed
 
     def feed(self, data: str) -> None:
@@ -447,7 +453,7 @@ class KeyboardProtocolParser(Vt100Parser):
 @contextmanager
 def keyboard_protocol_key_pressed_context(
     app_session: AppSession,
-) -> Iterator[Callable[[], set[Keys]]]:
+) -> Iterator[Callable[[], set[DomCode]]]:
     app_session.output.write_raw("\033[>31u")
     app_session.output.flush()
     if sys.platform == "win32":

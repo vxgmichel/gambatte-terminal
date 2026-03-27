@@ -1,209 +1,60 @@
 from __future__ import annotations
 
-from typing import TypeAlias
 from enum import Enum, auto
 
+from .dom_codes import DomCode
 
-class LatinKeys(Enum):
-    SPACE = " "
-    EXCLAM = "!"
-    QUOTEDBL = '"'
-    NUMBERSIGN = "#"
-    DOLLAR = "$"
-    PERCENT = "%"
-    AMPERSAND = "&"
-    QUOTERIGHT = "'"
-    PARENLEFT = "("
-    PARENRIGHT = ")"
-    ASTERISK = "*"
-    PLUS = "+"
-    COMMA = ","
-    MINUS = "-"
-    PERIOD = "."
-    SLASH = "/"
-    DIGIT_0 = "0"
-    DIGIT_1 = "1"
-    DIGIT_2 = "2"
-    DIGIT_3 = "3"
-    DIGIT_4 = "4"
-    DIGIT_5 = "5"
-    DIGIT_6 = "6"
-    DIGIT_7 = "7"
-    DIGIT_8 = "8"
-    DIGIT_9 = "9"
-    COLON = ":"
-    SEMICOLON = ";"
-    LESS = "<"
-    EQUAL = "="
-    GREATER = ">"
-    QUESTION = "?"
-    AT = "@"
-    CAPITAL_A = "A"
-    CAPITAL_B = "B"
-    CAPITAL_C = "C"
-    CAPITAL_D = "D"
-    CAPITAL_E = "E"
-    CAPITAL_F = "F"
-    CAPITAL_G = "G"
-    CAPITAL_H = "H"
-    CAPITAL_I = "I"
-    CAPITAL_J = "J"
-    CAPITAL_K = "K"
-    CAPITAL_L = "L"
-    CAPITAL_M = "M"
-    CAPITAL_N = "N"
-    CAPITAL_O = "O"
-    CAPITAL_P = "P"
-    CAPITAL_Q = "Q"
-    CAPITAL_R = "R"
-    CAPITAL_S = "S"
-    CAPITAL_T = "T"
-    CAPITAL_U = "U"
-    CAPITAL_V = "V"
-    CAPITAL_W = "W"
-    CAPITAL_X = "X"
-    CAPITAL_Y = "Y"
-    CAPITAL_Z = "Z"
-    BRACKETLEFT = "["
-    BACKSLASH = "\\"
-    BRACKETRIGHT = "]"
-    ASCIICIRCUM = "^"
-    UNDERSCORE = "_"
-    QUOTELEFT = "`"
-    A = "a"
-    B = "b"
-    C = "c"
-    D = "d"
-    E = "e"
-    F = "f"
-    G = "g"
-    H = "h"
-    I = "i"  # noqa: E741
-    J = "j"
-    K = "k"
-    L = "l"
-    M = "m"
-    N = "n"
-    O = "o"  # noqa: E741
-    P = "p"
-    Q = "q"
-    R = "r"
-    S = "s"
-    T = "t"
-    U = "u"
-    V = "v"
-    W = "w"
-    X = "x"
-    Y = "y"
-    Z = "z"
-    BRACELEFT = "{"
-    BAR = "|"
-    BRACERIGHT = "}"
-    ASCIITILDE = "~"
-    NOBREAKSPACE = "\xa0"
-    EXCLAMDOWN = "¡"
-    CENT = "¢"
-    STERLING = "£"
-    CURRENCY = "¤"
-    YEN = "¥"
-    BROKENBAR = "¦"
-    SECTION = "§"
-    DIAERESIS = "¨"
-    COPYRIGHT = "©"
-    ORDFEMININE = "ª"
-    GUILLEMOTLEFT = "«"
-    NOTSIGN = "¬"
-    HYPHEN = "\xad"
-    REGISTERED = "®"
-    MACRON = "¯"
-    DEGREE = "°"
-    PLUSMINUS = "±"
-    TWOSUPERIOR = "²"
-    THREESUPERIOR = "³"
-    ACUTE = "´"
-    MU = "µ"
-    PARAGRAPH = "¶"
-    PERIODCENTERED = "·"
-    CEDILLA = "¸"
-    ONESUPERIOR = "¹"
-    MASCULINE = "º"
-    GUILLEMOTRIGHT = "»"
-    ONEQUARTER = "¼"
-    ONEHALF = "½"
-    THREEQUARTERS = "¾"
-    QUESTIONDOWN = "¿"
-    CAPITAL_A_GRAVE = "À"
-    CAPITAL_A_ACUTE = "Á"
-    CAPITAL_A_CIRCUMFLEX = "Â"
-    CAPITAL_A_TILDE = "Ã"
-    CAPITAL_A_DIAERESIS = "Ä"
-    CAPITAL_A_RING = "Å"
-    CAPITAL_A_E = "Æ"
-    CAPITAL_C_CEDILLA = "Ç"
-    CAPITAL_E_GRAVE = "È"
-    CAPITAL_E_ACUTE = "É"
-    CAPITAL_E_CIRCUMFLEX = "Ê"
-    CAPITAL_E_DIAERESIS = "Ë"
-    CAPITAL_I_GRAVE = "Ì"
-    CAPITAL_I_ACUTE = "Í"
-    CAPITAL_I_CIRCUMFLEX = "Î"
-    CAPITAL_I_DIAERESIS = "Ï"
-    CAPITAL_E_TH = "Ð"
-    CAPITAL_N_TILDE = "Ñ"
-    CAPITAL_O_GRAVE = "Ò"
-    CAPITAL_O_ACUTE = "Ó"
-    CAPITAL_O_CIRCUMFLEX = "Ô"
-    CAPITAL_O_TILDE = "Õ"
-    CAPITAL_O_DIAERESIS = "Ö"
-    MULTIPLY = "×"
-    CAPITAL_O_OBLIQUE = "Ø"
-    CAPITAL_U_GRAVE = "Ù"
-    CAPITAL_U_ACUTE = "Ú"
-    CAPITAL_U_CIRCUMFLEX = "Û"
-    CAPITAL_U_DIAERESIS = "Ü"
-    CAPITAL_Y_ACUTE = "Ý"
-    CAPITAL_T_HORN = "Þ"
-    SSHARP = "ß"
-    A_GRAVE = "à"
-    A_ACUTE = "á"
-    A_CIRCUMFLEX = "â"
-    A_TILDE = "ã"
-    A_DIAERESIS = "ä"
-    A_RING = "å"
-    A_E = "æ"
-    C_CEDILLA = "ç"
-    E_GRAVE = "è"
-    E_ACUTE = "é"
-    E_CIRCUMFLEX = "ê"
-    E_DIAERESIS = "ë"
-    I_GRAVE = "ì"
-    I_ACUTE = "í"
-    I_CIRCUMFLEX = "î"
-    I_DIAERESIS = "ï"
-    E_TH = "ð"
-    N_TILDE = "ñ"
-    O_GRAVE = "ò"
-    O_ACUTE = "ó"
-    O_CIRCUMFLEX = "ô"
-    O_TILDE = "õ"
-    O_DIAERESIS = "ö"
-    DIVISION = "÷"
-    OSLASH = "ø"
-    U_GRAVE = "ù"
-    U_ACUTE = "ú"
-    U_CIRCUMFLEX = "û"
-    U_DIAERESIS = "ü"
-    Y_ACUTE = "ý"
-    T_HORN = "þ"
-    Y_DIAERESIS = "ÿ"
-
-    @classmethod
-    def from_latin(cls, code: int | str) -> LatinKeys | None:
-        try:
-            as_str = code if isinstance(code, str) else chr(code)
-            return cls(as_str)
-        except ValueError:
-            return None
+ASCII_PRINTABLE_TO_DOM_CODE: dict[str, DomCode] = {
+    " ": DomCode.SPACE,
+    "'": DomCode.QUOTE,
+    ",": DomCode.COMMA,
+    "-": DomCode.MINUS,
+    ".": DomCode.PERIOD,
+    "/": DomCode.SLASH,
+    "0": DomCode.DIGIT0,
+    "1": DomCode.DIGIT1,
+    "2": DomCode.DIGIT2,
+    "3": DomCode.DIGIT3,
+    "4": DomCode.DIGIT4,
+    "5": DomCode.DIGIT5,
+    "6": DomCode.DIGIT6,
+    "7": DomCode.DIGIT7,
+    "8": DomCode.DIGIT8,
+    "9": DomCode.DIGIT9,
+    ";": DomCode.SEMICOLON,
+    "=": DomCode.EQUAL,
+    "a": DomCode.US_A,
+    "b": DomCode.US_B,
+    "c": DomCode.US_C,
+    "d": DomCode.US_D,
+    "e": DomCode.US_E,
+    "f": DomCode.US_F,
+    "g": DomCode.US_G,
+    "h": DomCode.US_H,
+    "i": DomCode.US_I,
+    "j": DomCode.US_J,
+    "k": DomCode.US_K,
+    "l": DomCode.US_L,
+    "m": DomCode.US_M,
+    "n": DomCode.US_N,
+    "o": DomCode.US_O,
+    "p": DomCode.US_P,
+    "q": DomCode.US_Q,
+    "r": DomCode.US_R,
+    "s": DomCode.US_S,
+    "t": DomCode.US_T,
+    "u": DomCode.US_U,
+    "v": DomCode.US_V,
+    "w": DomCode.US_W,
+    "x": DomCode.US_X,
+    "y": DomCode.US_Y,
+    "z": DomCode.US_Z,
+    "[": DomCode.BRACKET_LEFT,
+    "\\": DomCode.BACKSLASH,
+    "]": DomCode.BRACKET_RIGHT,
+    "`": DomCode.BACKQUOTE,
+    "<": DomCode.INTL_BACKSLASH,
+}
 
 
 class FunctionalKeys(Enum):
@@ -320,4 +171,101 @@ class FunctionalKeys(Enum):
     ISO_LEVEL5_SHIFT = auto()
 
 
-Keys: TypeAlias = LatinKeys | FunctionalKeys
+FUNCTIONAL_KEY_TO_DOM_CODE: dict[FunctionalKeys, DomCode] = {
+    FunctionalKeys.ESCAPE: DomCode.ESCAPE,
+    FunctionalKeys.ENTER: DomCode.ENTER,
+    FunctionalKeys.TAB: DomCode.TAB,
+    FunctionalKeys.BACKSPACE: DomCode.BACKSPACE,
+    FunctionalKeys.INSERT: DomCode.INSERT,
+    FunctionalKeys.DELETE: DomCode.DEL,
+    FunctionalKeys.LEFT: DomCode.ARROW_LEFT,
+    FunctionalKeys.RIGHT: DomCode.ARROW_RIGHT,
+    FunctionalKeys.UP: DomCode.ARROW_UP,
+    FunctionalKeys.DOWN: DomCode.ARROW_DOWN,
+    FunctionalKeys.PAGE_UP: DomCode.PAGE_UP,
+    FunctionalKeys.PAGE_DOWN: DomCode.PAGE_DOWN,
+    FunctionalKeys.HOME: DomCode.HOME,
+    FunctionalKeys.END: DomCode.END,
+    FunctionalKeys.CAPS_LOCK: DomCode.CAPS_LOCK,
+    FunctionalKeys.SCROLL_LOCK: DomCode.SCROLL_LOCK,
+    FunctionalKeys.NUM_LOCK: DomCode.NUM_LOCK,
+    FunctionalKeys.PRINT_SCREEN: DomCode.PRINT_SCREEN,
+    FunctionalKeys.PAUSE: DomCode.PAUSE,
+    FunctionalKeys.MENU: DomCode.CONTEXT_MENU,
+    FunctionalKeys.F1: DomCode.F1,
+    FunctionalKeys.F2: DomCode.F2,
+    FunctionalKeys.F3: DomCode.F3,
+    FunctionalKeys.F4: DomCode.F4,
+    FunctionalKeys.F5: DomCode.F5,
+    FunctionalKeys.F6: DomCode.F6,
+    FunctionalKeys.F7: DomCode.F7,
+    FunctionalKeys.F8: DomCode.F8,
+    FunctionalKeys.F9: DomCode.F9,
+    FunctionalKeys.F10: DomCode.F10,
+    FunctionalKeys.F11: DomCode.F11,
+    FunctionalKeys.F12: DomCode.F12,
+    FunctionalKeys.F13: DomCode.F13,
+    FunctionalKeys.F14: DomCode.F14,
+    FunctionalKeys.F15: DomCode.F15,
+    FunctionalKeys.F16: DomCode.F16,
+    FunctionalKeys.F17: DomCode.F17,
+    FunctionalKeys.F18: DomCode.F18,
+    FunctionalKeys.F19: DomCode.F19,
+    FunctionalKeys.F20: DomCode.F20,
+    FunctionalKeys.F21: DomCode.F21,
+    FunctionalKeys.F22: DomCode.F22,
+    FunctionalKeys.F23: DomCode.F23,
+    FunctionalKeys.F24: DomCode.F24,
+    FunctionalKeys.KP_0: DomCode.NUMPAD0,
+    FunctionalKeys.KP_1: DomCode.NUMPAD1,
+    FunctionalKeys.KP_2: DomCode.NUMPAD2,
+    FunctionalKeys.KP_3: DomCode.NUMPAD3,
+    FunctionalKeys.KP_4: DomCode.NUMPAD4,
+    FunctionalKeys.KP_5: DomCode.NUMPAD5,
+    FunctionalKeys.KP_6: DomCode.NUMPAD6,
+    FunctionalKeys.KP_7: DomCode.NUMPAD7,
+    FunctionalKeys.KP_8: DomCode.NUMPAD8,
+    FunctionalKeys.KP_9: DomCode.NUMPAD9,
+    FunctionalKeys.KP_DECIMAL: DomCode.NUMPAD_DECIMAL,
+    FunctionalKeys.KP_DIVIDE: DomCode.NUMPAD_DIVIDE,
+    FunctionalKeys.KP_MULTIPLY: DomCode.NUMPAD_MULTIPLY,
+    FunctionalKeys.KP_SUBTRACT: DomCode.NUMPAD_SUBTRACT,
+    FunctionalKeys.KP_ADD: DomCode.NUMPAD_ADD,
+    FunctionalKeys.KP_ENTER: DomCode.NUMPAD_ENTER,
+    FunctionalKeys.KP_EQUAL: DomCode.NUMPAD_EQUAL,
+    FunctionalKeys.KP_SEPARATOR: DomCode.NUMPAD_COMMA,
+    FunctionalKeys.KP_LEFT: DomCode.NUMPAD4,
+    FunctionalKeys.KP_RIGHT: DomCode.NUMPAD6,
+    FunctionalKeys.KP_UP: DomCode.NUMPAD8,
+    FunctionalKeys.KP_DOWN: DomCode.NUMPAD2,
+    FunctionalKeys.KP_PAGE_UP: DomCode.NUMPAD9,
+    FunctionalKeys.KP_PAGE_DOWN: DomCode.NUMPAD3,
+    FunctionalKeys.KP_HOME: DomCode.NUMPAD7,
+    FunctionalKeys.KP_END: DomCode.NUMPAD1,
+    FunctionalKeys.KP_INSERT: DomCode.NUMPAD0,
+    FunctionalKeys.KP_DELETE: DomCode.NUMPAD_DECIMAL,
+    FunctionalKeys.KP_BEGIN: DomCode.NUMPAD5,
+    FunctionalKeys.MEDIA_PLAY: DomCode.MEDIA_PLAY,
+    FunctionalKeys.MEDIA_PAUSE: DomCode.MEDIA_PAUSE,
+    FunctionalKeys.MEDIA_PLAY_PAUSE: DomCode.MEDIA_PLAY_PAUSE,
+    FunctionalKeys.MEDIA_REVERSE: DomCode.MEDIA_REWIND,
+    FunctionalKeys.MEDIA_STOP: DomCode.MEDIA_STOP,
+    FunctionalKeys.MEDIA_FAST_FORWARD: DomCode.MEDIA_FAST_FORWARD,
+    FunctionalKeys.MEDIA_REWIND: DomCode.MEDIA_REWIND,
+    FunctionalKeys.MEDIA_TRACK_NEXT: DomCode.MEDIA_TRACK_NEXT,
+    FunctionalKeys.MEDIA_TRACK_PREVIOUS: DomCode.MEDIA_TRACK_PREVIOUS,
+    FunctionalKeys.MEDIA_RECORD: DomCode.MEDIA_RECORD,
+    FunctionalKeys.LOWER_VOLUME: DomCode.VOLUME_DOWN,
+    FunctionalKeys.RAISE_VOLUME: DomCode.VOLUME_UP,
+    FunctionalKeys.MUTE_VOLUME: DomCode.VOLUME_MUTE,
+    FunctionalKeys.LEFT_SHIFT: DomCode.SHIFT_LEFT,
+    FunctionalKeys.LEFT_CONTROL: DomCode.CONTROL_LEFT,
+    FunctionalKeys.LEFT_ALT: DomCode.ALT_LEFT,
+    FunctionalKeys.LEFT_META: DomCode.META_LEFT,
+    FunctionalKeys.RIGHT_SHIFT: DomCode.SHIFT_RIGHT,
+    FunctionalKeys.RIGHT_CONTROL: DomCode.CONTROL_RIGHT,
+    FunctionalKeys.RIGHT_ALT: DomCode.ALT_RIGHT,
+    FunctionalKeys.RIGHT_META: DomCode.META_RIGHT,
+    FunctionalKeys.ISO_LEVEL3_SHIFT: DomCode.ALT_RIGHT,
+    FunctionalKeys.ISO_LEVEL5_SHIFT: DomCode.SHIFT_RIGHT,
+}
