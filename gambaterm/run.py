@@ -128,16 +128,20 @@ def run(
                 new_frame = False
                 # Check terminal size
                 new_size = app_session.output.get_size()
+                maybe_clear_prefix, maybe_clear_suffix = b"", b""
                 if new_size != (height, width):
-                    app_session.output.erase_screen()
-                    app_session.output.flush()
+                    # Write video frame with clear sequence inside synchronized output mode (DEC
+                    # 2026) to prevent flicker, and, set last_frame as inverse of the current frame
+                    # to ensure a full redraw by the blitter
+                    maybe_clear_prefix = b"\033[?2026h\033[H\033[2J"
+                    maybe_clear_suffix = b"\033[?2026l"
                     height, width = new_size
                     refx, refy = get_ref(width, height, console)
-                    last_frame.fill(0xFFFFFFFF)
+                    last_frame = ~video
                 # Render frame
-                video_data = blit(
+                video_data = maybe_clear_prefix + blit(
                     video, last_frame, refx, refy, width - 1, height, color_mode
-                )
+                ) + maybe_clear_suffix
                 last_frame = video.copy()
                 # Update reporting
                 data_length.append(len(video_data))

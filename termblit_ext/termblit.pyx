@@ -154,8 +154,11 @@ cdef char* _blit(
 
     cdef int current_x = refx
     cdef int current_y = refy
-    cdef uint32_t current_fg = -1
-    cdef uint32_t current_bg = -2
+    # Use values that can never match a real pixel (high byte is always
+    # 0xFF in GB pixel format) AND can't be 0 or 1 (which are the results
+    # of C comparison operators used in chained comparisons below).
+    cdef uint32_t current_fg = 0x00DEAD00
+    cdef uint32_t current_bg = 0x00BEEF00
     cdef int row_index, column_index
     cdef uint32_t color1, color2
     cdef int new_x, new_y
