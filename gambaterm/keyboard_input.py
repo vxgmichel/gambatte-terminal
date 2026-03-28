@@ -5,31 +5,31 @@ import sys
 import time
 from contextlib import contextmanager
 from typing import Callable, Iterator
-from prompt_toolkit.application import create_app_session, AppSession
+
+from blessed import Terminal
 
 from .dom_codes import DomCode
 from .console import Console, InputGetter
-from .ansi_escape_code import (
-    detect_keyboard_protocol_support_parser,
-    run_parser_in_app_session,
-)
-
+from .blessed_keyboard_input import blessed_key_pressed_context
 from .pynput_keyboard_input import pynput_key_pressed_context
 from .x11_keyboard_input import x11_key_pressed_context
-from .keyboard_protocol_input import keyboard_protocol_key_pressed_context
 
-
-MESSAGE_FOR_WAYLAND_USERS = """\
+MESSAGE_SUGGESTING_KITTY_SUPPORT = """\
 Your terminal does not support the kitty keyboard protocol
-Here is a list of terminals supporting this protocol:
-- The alacritty terminal
-- The ghostty terminal
-- The foot terminal
-- The iTerm2 terminal
-- The rio terminal
-- The WezTerm terminal
-- The TuiOS terminal (multiplexer)
-More information here: (https://sw.kovidgoyal.net/kitty/keyboard-protocol)\
+Here is a list of terminals known to support this protocol:
+
+- kitty https://sw.kovidgoyal.net/kitty/
+- alacritty https://alacritty.org/
+- ghostty https://ghostty.org/
+- foot https://codeberg.org/dnkl/foot
+- iTerm2 https://iterm2.com/
+- Rio https://rioterm.com/
+- Windows Terminal.exe https://github.com/microsoft/terminal
+- WezTerm (enable by configuration) https://wezfurlong.org/wezterm/
+- TuiOS (multiplexer) https://terminaltrove.com/tuios/
+- libvterm (vim's :terminal, emacs-libvterm) https://www.leonerd.org.uk/code/libvterm/
+
+More information here: (https://sw.kovidgoyal.net/kitty/keyboard-protocol)
 """
 
 
@@ -83,6 +83,8 @@ def make_get_input(
     def get_input() -> set[Console.Input]:
         nonlocal current_pressed
         old_pressed, current_pressed = current_pressed, set(get_pressed())
+        # Propagate CPR flag from keyboard handler to run loop
+        get_input.cpr_received = getattr(get_pressed, "cpr_received", False)
         for event in map(event_mapping.get, current_pressed - old_pressed):
             if event is None:
                 continue
@@ -93,14 +95,29 @@ def make_get_input(
             if keysym in input_mapping
         }
 
+    get_input.cpr_received = False
     return get_input
+
+
+def _kitty_supported(term: Terminal) -> bool:
+    """Check if the terminal supports the kitty keyboard protocol.
+
+    Some terminals (e.g. last release of Contour) responds to the kitty keyboard query but ignore
+    the flags we set, so we verify that report_events is actually enabled after requesting it.
+    """
+    state = term.get_kitty_keyboard_state()
+    if state is None:
+        return False
+    with term.enable_kitty_keyboard(report_events=True):
+        active = term.get_kitty_keyboard_state()
+    return active is not None and active.report_events
 
 
 @contextmanager
 def console_input_from_keyboard_protocol_context(
-    console: Console, app_session: AppSession
+    console: Console, term: Terminal
 ) -> Iterator[InputGetter]:
-    with keyboard_protocol_key_pressed_context(app_session) as get_pressed:
+    with blessed_key_pressed_context(term) as get_pressed:
         yield make_get_input(console, get_pressed)
 
 
@@ -123,15 +140,13 @@ def console_input_from_pynput_keyboard_context(
 @contextmanager
 def console_input_from_keyboard_context(
     console: Console,
-    app_session: AppSession,
+    term: Terminal,
     display: str | None = None,
     xdg_session_type: str | None = None,
 ) -> Iterator[InputGetter]:
-    if run_parser_in_app_session(
-        app_session, detect_keyboard_protocol_support_parser
-    ).is_supported():
+    if _kitty_supported(term):
         with console_input_from_keyboard_protocol_context(
-            console, app_session
+            console, term
         ) as get_input:
             yield get_input
     elif sys.platform == "linux":
@@ -148,20 +163,18 @@ def console_input_from_keyboard_context(
 
 @contextmanager
 def key_pressed_context(
-    app_session: AppSession,
+    term: Terminal,
     display: str | None = None,
     xdg_session_type: str | None = None,
 ) -> Iterator[Callable[[], set[DomCode]]]:
-    if run_parser_in_app_session(
-        app_session, detect_keyboard_protocol_support_parser
-    ).is_supported():
-        with keyboard_protocol_key_pressed_context(app_session) as get_pressed:
+    if _kitty_supported(term):
+        with blessed_key_pressed_context(term) as get_pressed:
             yield get_pressed
     elif sys.platform == "linux":
         if xdg_session_type is None:
             xdg_session_type = os.environ.get("XDG_SESSION_TYPE", "")
         if xdg_session_type != "x11":
-            raise RuntimeError(MESSAGE_FOR_WAYLAND_USERS)
+            raise RuntimeError(MESSAGE_SUGGESTING_KITTY_SUPPORT)
         with x11_key_pressed_context(display) as get_pressed:
             yield get_pressed
     else:
@@ -170,38 +183,31 @@ def key_pressed_context(
 
 
 def main() -> None:
-    with create_app_session() as app_session:
-        from prompt_toolkit.application import get_app_session
-
-        assert get_app_session() is app_session
-        with app_session.input.raw_mode():
-            try:
-                app_session.output.hide_cursor()
-                with key_pressed_context(app_session) as get_pressed:
-                    while True:
-                        # Read keys
-                        for key in app_session.input.read_keys():
-                            if key.key == "c-c":
-                                raise KeyboardInterrupt
-                            if key.key == "c-d":
-                                raise EOFError
-                        # Get codes
-                        line = " ".join(x.value for x in get_pressed())
-                        # Print pressed key codes
-                        app_session.output.write_raw(f"\r{line}")
-                        app_session.output.erase_down()
-                        # Flush output
-                        app_session.output.flush()
-                        # Tick
-                        time.sleep(1 / 30)
-            except (KeyboardInterrupt, EOFError):
-                pass
-            except RuntimeError as error:
-                exit(str(error))
-            finally:
-                app_session.output.show_cursor()
-                app_session.output.flush()
-                print()
+    term = Terminal()
+    if _kitty_supported(term):
+        print("kitty keyboard mode supported")
+    with term.raw():
+        try:
+            term.stream.write(term.hide_cursor)
+            term.stream.flush()
+            with key_pressed_context(term) as get_pressed:
+                while True:
+                    # Get codes
+                    codes = (x.value for x in get_pressed())
+                    # Print pressed key codes
+                    print("\r", *codes, flush=True, end=term.clear_eol)
+                    # Tick
+                    time.sleep(1 / 30)
+                    # Clear line and hide cursor
+                    term.stream.flush()
+        except (KeyboardInterrupt, EOFError):
+            pass
+        except RuntimeError as error:
+            exit(str(error))
+        finally:
+            term.stream.write(term.normal_cursor)
+            term.stream.flush()
+            print()
 
 
 if __name__ == "__main__":
