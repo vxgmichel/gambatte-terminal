@@ -129,14 +129,21 @@ def run(
                 # Check terminal size
                 new_size = app_session.output.get_size()
                 if new_size != (height, width):
-                    app_session.output.erase_screen()
-                    app_session.output.flush()
+                    maybe_clear_seq = b"\033[H\033[2J"
                     height, width = new_size
                     refx, refy = get_ref(width, height, console)
-                    last_frame.fill(0xFFFFFFFF)
-                # Render frame
-                video_data = blit(
-                    video, last_frame, refx, refy, width - 1, height, color_mode
+                    last_frame.fill(0)
+                else:
+                    maybe_clear_seq = b""
+                # Render frame with synchronized output mode (DEC 2026) to prevent flickering
+                # when the screen is cleared, or an artificial CRT-like "rolling band" side-effects
+                # from fast "sprite blinking" meant to cause "transparency" effect on original HW,
+                # https://zladx.github.io/posts/links-awakening-partial-translucency
+                video_data = (
+                    b"\033[?2026h"
+                    + maybe_clear_seq
+                    + blit(video, last_frame, refx, refy, width - 1, height, color_mode)
+                    + b"\033[?2026l"
                 )
                 last_frame = video.copy()
                 # Update reporting
