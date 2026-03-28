@@ -132,7 +132,7 @@ def run(
                     maybe_clear_seq = b"\033[H\033[2J"
                     height, width = new_size
                     refx, refy = get_ref(width, height, console)
-                    last_frame = ~video
+                    last_frame.fill(0)
                 else:
                     maybe_clear_seq = b""
                 # Render frame with synchronized output mode (DEC 2026) to prevent flickering

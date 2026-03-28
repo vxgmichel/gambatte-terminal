@@ -154,10 +154,10 @@ cdef char* _blit(
 
     cdef int current_x = refx
     cdef int current_y = refy
-    # Use values that can never match a real pixel (high byte is always
-    # 0xFF in GB pixel format)
-    cdef uint32_t current_fg = 0x00DEAD00
-    cdef uint32_t current_bg = 0x00BEEF00
+    # Use 0x0 as "undrawn" sentinel: real GB pixels always have 0xFF
+    # in the high byte, so 0x0 can never match
+    cdef uint32_t current_fg = 0x0
+    cdef uint32_t current_bg = 0x0
     cdef int row_index, column_index
     cdef uint32_t color1, color2
     cdef int new_x, new_y
