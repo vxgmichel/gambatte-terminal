@@ -9,7 +9,7 @@ from collections import deque
 from typing import Deque, Iterator
 
 import numpy as np
-from prompt_toolkit.application import AppSession
+from blessed import Terminal
 
 from .termblit import blit
 from .audio import AudioOut
@@ -32,37 +32,46 @@ def get_ref(width: int, height: int, console: Console) -> tuple[int, int]:
     return refx, refy
 
 
-def write_bytes(app_session: AppSession, video_data: bytes) -> None:
+def write_bytes(term: Terminal, video_data: bytes) -> None:
     # Fix code page issue on windows:
     # `sys.stdout.buffer.raw` is a `WindowsConsoleIO` that always support UTF-8
     # regardless of the configured codepage
-    if sys.platform == "win32" and app_session.output.fileno() == sys.stdout.fileno():
+    if sys.platform == "win32" and term.stream.fileno() == sys.stdout.fileno():
         sys.stdout.buffer.write(video_data)
         sys.stdout.buffer.flush()
     else:
-        os.write(app_session.output.fileno(), video_data)
+        os.write(term.stream.fileno(), video_data)
 
 
 def run(
     console: Console,
     get_input: InputGetter,
-    app_session: AppSession,
+    term: Terminal,
     audio_out: AudioOut | None = None,
     frame_advance: int = 1,
     color_mode: ColorMode = ColorMode.HAS_24_BIT_COLOR,
     break_after: int | None = None,
     speed_factor: float = 1.0,
     use_cpr_sync: bool = False,
+    bg_color: tuple[int, int, int] = (-1, -1, -1),
 ) -> None:
     assert color_mode > 0
 
     # Prepare buffers with invalid data
-    video = np.full((console.HEIGHT, console.WIDTH), 0, np.uint32)
+    # Use terminal background color so the blitter can skip pixels that
+    # already match it on the first frame
+    r, g, b = bg_color
+    if r == -1:
+        bg_val = np.uint32(0)  # assume black if detection fails
+    else:
+        bg_val = np.uint32((r << 16) | (g << 8) | b)
+    video = np.full((console.HEIGHT, console.WIDTH), bg_val, np.uint32)
     audio = np.full((2 * console.TICKS_IN_FRAME, 2), -0x7FFF, np.int16)
     last_frame = video.copy()
 
-    # Print area
-    height, width = app_session.output.get_size()
+    # Print area (default to 24x80 if terminal reports zero)
+    height = term.height or 24
+    width = term.width or 80
     refx, refy = get_ref(width, height, console)
 
     # Prepare reporting
@@ -111,14 +120,9 @@ def run(
             if audio_out:
                 audio_out.send(audio[:samples, :])
 
-        # Read keys
-        for event in app_session.input.read_keys():
-            if event.key == "c-c":
-                raise KeyboardInterrupt
-            if event.key == "c-d":
-                raise OSError
-            if event.key == "<cursor-position-response>":
-                screen_ready = True
+        # Check for CPR response (set by keyboard handler during get_input)
+        if use_cpr_sync and getattr(get_input, "cpr_received", False):
+            screen_ready = True
 
         # Render video
         with timing(video_deltas):
@@ -127,24 +131,22 @@ def run(
             if i % frame_advance == 0 and new_frame and screen_ready and not shift:
                 new_frame = False
                 # Check terminal size
-                new_size = app_session.output.get_size()
-                if new_size != (height, width):
-                    maybe_clear_seq = b"\033[H\033[2J"
-                    height, width = new_size
+                new_height = term.height or 24
+                new_width = term.width or 80
+                maybe_clear_prefix, maybe_clear_suffix = b"", b""
+                if (new_height, new_width) != (height, width):
+                    # Write video frame with clear sequence inside synchronized output mode (DEC
+                    # 2026) to prevent flicker, and, set last_frame as inverse of the current frame
+                    # to ensure a full redraw by the blitter
+                    maybe_clear_prefix = b"\033[?2026h\033[H\033[2J"
+                    maybe_clear_suffix = b"\033[?2026l"
+                    height, width = new_height, new_width
                     refx, refy = get_ref(width, height, console)
-                    last_frame.fill(0)
-                else:
-                    maybe_clear_seq = b""
-                # Render frame with synchronized output mode (DEC 2026) to prevent flickering
-                # when the screen is cleared, or an artificial CRT-like "rolling band" side-effects
-                # from fast "sprite blinking" meant to cause "transparency" effect on original HW,
-                # https://zladx.github.io/posts/links-awakening-partial-translucency
-                video_data = (
-                    b"\033[?2026h"
-                    + maybe_clear_seq
-                    + blit(video, last_frame, refx, refy, width - 1, height, color_mode)
-                    + b"\033[?2026l"
-                )
+                    last_frame = ~video
+                # Render frame
+                video_data = maybe_clear_prefix + blit(
+                    video, last_frame, refx, refy, width - 1, height, color_mode
+                ) + maybe_clear_suffix
                 last_frame = video.copy()
                 # Update reporting
                 data_length.append(len(video_data))
@@ -158,11 +160,11 @@ def run(
         with timing(sync_deltas):
             # Video sync
             if video_data:
-                # Write video frame, might block
-                write_bytes(app_session, video_data)
+                write_bytes(term, video_data)
                 # Send CPR request
                 if use_cpr_sync:
-                    app_session.output.ask_for_cpr()
+                    term.stream.write("\033[6n")
+                    term.stream.flush()
                     screen_ready = False
             # Timing sync
             increment = samples / console.TICKS_IN_FRAME
@@ -190,5 +192,5 @@ def run(
             title += f"Video: {video_fps:.0f} FPS - {video_percent:.0f}% CPU - "
             title += f"{data_rate:.0f} KB/s | "
             title += f"Audio: {audio_percent:.0f}% CPU"
-            app_session.output.set_title(title)
-            app_session.output.flush()
+            term.stream.write(f"\033]0;{title}\007")
+            term.stream.flush()

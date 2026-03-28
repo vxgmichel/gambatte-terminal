@@ -96,7 +96,7 @@ Optional arguments:
 SSH server
 ----------
 
-It is possible to serve the emulation though SSH, although clients won't be able to send input to the emulator without an X server and the `ssh -X` option. Use `gambaterm-ssh --help` for more information.
+It is possible to serve the emulation through SSH. Clients with terminals supporting the [kitty keyboard protocol](https://sw.kovidgoyal.net/kitty/keyboard-protocol/) can send input directly without X11 forwarding. Otherwise, X11 forwarding (`ssh -X`) can be used as a fallback. Use `gambaterm-ssh --help` for more information. 24-bit color is always true over ssh.
 
 
 Terminal support
@@ -119,7 +119,7 @@ Not all terminals will actually offer a pleasant experience. The main criteria a
   This is not always well supported.
 
 - **Support for the [kitty keyboard protocol](https://sw.kovidgoyal.net/kitty/keyboard-protocol/)**
-  This is mandatory if you're using Wayland, and recomended on every other platforms.
+  This is mandatory if you're using Wayland, and recommended on every other platforms.
   In the case where the kitty keyboard protocol is not detected by `gambaterm`, the following fallbacks are implemented:
   * Linux: uses X11 through `python-xlib`
   * Macos: uses `pynput` (it requires granting specific authorizations to the terminal app)
@@ -130,36 +130,43 @@ Not all terminals will actually offer a pleasant experience. The main criteria a
   The terminal has to be able to process about 500KB of requests per seconds for a smooth rendering of "intense" frames.
   Typically, the most intense bursts happen during screen transitions of two detailed scenes.
 
-The table below sums up my findings when I tried a the most common terminal emulators. Here's about linux:
+The table below sums up my findings when I tried the most common terminal emulators. Here's about linux:
 
 | Linux            | Status     | Colors        | Unicode rendering      | Kitty keyboard protocol | Performance | Comments                 |
 |------------------|------------|---------------|------------------------|-------------------------|-------------|--------------------------|
 | Ghostty          | Excellent  | 24-bit colors | Good                   | Yes                     | 60 FPS      |                          |
 | Kitty            | Excellent  | 24-bit colors | Good                   | Yes                     | 60 FPS      |                          |
+| foot             | Excellent  | 24-bit colors | Good                   | Yes                     | 60 FPS      |                          |
+| Alacritty        | Excellent  | 24-bit colors | Good                   | Yes                     | 60 FPS      |                          |
+| Rio              | Excellent  | 24-bit colors | Good                   | Yes                     | 60 FPS      |                          |
 | Gnome terminal   | Good       | 24-bit colors | Good                   | No                      | 60 FPS      |                          |
 | Terminator       | Good       | 24-bit colors | Good                   | No                      | 60 FPS      |                          |
 | XTerm            | Good       | 24-bit colors | Good                   | No                      | 60 FPS      | No resize shortcuts      |
+| Rxvt             | Good       | 24-bit colors | Good                   | No                      | 60 FPS      | No resize shortcuts      |
 | Termit           | Ok         | 24-bit colors | Good                   | No                      | 60 FPS      | No window title          |
-| Rxvt             | Ok         | 256 colors    | Good                   | No                      | 60 FPS      | No resize shortcuts      |
 | Mlterm           | Ok         | 24-bit colors | Light misalignments    | No                      | 60 FPS      | No resize shortcuts      |
 | Terminology      | Ok         | 24-bit colors | Possible misalignments | No                      | 30 FPS      | Weird colors             |
+| Contour          | Bad        | 24-bit colors | Good                   | Broken                  | 60 FPS      | [Bug (no release event!)](https://github.com/contour-terminal/contour/pull/1924)  |
 
 About MacOS:
 
-| MacOS            | Status     | Colors        | Unicode rendering      | Kitty keyboard protocol | Performance | Comments                 |
-|------------------|------------|---------------|------------------------|-------------------------|-------------|--------------------------|
-| iTerm2           | Good       | 24-bit colors | Good                   | Yes                     | 30 FPS      |                          |
-| Terminal         | Unplayable | 256 colors    | Misalignments          | No                      | 20 FPS      |                          |
+| MacOS            | Status     | Colors        | Unicode rendering         | Kitty keyboard protocol | Performance | Comments                 |
+|------------------|------------|---------------|---------------------------|-------------------------|-------------|--------------------------|
+| iTerm2           | Excellent  | 24-bit colors | Good                      | Yes                     | 60 FPS      |                          |
+| Terminal         | Bad        | 24-bit colors | Bad--adjust font spacing! | No                      | 30 FPS      | A bit jittery            |
 
 About Windows:
 
-| Windows          | Status     | Colors        | Unicode rendering      | Kitty keyboard protocol | Performance | Comments                 |
-|------------------|------------|---------------|------------------------|-------------------------|-------------|--------------------------|
-| Windows terminal | Good       | 24-bit colors | Good                   | Soon                    | 60 FPS      |                          |
-| Cmder            | Unplayable | 24-bit colors | Good                   | Yes                     | 2 FPS       | No window title          |
-| Terminus         | Unplayable | 24-bit colors | Misalignments          | No                      | 10 FPS      |                          |
-| Command prompt   | Broken     | N/A           | N/A                    | No                      | N/A         | No ANSI code support     |
-| Git bash         | Broken     | N/A           | N/A                    | No                      | N/A         | Doesn't work with winpty |
+| Windows            | Status     | Colors        | Unicode rendering      | Kitty keyboard protocol | Performance | Comments                 |
+|--------------------|------------|---------------|------------------------|-------------------------|-------------|--------------------------|
+| Windows terminal   | Good       | 24-bit colors | Good                   | Coming Soon             | 60 FPS      | [Download Preview for kitty support)](https://github.com/microsoft/terminal/releases) |
+| Cmder              | Unplayable | 24-bit colors | Good                   | Yes                     | 2 FPS       | No window title          |
+| Terminus           | Unplayable | 24-bit colors | Misalignments          | No                      | 10 FPS      |                          |
+| Command prompt     | Bad        | 24-bit colors | Good                   | No                      | 1 FPS       | Slow/Unresponsive        |
+| Git bash (mingw64) | Ok         | 24-bit colors | Good                   | No                      | N/A         | Doesn't work with winpty |
+
+
+Terminals without Kitty keyboard protocol require X11 to play locally, or X11 forwarding to use over SSH.
 
 Terminal size
 -------------
@@ -207,7 +214,7 @@ Here is the list of the dependencies used in this project, all great open source
 
 - [gambatte-core](https://github.com/pokemon-speedrunning/gambatte-core) - Gameboy emulation
 - [Cython](https://cython.org/) - Binding to gambatte C++ API, and fast video frame conversion
-- [prompt-toolkit](https://github.com/prompt-toolkit/python-prompt-toolkit) - Cross-platform terminal handling
+- [blessed](https://github.com/jquast/blessed) - Cross-platform terminal handling and kitty keyboard protocol support
 - [samplerate](https://github.com/tuxu/python-samplerate) - Resampling the audio stream
 - [sounddevice](https://github.com/spatialaudio/python-sounddevice) - Playing the audio stream
 - [xlib](https://github.com/python-xlib/python-xlib)/[pynput](https://github.com/moses-palmer/pynput) - Getting keyboard inputs
