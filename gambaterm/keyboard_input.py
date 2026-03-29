@@ -10,7 +10,7 @@ from blessed import Terminal
 
 from .dom_codes import DomCode
 from .console import Console, InputGetter
-from .blessed_keyboard_input import blessed_key_pressed_context
+from .blessed_keyboard_input import KeyboardState, blessed_key_pressed_context
 from .pynput_keyboard_input import pynput_key_pressed_context
 from .x11_keyboard_input import x11_key_pressed_context
 
@@ -43,6 +43,10 @@ def get_input_mapping(console: Console) -> dict[DomCode, Console.Input]:
         DomCode.ARROW_DOWN: console.Input.DOWN,
         DomCode.ARROW_LEFT: console.Input.LEFT,
         DomCode.ARROW_RIGHT: console.Input.RIGHT,
+        DomCode.NUMPAD8: console.Input.UP,
+        DomCode.NUMPAD2: console.Input.DOWN,
+        DomCode.NUMPAD4: console.Input.LEFT,
+        DomCode.NUMPAD6: console.Input.RIGHT,
         DomCode.US_Z: console.Input.A,
         DomCode.US_X: console.Input.B,
         # WASD controls
@@ -72,31 +76,46 @@ def get_event_mapping(console: Console) -> dict[DomCode, Console.Event]:
     }
 
 
-def make_get_input(
-    console: Console,
-    get_pressed: Callable[[], set[DomCode]],
-) -> InputGetter:
-    current_pressed: set[DomCode] = set()
-    input_mapping = get_input_mapping(console)
-    event_mapping = get_event_mapping(console)
+class GameInputGetter:
+    """Callable that translates raw key state into console inputs."""
 
-    def get_input() -> set[Console.Input]:
-        nonlocal current_pressed
-        old_pressed, current_pressed = current_pressed, set(get_pressed())
-        # Propagate CPR flag from keyboard handler to run loop
-        get_input.cpr_received = getattr(get_pressed, "cpr_received", False)
-        for event in map(event_mapping.get, current_pressed - old_pressed):
+    def __init__(
+        self,
+        console: Console,
+        get_pressed: Callable[[], set[DomCode] | KeyboardState],
+    ) -> None:
+        self._get_pressed = get_pressed
+        self._current_pressed: set[DomCode] = set()
+        self._input_mapping = get_input_mapping(console)
+        self._event_mapping = get_event_mapping(console)
+        self._console = console
+        self.cpr_state = KeyboardState()
+
+    def __call__(self) -> set[Console.Input]:
+        result = self._get_pressed()
+        if isinstance(result, KeyboardState):
+            self.cpr_state.cpr_received = result.cpr_received
+            new_pressed = set(result.pressed)
+        else:
+            self.cpr_state.cpr_received = False
+            new_pressed = set(result)
+        old_pressed, self._current_pressed = self._current_pressed, new_pressed
+        for event in map(self._event_mapping.get, new_pressed - old_pressed):
             if event is None:
                 continue
-            console.handle_event(event)
+            self._console.handle_event(event)
         return {
-            input_mapping[keysym]
-            for keysym in current_pressed
-            if keysym in input_mapping
+            self._input_mapping[keysym]
+            for keysym in self._current_pressed
+            if keysym in self._input_mapping
         }
 
-    get_input.cpr_received = False
-    return get_input
+
+def make_get_input(
+    console: Console,
+    get_pressed: Callable[[], set[DomCode] | KeyboardState],
+) -> GameInputGetter:
+    return GameInputGetter(console, get_pressed)
 
 
 def _kitty_supported(term: Terminal) -> bool:
@@ -153,7 +172,7 @@ def console_input_from_keyboard_context(
         if xdg_session_type is None:
             xdg_session_type = os.environ.get("XDG_SESSION_TYPE", "")
         if xdg_session_type != "x11":
-            raise RuntimeError(MESSAGE_FOR_WAYLAND_USERS)
+            raise RuntimeError(MESSAGE_SUGGESTING_KITTY_SUPPORT)
         with console_input_from_x11_keyboard_context(console, display) as get_input:
             yield get_input
     else:
@@ -166,7 +185,7 @@ def key_pressed_context(
     term: Terminal,
     display: str | None = None,
     xdg_session_type: str | None = None,
-) -> Iterator[Callable[[], set[DomCode]]]:
+) -> Iterator[Callable[[], set[DomCode] | KeyboardState]]:
     if _kitty_supported(term):
         with blessed_key_pressed_context(term) as get_pressed:
             yield get_pressed
@@ -193,7 +212,11 @@ def main() -> None:
             with key_pressed_context(term) as get_pressed:
                 while True:
                     # Get codes
-                    codes = (x.value for x in get_pressed())
+                    result = get_pressed()
+                    pressed = result.pressed if isinstance(
+                        result, KeyboardState
+                    ) else result
+                    codes = (x.value for x in pressed)
                     # Print pressed key codes
                     print("\r", *codes, flush=True, end=term.clear_eol)
                     # Tick

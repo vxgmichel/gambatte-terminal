@@ -140,10 +140,6 @@ def main(
             f"Invalid color mode `{args.color_mode}`: the value must be between 1 and 4"
         )
 
-    # Query terminal background color BEFORE entering kitty keyboard mode,
-    # as the OSC 11 response would leak into the keyboard input stream.
-    bg_color = term.get_bgcolor(bits=8)
-
     # Enter terminal raw mode
     with term.raw():
         try:
@@ -178,7 +174,6 @@ Try to force a color mode using the `--color-mode` option with a value between 1
                         break_after=args.break_after,
                         speed_factor=args.speed_factor,
                         use_cpr_sync=args.cpr_sync,
-                        bg_color=bg_color,
                     )
 
         # Deal with ctrl+c and ctrl+d exceptions
