@@ -43,7 +43,7 @@ Usage and arguments
 Usage:
 ```
 usage: gambaterm [-h] [--input-file INPUT_FILE] [--frame-advance FRAME_ADVANCE] [--break-after BREAK_AFTER] [--speed-factor SPEED_FACTOR] [--force-gameboy]
-                 [--skip-inputs SKIP_INPUTS] [--cpr-sync] [--disable-audio] [--color-mode COLOR_MODE]
+                 [--skip-inputs SKIP_INPUTS] [--cpr-sync] [--disable-audio] [--color-mode COLOR_MODE] [--no-sextants] [--no-octants]
                  ROM
 ```
 
@@ -93,6 +93,14 @@ Optional arguments:
 
     Force a color mode (1: 4 greyscale colors, 2: 16 colors, 3: 256 colors, 4: 24-bit colors)
 
+  - `--no-sextants`
+
+    Disable sextant block rendering
+
+  - `--no-octants`
+
+    Disable octant block rendering, Octant blocks requires Unicode 17.0 or newer font
+
 SSH server
 ----------
 
@@ -114,9 +122,14 @@ Not all terminals will actually offer a pleasant experience. The main criteria a
   In this case, it might be better to use greyscale colors using `--force-gameboy` or `--color-mode=1`.
 
 - **Support for UTF-8 and good rendering of unicode block elements**
-  More specifically the following characters `▄ █ ▀`.
-  Also, the alignement might be off (e.g small spaces between pixels)
-  This is not always well supported.
+  More specifically the half-block characters `▄ █ ▀` for terminals sizes 160x72 or larger.
+
+  For smaller terminal sizes, Unicode 16.0 (2020) Sextant (🬴) and Unicode 16.0 Octants (2024) (𜷠)
+  are used but provide lower color fidelity and undesirable effects for horizontal and vertical
+  scrolling.
+
+  Also, the alignment might be off (e.g small spaces between pixels), such as in Mac OSX
+  Terminal.app, and can be adjusted by vertical and horizontal spacing of font preferences.
 
 - **Support for the [kitty keyboard protocol](https://sw.kovidgoyal.net/kitty/keyboard-protocol/)**
   This is mandatory if you're using Wayland, and recomended on every other platforms.
@@ -164,7 +177,30 @@ About Windows:
 Terminal size
 -------------
 
-The emulator uses a single character on screen to display two vertically aligned pixels, like so `▄▀`. The gameboy being 160 pixels wide over 144 pixels high, you'll need your terminal to be at least 160 characters wide over 72 characters high to display the entire screen. Setting the terminal to full screen is usually enough but you might want to tweak the character size, typically using the `ctrl - / ctrl +` or `ctrl wheel` shortcuts.
+The Game Boy display is 160x144 pixels. The emulator automatically selects the best rendering mode based on the terminal size:
+
+| Mode | Characters | Terminal size | Pixels per cell |
+|------|-----------|---------------|-----------------|
+| Half-blocks | `▄ █ ▀` | 160+ cols, 72+ rows | 1x2 |
+| Sextants | U+1FB00 | 80+ cols, 48+ rows | 2x3 |
+| Octants | U+1CD00 | below 80x48 | 2x4 |
+
+- **Half-blocks** render the full 160-column image at its native horizontal resolution. This requires a wide terminal (160+ columns) and at least 72 rows.
+- **Sextants** pack 2x3 pixels into each character cell, halving the required width to 80 columns and needing 48 rows. This mode is auto-selected when the terminal is narrower than 160 columns.
+- **Octants** pack 2x4 pixels per cell, requiring only 80 columns and 36 rows. This mode is auto-selected when the terminal has fewer than 48 rows. Octant characters are part of Unicode 17.0 and require a supporting font (e.g. Cascadia Code 2407+).
+
+Both Sextants and Octants compromise color fidelity as only 2 colors per terminal cell of 2x3 or
+2x4 pixel block can be selected. This can also cause undesirable artifacts especially during
+horizontal and vertical scroll.
+
+Unicode 16.0 Octants (2024) (𜷠) are relatively new, and may display as "tofu symbol" or "empty box"
+instead of the desired octant, and not yet frequently supported, and may require installation of a
+newer font, such as GNU Unifont 16.0 or newer https://unifoundry.com/unifont/index.html
+
+The mode is re-evaluated on terminal resize, so shrinking or growing the window switches modes
+dynamically. Use `--no-sextants` or `--no-octants` to disable mode.
+
+Setting the terminal to full screen is usually enough but you might want to tweak the character size, typically using the `ctrl - / ctrl +` or `ctrl wheel` shortcuts.
 
 Keyboard, game controller and file inputs
 -----------------------------------------
