@@ -111,7 +111,6 @@ async def ssh_process_handler(process: SSHServerProcess[str]) -> int:
     executor: ThreadPoolExecutor = process.get_extra_info("executor")
     display = process.channel.get_x11_display()
     command = process.channel.get_command()
-    environment = dict(process.channel.get_environment())
     terminal_type = process.get_terminal_type()
     connection = process.get_extra_info("connection")
     username = process.get_extra_info("username")
@@ -181,17 +180,6 @@ sandbox. More information here: https://security.stackexchange.com/a/7496
         color_mode = app_config.color_mode
     else:
         color_mode = ColorMode.HAS_24_BIT_COLOR
-
-    if color_mode == ColorMode.NO_COLOR:
-        print(
-            f"Your terminal `{terminal_type}` doesn't seem to support colors.",
-            f"Try to force a color mode by appending `-t -- --color-mode 3`"
-            f" to the ssh command",
-            sep="\r\n",
-            file=process.stdout,
-        )
-        print(f"< User `{username}` terminal `{terminal_type}` does not support colors")
-        return 1
 
     # Now is a good time to instanciate the console
     # (it might fail if the ROM does not exist for instance)

@@ -34,8 +34,6 @@ def get_value_from_pynput_key_code(key: pynput.keyboard.KeyCode) -> DomCode | No
         assert False
 
 
-
-
 @contextmanager
 def pynput_key_pressed_context() -> Iterator[Callable[[], set[DomCode]]]:
     import pynput.keyboard

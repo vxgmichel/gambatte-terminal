@@ -14,6 +14,7 @@ from blessed import Terminal
 from .termblit import blit
 from .audio import AudioOut
 from .console import Console, InputGetter
+from .keyboard_input import GameInputGetter
 from .colors import ColorMode
 
 
@@ -53,19 +54,11 @@ def run(
     break_after: int | None = None,
     speed_factor: float = 1.0,
     use_cpr_sync: bool = False,
-    bg_color: tuple[int, int, int] = (-1, -1, -1),
 ) -> None:
     assert color_mode > 0
 
     # Prepare buffers with invalid data
-    # Use terminal background color so the blitter can skip pixels that
-    # already match it on the first frame
-    r, g, b = bg_color
-    if r == -1:
-        bg_val = np.uint32(0)  # assume black if detection fails
-    else:
-        bg_val = np.uint32((r << 16) | (g << 8) | b)
-    video = np.full((console.HEIGHT, console.WIDTH), bg_val, np.uint32)
+    video = np.full((console.HEIGHT, console.WIDTH), 0, np.uint32)
     audio = np.full((2 * console.TICKS_IN_FRAME, 2), -0x7FFF, np.int16)
     last_frame = video.copy()
 
@@ -91,6 +84,13 @@ def run(
     # Create a 100 ms time shift to fill up audio buffer
     if audio_out:
         start -= 0.1
+
+    # Resolve CPR state once (only GameInputGetter has it)
+    cpr_state = (
+        get_input.cpr_state
+        if isinstance(get_input, GameInputGetter)
+        else None
+    )
 
     # Prepare state
     new_frame = False
@@ -121,7 +121,7 @@ def run(
                 audio_out.send(audio[:samples, :])
 
         # Check for CPR response (set by keyboard handler during get_input)
-        if use_cpr_sync and getattr(get_input, "cpr_received", False):
+        if use_cpr_sync and cpr_state is not None and cpr_state.cpr_received:
             screen_ready = True
 
         # Render video
@@ -133,20 +133,22 @@ def run(
                 # Check terminal size
                 new_height = term.height or 24
                 new_width = term.width or 80
-                maybe_clear_prefix, maybe_clear_suffix = b"", b""
+                maybe_clear_seq = b""
                 if (new_height, new_width) != (height, width):
-                    # Write video frame with clear sequence inside synchronized output mode (DEC
-                    # 2026) to prevent flicker, and, set last_frame as inverse of the current frame
-                    # to ensure a full redraw by the blitter
-                    maybe_clear_prefix = b"\033[?2026h\033[H\033[2J"
-                    maybe_clear_suffix = b"\033[?2026l"
+                    maybe_clear_seq = b"\033[H\033[2J"
                     height, width = new_height, new_width
                     refx, refy = get_ref(width, height, console)
                     last_frame = ~video
-                # Render frame
-                video_data = maybe_clear_prefix + blit(
-                    video, last_frame, refx, refy, width - 1, height, color_mode
-                ) + maybe_clear_suffix
+                # Render frame with synchronized output mode (DEC 2026) to prevent flickering
+                # when the screen is cleared, or an artificial CRT-like "rolling band" side-effects
+                # from fast "sprite blinking" meant to cause "transparency" effect on original HW,
+                # https://zladx.github.io/posts/links-awakening-partial-translucency
+                video_data = (
+                    b"\033[?2026h"
+                    + maybe_clear_seq
+                    + blit(video, last_frame, refx, refy, width - 1, height, color_mode)
+                    + b"\033[?2026l"
+                )
                 last_frame = video.copy()
                 # Update reporting
                 data_length.append(len(video_data))

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from contextlib import contextmanager
+from dataclasses import dataclass, field
 from typing import Callable, Iterator
 
 from blessed import Terminal
@@ -11,6 +12,15 @@ from .dom_codes import DomCode
 from .keys import ASCII_PRINTABLE_TO_DOM_CODE
 
 _CPR_RE = re.compile(r"\x1b\[\d+;\d+R")
+
+
+@dataclass
+class KeyboardState:
+    """Snapshot returned by a keyboard polling function."""
+
+    pressed: set[DomCode] = field(default_factory=set)
+    cpr_received: bool = False
+
 
 # Blessed synthesizes key_name as "KEY_{char}" for A-Z and 0-9 on release
 # and repeat events, so we need mappings for both functional keys and
@@ -50,9 +60,9 @@ def keystroke_to_dom_code(keystroke: Keystroke) -> DomCode | None:
 @contextmanager
 def blessed_key_pressed_context(
     term: Terminal,
-) -> Iterator[Callable[[], set[DomCode]]]:
+) -> Iterator[Callable[[], KeyboardState]]:
     """Context manager providing a get_pressed() callable using blessed's kitty protocol."""
-    pressed: set[DomCode] = set()
+    state = KeyboardState()
 
     with term.enable_kitty_keyboard(
         report_events=True,
@@ -60,8 +70,8 @@ def blessed_key_pressed_context(
         report_all_keys=True,
     ):
 
-        def get_pressed() -> set[DomCode]:
-            get_pressed.cpr_received = False
+        def get_pressed() -> KeyboardState:
+            state.cpr_received = False
             while True:
                 key = term.inkey(timeout=0)
                 if not key:
@@ -79,20 +89,18 @@ def blessed_key_pressed_context(
                     raise OSError
                 # Cursor position response
                 if _CPR_RE.match(str(key)):
-                    get_pressed.cpr_received = True
+                    state.cpr_received = True
                     continue
                 dom_code = keystroke_to_dom_code(key)
                 if dom_code is None:
                     continue
                 if key.released:
-                    pressed.discard(dom_code)
+                    state.pressed.discard(dom_code)
                 else:
-                    pressed.add(dom_code)
-            return pressed
-
-        get_pressed.cpr_received = False
+                    state.pressed.add(dom_code)
+            return state
 
         try:
             yield get_pressed
         finally:
-            pressed.clear()
+            state.pressed.clear()
