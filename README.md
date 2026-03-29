@@ -203,7 +203,7 @@ It is also possible to use a bizhawk BK2 input file to play tool-assisted speedr
 Motivation
 ----------
 
-To be honest there is no actual reason to use this gameboy emulator, other than you might find it fun or interesting. The motivation behind this project is simply to push the idea of running a video game console emulator in a terminal as far as possible. It seems like there has been a [similar attempt](https://github.com/gabrielrcouto/php-terminal-gameboy-emulator) that used a different approach for displaying the video stream. In any case I'm quite satisfied with this project, and also a bit surprised that I could push it to the point where playing games is actually enjoyable. In particular, I've been able to complete [The Bouncing Ball](https://gbhh.avivace.com/game/The-Bouncing-Ball) at 60 FPS in XTerm, and I'm now looking forward to playing more homebrew games :)
+To be honest there is no actual reason to use this gameboy emulator, other than you might find it fun or interesting. The motivation behind this project is simply to push the idea of running a video game console emulator in a terminal as far as possible. It seems like there has been a [similar attempt](https://github.com/gabrielrcouto/php-terminal-gameboy-emulator) that used a different approach for displaying the video stream. In any case I'm quite satisfied with this project, and also a bit surprised that I could push it to the point where playing games is actually enjoyable. In particular, I've been able to complete [The Bouncing Ball](https://hh.gbdev.io/game/the-bouncing-ball) at 60 FPS in XTerm, and I'm now looking forward to playing more homebrew games :)
 
 
 
