@@ -86,11 +86,7 @@ def run(
         start -= 0.1
 
     # Resolve CPR state once (only GameInputGetter has it)
-    cpr_state = (
-        get_input.cpr_state
-        if isinstance(get_input, GameInputGetter)
-        else None
-    )
+    cpr_state = get_input.cpr_state if isinstance(get_input, GameInputGetter) else None
 
     # Prepare state
     new_frame = False

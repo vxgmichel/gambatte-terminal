@@ -157,7 +157,10 @@ async def ssh_process_handler(process: SSHServerProcess[str]) -> int:
     # X11 or Kitty keyboard protocol is required
     input_source = await InputSource.detect(app_config, process, display, executor)
     if input_source is None:
-        message = MESSAGE_SUGGESTING_KITTY_SUPPORT + '\n\n' + """\
+        message = (
+            MESSAGE_SUGGESTING_KITTY_SUPPORT
+            + "\n\n"
+            + """\
 Alternatively, X11 forwarding can be used in order to give the gambaterm-ssh
 server access to your keyboard, eg. `ssh -Y -p 8022 localhost`.
 ===============================[ WARNING ]=====================================
@@ -166,6 +169,7 @@ endanger your machine. Please only do so if you are running the X11 server in a
 sandbox. More information here: https://security.stackexchange.com/a/7496
 ===============================[ WARNING ]=====================================
 """
+        )
         process.stdout.write(message.replace("\n", "\r\n"))
         print(
             f"< User `{username}` did not support keyboard protocol nor enable X11 forwarding"
@@ -230,9 +234,7 @@ def thread_target(
 
     try:
         # Prepare alternate screen
-        term.stream.write(
-            term.enter_fullscreen + term.clear + term.hide_cursor
-        )
+        term.stream.write(term.enter_fullscreen + term.clear + term.hide_cursor)
         term.stream.flush()
 
         with console_input_context as get_console_input:
@@ -256,9 +258,7 @@ def thread_target(
         # Wait for CPR
         time.sleep(0.1)
         # Clear alternate screen
-        term.stream.write(
-            term.clear + term.exit_fullscreen + term.normal_cursor
-        )
+        term.stream.write(term.clear + term.exit_fullscreen + term.normal_cursor)
         # Flush if the connection is still active
         try:
             term.stream.flush()

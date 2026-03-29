@@ -131,9 +131,7 @@ def main(
             )
 
     if args.write_input:
-        input_context = write_input_context(
-            console, input_context, args.write_input
-        )
+        input_context = write_input_context(console, input_context, args.write_input)
 
     if args.color_mode not in [None, 1, 2, 3, 4]:
         exit(
@@ -154,9 +152,7 @@ Try to force a color mode using the `--color-mode` option with a value between 1
                     )
 
             # Prepare alternate screen
-            term.stream.write(
-                term.enter_fullscreen + term.clear + term.hide_cursor
-            )
+            term.stream.write(term.enter_fullscreen + term.clear + term.hide_cursor)
             term.stream.flush()
 
             # Enter input and audio contexts
@@ -193,9 +189,7 @@ Try to force a color mode using the `--color-mode` option with a value between 1
             # Wait for a possible CPR
             time.sleep(0.1)
             # Clear alternate screen
-            term.stream.write(
-                term.clear + term.exit_fullscreen + term.normal_cursor
-            )
+            term.stream.write(term.clear + term.exit_fullscreen + term.normal_cursor)
             term.stream.flush()
 
 

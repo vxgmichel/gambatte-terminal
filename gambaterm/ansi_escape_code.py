@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from string import ascii_lowercase, ascii_uppercase
 from typing import Callable, Generator, TypeAlias, TypeVar, cast
 
-from asyncssh import SSHServerProcess, TerminalSizeChanged 
+from asyncssh import SSHServerProcess, TerminalSizeChanged
 
 T = TypeVar("T")
 
