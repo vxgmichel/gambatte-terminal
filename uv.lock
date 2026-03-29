@@ -169,7 +169,7 @@ sdist = { url = "https://files.pythonhosted.org/packages/a5/f5/397b61091120a9ca5
 
 [[package]]
 name = "gambaterm"
-version = "1.1.0"
+version = "1.1.1"
 source = { editable = "." }
 dependencies = [
     { name = "asyncssh" },

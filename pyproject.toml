@@ -9,7 +9,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gambaterm"
-version = "1.1.0"
+version = "1.1.1"
 description = "A terminal frontend for gambatte game boy color emulator"
 readme = "README.md"
 requires-python = ">=3.10"
