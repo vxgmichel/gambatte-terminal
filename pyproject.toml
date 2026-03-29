@@ -71,10 +71,12 @@ skip = ["cp3??t-*", "cp*-musllinux_*", "*-win32"]
 
 [tool.cibuildwheel.windows]
 before-all = [
-    "git -C gambatte-core apply ../patches/statesaver_windows.patch ../patches/unzip_windows.patch",
+    "git -C gambatte-core apply ../patches/statesaver_windows.patch ../patches/unzip_windows.patch ../patches/cartridge_windows.patch",
     "vcpkg install zlib:x64-windows-static-md",
+    "pip install delvewheel",
 ]
 environment = { CL = "/I C:/vcpkg/installed/x64-windows-static-md/include", LINK = "/LIBPATH:C:/vcpkg/installed/x64-windows-static-md/lib" }
+repair-wheel-command = "delvewheel repair -w {dest_dir} {wheel}"
 test-command = "gambaterm --help"
 
 [tool.cibuildwheel.macos]

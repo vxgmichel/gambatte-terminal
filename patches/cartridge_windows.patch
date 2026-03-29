@@ -1,0 +1,41 @@
+diff --git a/libgambatte/src/mem/cartridge.cpp b/libgambatte/src/mem/cartridge.cpp
+index b8dc6ae8..bca954dc 100644
+--- a/libgambatte/src/mem/cartridge.cpp
++++ b/libgambatte/src/mem/cartridge.cpp
+@@ -29,9 +29,15 @@ using namespace gambatte;
+ 
+ namespace {
+ 
++#ifdef _WIN32
++static char const PATH_SEPARATOR = '\\';
++#else
++static char const PATH_SEPARATOR = '/';
++#endif
++
+ std::string stripExtension(std::string const &str) {
+ 	std::string::size_type const lastDot = str.find_last_of('.');
+-	std::string::size_type const lastSlash = str.find_last_of('/');
++	std::string::size_type const lastSlash = str.find_last_of(PATH_SEPARATOR);
+ 
+ 	if (lastDot != std::string::npos && (lastSlash == std::string::npos || lastSlash < lastDot))
+ 		return str.substr(0, lastDot);
+@@ -40,7 +46,7 @@ std::string stripExtension(std::string const &str) {
+ }
+ 
+ std::string stripDir(std::string const &str) {
+-	std::string::size_type const lastSlash = str.find_last_of('/');
++	std::string::size_type const lastSlash = str.find_last_of(PATH_SEPARATOR);
+ 	if (lastSlash != std::string::npos)
+ 		return str.substr(lastSlash + 1);
+ 
+@@ -197,8 +203,8 @@ std::string const Cartridge::saveBasePath() const {
+ 
+ void Cartridge::setSaveDir(std::string const &dir) {
+ 	saveDir_ = dir;
+-	if (!saveDir_.empty() && saveDir_[saveDir_.length() - 1] != '/')
+-		saveDir_ += '/';
++	if (!saveDir_.empty() && saveDir_[saveDir_.length() - 1] != PATH_SEPARATOR)
++		saveDir_ += PATH_SEPARATOR;
+ }
+ 
+ LoadRes Cartridge::loadROM(Array<unsigned char> &buffer,

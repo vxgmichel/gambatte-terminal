@@ -169,24 +169,27 @@ The emulator uses a single character on screen to display two vertically aligned
 Keyboard, game controller and file inputs
 -----------------------------------------
 
-Keyboard controls are enabled by default, while game controller controls have to be enabled using `--enable-controller` or `--ec`. The key bindings are not configurable at the moment:
+Keyboard controls are enabled by default, while game controller controls have to be enabled using `--enable-controller` or `--ec`.
 
-| Buttons    | Keyboard             | Controller            |
-|------------|----------------------|-----------------------|
-| Directions | Arrows               | Left hat / Left stick |
-| A          | F / V / Space        | Button 0 / Button 3   |
-| B          | D / C / Alt          | Button 1 / Button 2   |
-| Start      | Right Ctrl / Enter   | Button 7              |
-| Select     | Right Shift / Delete | Button 6              |
+The key bindings are not configurable at the moment:
 
-Key releases, which are usually mandatory to play games, cannot be detected through `stdin`. It is then required to access the window system to get access to the key presses. There are a couple of problems with that:
+| Buttons    | Keyboard with arrows | Keyboard with WASD | Controller            |
+|------------|----------------------|--------------------|-----------------------|
+| Directions | Arrows               | W A S D            | Left hat / Left stick |
+| A          | Z                    | K                  | Button 0 / Button 3   |
+| B          | X                    | J                  | Button 1 / Button 2   |
+| Start      | Enter                | Enter              | Button 7              |
+| Select     | Right Shift          | Right Shift        | Button 6              |
 
-- It can be hard to detect the window corresponding to the terminal. With X11, the best solution is to look for the current focused window. For other systems, the fallback solution is to use global hotkeys.
 
-- It only works through SSH for clients with X servers using `ssh -X`, meaning it requires Windows and MacOS users to run an X server. Moreover, it's a bad idea to connect with `-X` to an untrusted server.
+| Save state commands | Keyboard |
+|---------------------|----------|
+| Select slot         | 0 to 9   |
+| Save state          | `[`      |
+| Load state          | `]`      |
 
-- Additional permissions might be required to access the window system, especially on MacOS (see [this guide](https://inputs.readthedocs.io/en/latest/user/install.html#mac-permissions))
 
+Since `gambaterm` detects physical key presses, this table indicates the keys [as seen on a QWERTY keyboard](https://www.w3.org/TR/uievents-code/#key-alphanumeric-writing-system). In particular, AZERTY or Bépo user won't need to change their keyboard layout in order to play.
 It is also possible to use a bizhawk BK2 input file to play tool-assisted speedruns using the `--input-file` (or `-i`) option.
 
 
