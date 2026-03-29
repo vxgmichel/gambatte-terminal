@@ -164,9 +164,7 @@ def console_input_from_keyboard_context(
     xdg_session_type: str | None = None,
 ) -> Iterator[InputGetter]:
     if _kitty_supported(term):
-        with console_input_from_keyboard_protocol_context(
-            console, term
-        ) as get_input:
+        with console_input_from_keyboard_protocol_context(console, term) as get_input:
             yield get_input
     elif sys.platform == "linux":
         if xdg_session_type is None:
@@ -213,9 +211,9 @@ def main() -> None:
                 while True:
                     # Get codes
                     result = get_pressed()
-                    pressed = result.pressed if isinstance(
-                        result, KeyboardState
-                    ) else result
+                    pressed = (
+                        result.pressed if isinstance(result, KeyboardState) else result
+                    )
                     codes = (x.value for x in pressed)
                     # Print pressed key codes
                     print("\r", *codes, flush=True, end=term.clear_eol)

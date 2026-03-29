@@ -13,6 +13,7 @@ from contextlib import asynccontextmanager, contextmanager
 from typing import AsyncIterator, Generator, IO, Iterator
 
 from blessed import Terminal as BlessedTerminal
+from blessed.terminal import WINSZ
 
 from asyncssh import SSHServerProcess
 
@@ -48,8 +49,8 @@ class SSHTerminal(BlessedTerminal):
         super().__init__(kind=SSH_TERMINAL_TYPE, stream=stream, force_styling=True)
         # Blessed only sets _keyboard_fd when stream is sys.__stdout__, so
         # for SSH pipes we must set it and initialize the decoder manually
-        self._keyboard_fd = keyboard_fd
-        self._keyboard_decoder = codecs.getincrementaldecoder('UTF-8')()
+        self._keyboard_fd = keyboard_fd  # type: ignore[assignment]
+        self._keyboard_decoder = codecs.getincrementaldecoder("UTF-8")()
 
     @property
     def is_a_tty(self) -> bool:
@@ -63,9 +64,7 @@ class SSHTerminal(BlessedTerminal):
     def cbreak(self) -> Generator[None, None, None]:
         yield
 
-    def _height_and_width(self) -> object:
-        from blessed.terminal import WINSZ
-
+    def _height_and_width(self) -> WINSZ:
         return WINSZ(
             ws_row=self._rows,
             ws_col=self._columns,

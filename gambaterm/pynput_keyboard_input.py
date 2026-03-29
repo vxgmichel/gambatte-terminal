@@ -52,10 +52,7 @@ def pynput_key_pressed_context() -> Iterator[Callable[[], set[DomCode]]]:
         if value is not None:
             pressed.add(value)
         # Check for Ctrl+C / Ctrl+D
-        ctrl_held = (
-            DomCode.CONTROL_LEFT in pressed
-            or DomCode.CONTROL_RIGHT in pressed
-        )
+        ctrl_held = DomCode.CONTROL_LEFT in pressed or DomCode.CONTROL_RIGHT in pressed
         if ctrl_held:
             if DomCode.US_C in pressed:
                 ctrl_c_event.set()
