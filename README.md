@@ -124,7 +124,7 @@ Not all terminals will actually offer a pleasant experience. The main criteria a
 - **Support for UTF-8 and good rendering of unicode block elements**
   More specifically the half-block characters `▄ █ ▀` for terminals sizes 160x72 or larger.
 
-  For smaller terminal sizes, Unicode 16.0 (2020) Sextant (🬴) and Unicode 16.0 Octants (2024) (𜷠)
+  For smaller terminal sizes, Unicode 13.0 (2020) Sextant (🬴) and Unicode 16.0 (2024) Octant (𜷠)
   are used but provide lower color fidelity and undesirable effects for horizontal and vertical
   scrolling.
 
@@ -187,7 +187,7 @@ The Game Boy display is 160x144 pixels. The emulator automatically selects the b
 
 - **Half-blocks** render the full 160-column image at its native horizontal resolution. This requires a wide terminal (160+ columns) and at least 72 rows.
 - **Sextants** pack 2x3 pixels into each character cell, halving the required width to 80 columns and needing 48 rows. This mode is auto-selected when the terminal is narrower than 160 columns.
-- **Octants** pack 2x4 pixels per cell, requiring only 80 columns and 36 rows. This mode is auto-selected when the terminal has fewer than 48 rows. Octant characters are part of Unicode 17.0 and require a supporting font (e.g. Cascadia Code 2407+).
+- **Octants** pack 2x4 pixels per cell, requiring only 80 columns and 36 rows. This mode is auto-selected when the terminal has fewer than 48 rows. Octant characters are part of Unicode 16.0 and require a supporting font (e.g. GNU Unifont 16.0+).
 
 Both Sextants and Octants compromise color fidelity as only 2 colors per terminal cell of 2x3 or
 2x4 pixel block can be selected. This can also cause undesirable artifacts especially during

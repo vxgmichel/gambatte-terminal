@@ -46,7 +46,7 @@ def test_gambaterm(interactive: bool) -> None:
 
 def test_gambaterm_ssh(ssh_config: Path) -> None:
     assert TEST_ROM.exists()
-    command = f"gambaterm-ssh {TEST_ROM} --break-after 10 --input-file /dev/null --color-mode 4"
+    command = f"gambaterm-ssh {TEST_ROM} --break-after 10 --input-file /dev/null --color-mode 4 --no-sextants --no-octants"
     server = Popen(command.split(), stdout=PIPE, stderr=PIPE, bufsize=0, text=True)
     assert server.stdout is not None
     assert server.stderr is not None

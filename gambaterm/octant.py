@@ -92,4 +92,3 @@ class _CacheProxy:
 
 
 _display_cache = _CacheProxy()
-_last_params = _CacheProxy()

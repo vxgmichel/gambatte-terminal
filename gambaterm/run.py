@@ -173,7 +173,7 @@ def run(
     screen_ready = True
     frame_start_time = None
 
-    # Resize hint: show for 4 seconds at startup if not in half-block mode
+    # Resize hint: show for 6 seconds at startup if not in half-block mode
     hint_active = blit_fn in (blit_sextant, blit_octant)
     hint_start = time.perf_counter() if hint_active else 0.0
 
@@ -254,7 +254,7 @@ def run(
                 )
                 last_frame = video.copy()
 
-                # Overlay resize hint during first 8 seconds
+                # Overlay resize hint during first 6 seconds
                 if hint_active and blit_fn not in (blit_sextant, blit_octant):
                     hint_active = False
                 elif hint_active:

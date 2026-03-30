@@ -6,7 +6,7 @@ from subprocess import run as subprocess_run
 
 import numpy as np
 
-from gambaterm.sextant import SEXTANT, _display_cache, _last_params, blit_sextant
+from gambaterm.sextant import SEXTANT, _display_cache, blit_sextant
 
 TEST_ROM = Path(__file__).parent / "test_rom.gb"
 
@@ -25,7 +25,6 @@ def test_sextant_table() -> None:
 
 def test_blit_sextant() -> None:
     _display_cache.clear()
-    _last_params.clear()
     image = np.full((144, 160), 0x00FF0000, np.uint32)
     result = blit_sextant(image, None, 1, 1, 80, 48, 4)
     assert isinstance(result, bytes)

@@ -11,7 +11,6 @@ from gambaterm.octant import (
     OCTANT,
     _OCTANT_SPECIALS,
     _display_cache,
-    _last_params,
     blit_octant,
 )
 
@@ -39,7 +38,6 @@ def test_octant_table() -> None:
 def test_blit_octant() -> None:
     """Full-frame blit produces ANSI output; unchanged frame produces only a reset."""
     _display_cache.clear()
-    _last_params.clear()
     # 144x160 solid red frame, rendered as 36 rows x 80 cols of octant cells
     # using 24-bit color (mode 4), starting at terminal position (1, 1).
     image = np.full((144, 160), 0x00FF0000, np.uint32)

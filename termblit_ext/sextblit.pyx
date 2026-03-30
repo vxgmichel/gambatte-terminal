@@ -278,7 +278,20 @@ cdef int _table_len[64]
 
 # Display cache: flat arrays indexed by row * max_cols + col
 DEF MAX_CELLS = 3840  # 80 * 48
-DEF HYSTERESIS = 100
+
+# Color snapping threshold, in redmean color distance units (see
+# color_distance).  When a cell's new bg/fg pair is closer than this
+# to the previously rendered pair, the old colors are reused and the
+# sextant pattern index is recomputed against them.  This stops the
+# output from flickering when select_bitonal_pair picks a slightly
+# different pair each frame for what is visually the same content.
+# A value of 100 is roughly a just-noticeable RGB shift.
+#
+# Tuning: lower (e.g. 25) means less snapping, more flicker on
+# static content.  Higher (e.g. 400) snaps harder, smoother output
+# but may hide small color changes during animation.  0 turns
+# snapping off entirely.
+DEF HYSTERESIS = 400
 
 cdef int _cache_bg[MAX_CELLS]
 cdef int _cache_fg[MAX_CELLS]
@@ -303,6 +316,7 @@ cdef char* _blit_sextant(
     cdef int row, col, py, px
     cdef int pixels[6]
     cdef int bg, fg, sxt_idx
+    cdef int orig_bg, orig_fg, orig_idx
     cdef int new_x, new_y, cell
     cdef int prev_bg, prev_fg, prev_idx
     cdef int64_t direct_dist, swapped_dist, best_dist
@@ -328,15 +342,28 @@ cdef char* _blit_sextant(
 
             select_bitonal_pair(pixels, 6, 0x3F, &bg, &fg, &sxt_idx)
 
-            # Hysteresis: skip if cell unchanged from cached display
+            # Color snapping and skip-if-unchanged check.
+            #
+            # Each cell caches its last-rendered (bg, fg, idx).  If
+            # the new colors are close to the cached ones, snap to
+            # the cached colors and recompute the pattern index.
+            #
+            # The skip check uses the original (pre-snap) values so
+            # real pixel changes (e.g. scrolling) are still detected.
             cell = row * max_cols + col
             if _cache_valid[cell]:
                 prev_bg = _cache_bg[cell]
                 prev_fg = _cache_fg[cell]
                 prev_idx = _cache_idx[cell]
+                # Save pre-snap values for change detection
+                orig_bg = bg
+                orig_fg = fg
+                orig_idx = sxt_idx
                 direct_dist = color_distance(bg, prev_bg) + color_distance(fg, prev_fg)
                 swapped_dist = color_distance(bg, prev_fg) + color_distance(fg, prev_bg)
                 best_dist = direct_dist if direct_dist < swapped_dist else swapped_dist
+                # Snap: reuse cached colors when close enough, and the
+                # cell is not transitioning to/from a solid fill.
                 if best_dist < HYSTERESIS and prev_bg != prev_fg and sxt_idx != 0:
                     if direct_dist <= swapped_dist:
                         use_bg = prev_bg
@@ -347,7 +374,12 @@ cdef char* _blit_sextant(
                     bg = use_bg
                     fg = use_fg
                     sxt_idx = remap_index(pixels, 6, use_bg, use_fg)
-                if visual_pixel_diff(prev_bg, prev_fg, prev_idx, bg, fg, sxt_idx, 6) == 0:
+                # Skip redraw when the original (pre-snap) decomposition
+                # already matches what is on screen.
+                if visual_pixel_diff(
+                    prev_bg, prev_fg, prev_idx,
+                    orig_bg, orig_fg, orig_idx, 6,
+                ) == 0:
                     continue
 
             _cache_bg[cell] = bg
