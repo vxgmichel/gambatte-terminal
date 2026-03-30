@@ -48,8 +48,24 @@ def get_ref(
     return refx, refy
 
 
-_RESIZE_HINT = "<-- Resize your window now for higher resolution graphics! -->"
-_RESIZE_HINT_DURATION = 4.0
+_RESIZE_HINT = " !! Resize window and font size for higher resolution graphics !! "
+_RESIZE_HINT_DURATION = 6.0
+
+
+def _cycle_color(cycle: float) -> tuple[int, int, int]:
+    """Map a 0–4 cycle position to an RGB color on the red→black→white→black ramp."""
+    if cycle < 1.0:
+        t = cycle
+        return int(255 * t), 0, 0
+    elif cycle < 2.0:
+        t = 2.0 - cycle
+        return int(255 * t), 0, 0
+    elif cycle < 3.0:
+        t = cycle - 2.0
+        return int(255 * t), int(255 * t), int(255 * t)
+    else:
+        t = 4.0 - cycle
+        return int(255 * t), int(255 * t), int(255 * t)
 
 
 def _resize_hint_overlay(
@@ -66,20 +82,11 @@ def _resize_hint_overlay(
     col = max(1, (width - len(text)) // 2 + 1)
     # Linear bounce: 0→1 bright red, 1→2 fade to black,
     #                2→3 bright white, 3→4 fade to black, repeat.
+    # Background is offset by 1 phase (90°) so we get:
+    # red-on-black, black-on-red, white-on-black, black-on-white.
     cycle = (elapsed / 0.6) % 4.0
-    if cycle < 1.0:
-        t = cycle
-        ri, gi, bi = int(255 * t), 0, 0
-    elif cycle < 2.0:
-        t = 2.0 - cycle
-        ri, gi, bi = int(255 * t), 0, 0
-    elif cycle < 3.0:
-        t = cycle - 2.0
-        ri, gi, bi = int(255 * t), int(255 * t), int(255 * t)
-    else:
-        t = 4.0 - cycle
-        ri, gi, bi = int(255 * t), int(255 * t), int(255 * t)
-    bri, bgi, bbi = 255 - ri, 255 - gi, 255 - bi
+    ri, gi, bi = _cycle_color(cycle)
+    bri, bgi, bbi = _cycle_color((cycle + 1.0) % 4.0)
     return (
         f"\033[{row};{col}H"
         f"\033[1;38;2;{ri};{gi};{bi};48;2;{bri};{bgi};{bbi}m{text}\033[0m"
@@ -231,8 +238,10 @@ def run(
                 )
                 last_frame = video.copy()
 
-                # Overlay resize hint during first 4 seconds
-                if hint_active:
+                # Overlay resize hint during first 8 seconds
+                if hint_active and blit_fn not in (blit_sextant, blit_octant):
+                    hint_active = False
+                elif hint_active:
                     elapsed = time.perf_counter() - hint_start
                     if elapsed < _RESIZE_HINT_DURATION:
                         video_data += _resize_hint_overlay(
@@ -241,6 +250,10 @@ def run(
                     else:
                         hint_active = False
                         last_frame = None
+                        row = max(1, height - 2)
+                        video_data += (
+                            f"\033[{row};1H\033[0m\033[K"
+                        ).encode()
 
                 # Update reporting
                 data_length.append(len(video_data))
