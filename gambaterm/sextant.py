@@ -6,6 +6,8 @@ For up to 80x48 terminal cells for a 160x144 Game Boy display.
 
 from __future__ import annotations
 
+__all__ = ["SEXTANT", "SEXTANT_BYTES", "blit_sextant"]
+
 
 def _build_sextant_table() -> list[str]:
     """Build lookup table mapping 6-bit pattern to Unicode sextant character.

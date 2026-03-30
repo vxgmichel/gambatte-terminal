@@ -8,6 +8,8 @@ Requires a Unicode 17.0-capable font, like gnu's unifont 17.0 or later.
 
 from __future__ import annotations
 
+__all__ = ["OCTANT", "OCTANT_BYTES", "blit_octant"]
+
 from bisect import bisect_left
 
 # 26 octant bit patterns that map to pre-existing block element characters
@@ -79,7 +81,11 @@ OCTANT = _build_octant_table()
 OCTANT_BYTES = [ch.encode("utf-8") for ch in OCTANT]
 
 # Initialize Cython blitter with lookup table
-from .octblit import blit_octant, clear_cache as _clear_cache, init_table  # noqa: E402, F401
+from .octblit import (  # noqa: E402, F401
+    blit_octant,
+    clear_cache as _clear_cache,
+    init_table,
+)
 
 init_table(OCTANT_BYTES)
 

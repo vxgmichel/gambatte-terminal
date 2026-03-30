@@ -73,7 +73,12 @@ def get_extensions() -> list[Extension]:
         sources=["termblit_ext/octblit.pyx"],
     )
 
-    return [gambatte_extension, termblit_extension, sextblit_extension, octblit_extension]
+    return [
+        gambatte_extension,
+        termblit_extension,
+        sextblit_extension,
+        octblit_extension,
+    ]
 
 
 setup(ext_modules=get_extensions())

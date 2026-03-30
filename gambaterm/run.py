@@ -9,6 +9,7 @@ from collections import deque
 from typing import Callable, Deque, Iterator
 
 import numpy as np
+import numpy.typing as npt
 from prompt_toolkit.application import AppSession
 
 from .termblit import blit
@@ -127,7 +128,7 @@ def run(
     # Prepare buffers with invalid data
     video = np.full((console.HEIGHT, console.WIDTH), 0, np.uint32)
     audio = np.full((2 * console.TICKS_IN_FRAME, 2), -0x7FFF, np.int16)
-    last_frame = video.copy()
+    last_frame: npt.NDArray[np.uint32] | None = video.copy()
 
     # Determine rendering mode based on terminal size.
     # Pick the highest-resolution mode whose grid fits the terminal.
