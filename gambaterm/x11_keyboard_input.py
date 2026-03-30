@@ -34,6 +34,7 @@ def x11_key_pressed_context(
 ) -> Iterator[Callable[[], set[DomCode]]]:
     from Xlib.ext import xinput
     from Xlib.display import Display
+    from Xlib.xobject.drawable import Window
 
     with closing(Display(display)) as xdisplay:
         extension_info = xdisplay.query_extension("XInputExtension")
@@ -41,8 +42,12 @@ def x11_key_pressed_context(
         # Set of currently pressed keys and focused flag
         pressed: set[DomCode] = set()
         focused = True
-        # Save current focus, as it is likely to be the terminal window
+        # Save current focus, as it is likely to be the terminal window.
+        # On some compositors (e.g. Weston/XWayland), focus may be an int
+        # constant (X_NONE or PointerRoot) instead of a Window object.
         term_window = xdisplay.get_input_focus().focus
+        if not isinstance(term_window, Window):
+            raise RuntimeError("X11 input focus is not a window")
         term_window.xinput_select_events(
             [(xinput.AllDevices, xinput.FocusInMask | xinput.FocusOutMask)]
         )
