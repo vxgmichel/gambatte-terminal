@@ -9,11 +9,12 @@ from collections import deque
 from typing import Deque, Iterator
 
 import numpy as np
-from prompt_toolkit.application import AppSession
+from blessed import Terminal
 
 from .termblit import blit
 from .audio import AudioOut
 from .console import Console, InputGetter
+from .keyboard_input import GameInputGetter
 from .colors import ColorMode
 
 
@@ -32,21 +33,21 @@ def get_ref(width: int, height: int, console: Console) -> tuple[int, int]:
     return refx, refy
 
 
-def write_bytes(app_session: AppSession, video_data: bytes) -> None:
+def write_bytes(term: Terminal, video_data: bytes) -> None:
     # Fix code page issue on windows:
     # `sys.stdout.buffer.raw` is a `WindowsConsoleIO` that always support UTF-8
     # regardless of the configured codepage
-    if sys.platform == "win32" and app_session.output.fileno() == sys.stdout.fileno():
+    if sys.platform == "win32" and term.stream.fileno() == sys.stdout.fileno():
         sys.stdout.buffer.write(video_data)
         sys.stdout.buffer.flush()
     else:
-        os.write(app_session.output.fileno(), video_data)
+        os.write(term.stream.fileno(), video_data)
 
 
 def run(
     console: Console,
     get_input: InputGetter,
-    app_session: AppSession,
+    term: Terminal,
     audio_out: AudioOut | None = None,
     frame_advance: int = 1,
     color_mode: ColorMode = ColorMode.HAS_24_BIT_COLOR,
@@ -61,8 +62,9 @@ def run(
     audio = np.full((2 * console.TICKS_IN_FRAME, 2), -0x7FFF, np.int16)
     last_frame = video.copy()
 
-    # Print area
-    height, width = app_session.output.get_size()
+    # Print area (default to 24x80 if terminal reports zero)
+    height = term.height or 24
+    width = term.width or 80
     refx, refy = get_ref(width, height, console)
 
     # Prepare reporting
@@ -82,6 +84,9 @@ def run(
     # Create a 100 ms time shift to fill up audio buffer
     if audio_out:
         start -= 0.1
+
+    # Resolve CPR state once (only GameInputGetter has it)
+    cpr_state = get_input.cpr_state if isinstance(get_input, GameInputGetter) else None
 
     # Prepare state
     new_frame = False
@@ -111,14 +116,37 @@ def run(
             if audio_out:
                 audio_out.send(audio[:samples, :])
 
-        # Read keys
-        for event in app_session.input.read_keys():
-            if event.key == "c-c":
-                raise KeyboardInterrupt
-            if event.key == "c-d":
-                raise OSError
-            if event.key == "<cursor-position-response>":
-                screen_ready = True
+        # Read keys for ctrl-c/ctrl-d detection.
+        # We check for raw \x03 and \x04 bytes rather than physical key codes
+        # so that detection is keyboard-layout agnostic: e.g. a Bépo user
+        # presses Ctrl+C (physically Ctrl+H on US layout) and the terminal
+        # translates it to \x03 (ETX) before putting it on stdin.
+        # For blessed backend: keystrokes were collected during get_input().
+        # With kitty protocol, ctrl+c arrives as an enhanced CSI sequence
+        # (e.g. \x1b[99;5u) rather than raw \x03, so we also check blessed's
+        # decoded key_name attribute.
+        if isinstance(get_input, GameInputGetter) and get_input.cpr_state.keystrokes:
+            for key in get_input.cpr_state.keystrokes:
+                if str(key) == "\x03" or key.key_name == "KEY_CTRL_C":
+                    raise KeyboardInterrupt
+                if str(key) == "\x04" or key.key_name == "KEY_CTRL_D":
+                    raise OSError
+        # For X11/pynput backends: game input comes from X11 events / OS key
+        # hooks (not stdin), so we read stdin here solely for ctrl-c/ctrl-d.
+        # This replaces prompt-toolkit's read_keys().
+        else:
+            while True:
+                key = term.inkey(timeout=0)
+                if not key:
+                    break
+                if str(key) == "\x03":
+                    raise KeyboardInterrupt
+                if str(key) == "\x04":
+                    raise OSError
+
+        # Check for CPR response (set by keyboard handler during get_input)
+        if use_cpr_sync and cpr_state is not None and cpr_state.cpr_received:
+            screen_ready = True
 
         # Render video
         with timing(video_deltas):
@@ -127,14 +155,14 @@ def run(
             if i % frame_advance == 0 and new_frame and screen_ready and not shift:
                 new_frame = False
                 # Check terminal size
-                new_size = app_session.output.get_size()
-                if new_size != (height, width):
+                new_height = term.height or 24
+                new_width = term.width or 80
+                maybe_clear_seq = b""
+                if (new_height, new_width) != (height, width):
                     maybe_clear_seq = b"\033[H\033[2J"
-                    height, width = new_size
+                    height, width = new_height, new_width
                     refx, refy = get_ref(width, height, console)
-                    last_frame.fill(0)
-                else:
-                    maybe_clear_seq = b""
+                    last_frame = ~video
                 # Render frame with synchronized output mode (DEC 2026) to prevent flickering
                 # when the screen is cleared, or an artificial CRT-like "rolling band" side-effects
                 # from fast "sprite blinking" meant to cause "transparency" effect on original HW,
@@ -158,11 +186,11 @@ def run(
         with timing(sync_deltas):
             # Video sync
             if video_data:
-                # Write video frame, might block
-                write_bytes(app_session, video_data)
+                write_bytes(term, video_data)
                 # Send CPR request
                 if use_cpr_sync:
-                    app_session.output.ask_for_cpr()
+                    term.stream.write("\033[6n")
+                    term.stream.flush()
                     screen_ready = False
             # Timing sync
             increment = samples / console.TICKS_IN_FRAME
@@ -190,5 +218,5 @@ def run(
             title += f"Video: {video_fps:.0f} FPS - {video_percent:.0f}% CPU - "
             title += f"{data_rate:.0f} KB/s | "
             title += f"Audio: {audio_percent:.0f}% CPU"
-            app_session.output.set_title(title)
-            app_session.output.flush()
+            term.stream.write(f"\033]0;{title}\007")
+            term.stream.flush()

@@ -1,13 +1,14 @@
-from itertools import count
+from __future__ import annotations
+
 import sys
+from itertools import count
 from enum import Enum, auto
 from dataclasses import dataclass
 from string import ascii_lowercase, ascii_uppercase
 from typing import Callable, Generator, TypeAlias, TypeVar, cast
 
-from asyncssh import SSHServerProcess
 import asyncssh
-from prompt_toolkit.application import AppSession, create_app_session
+from asyncssh import SSHServerProcess
 
 T = TypeVar("T")
 
@@ -171,76 +172,6 @@ def parse_dcs(
     assert False
 
 
-def detect_true_color_support_with_DCS() -> Generator[str | None, str, SupportStatus]:
-    """
-    This detection is restrictive, i.e it has no known false positive.
-    However, it falsely reports no support for gnome-terminal
-    """
-    # Set unlikely RGB value
-    command = "\033[48;2;1;2;3m"
-    # Query current configuration
-    command += "\033P$qm\033\\"
-    # Reset
-    command += "\033[m"
-    # Query primary device attributes
-    command += "\033[c"
-    # Send command
-    data = yield command
-    # Prepare coroutine
-    coro = parse_ansi_escape_code()
-    assert not next(coro)
-    # Loop over characters
-    result = SupportStatus.Undecided
-    while True:
-        ready = coro.send(data)
-        for item in ready:
-            if isinstance(item, CSI):
-                if item.code == "c":
-                    return result
-            if isinstance(item, DCS):
-                if item.payload.endswith(":1:2:3m"):
-                    result = SupportStatus.Supported
-        data = yield None
-
-
-def detect_true_color_support_with_OSC() -> Generator[str | None, str, SupportStatus]:
-    """
-    This detection is too permissive, i.e. it has no known false negative.
-    However, it falsely reports support for rxvt-unicode
-    """
-    # Get color at slot 255
-    command = "\033]4;255;?\033\\"
-    # Query primary device attributes
-    command += "\033[c"
-    # Send command
-    data = yield command
-    # Prepare coroutine
-    coro = parse_ansi_escape_code()
-    assert not next(coro)
-    # Loop over characters
-    result = SupportStatus.Unsupported
-    while True:
-        ready = coro.send(data)
-        for item in ready:
-            if isinstance(item, CSI):
-                if item.code == "c":
-                    return result
-            if isinstance(item, OSC):
-                if "rgb" in item.payload:
-                    result = SupportStatus.Undecided
-        data = yield None
-
-
-def detect_true_color_support_parser() -> Generator[str | None, str, SupportStatus]:
-    permissive_status = yield from detect_true_color_support_with_OSC()
-    if permissive_status == SupportStatus.Unsupported:
-        return permissive_status
-    restrictive_status = yield from detect_true_color_support_with_DCS()
-    if restrictive_status == SupportStatus.Supported:
-        return restrictive_status
-    return SupportStatus.Undecided
-
-
 def detect_keyboard_protocol_support_parser() -> (
     Generator[str | None, str, SupportStatus]
 ):
@@ -264,36 +195,6 @@ def detect_keyboard_protocol_support_parser() -> (
                 if item.code == "u":
                     result = SupportStatus.Supported
         data = yield None
-
-
-def run_parser_in_app_session(
-    app_session: AppSession, parser: Callable[[], Generator[str | None, str, T]]
-) -> T:
-    coro = parser()
-    command = next(coro)
-    assert isinstance(command, str)
-    app_session.output.write_raw(command)
-    app_session.output.flush()
-
-    # Loop until stop iteration
-    try:
-        while True:
-            # Get next key
-            for key in app_session.input.read_keys():
-                if key.key == "c-c":
-                    raise KeyboardInterrupt
-
-                # Send each char of the key into the coroutine
-                command = coro.send(key.data)
-
-                # Send extra command
-                if command is not None:
-                    app_session.output.write_raw(command)
-                    app_session.output.flush()
-
-    # Get the result
-    except StopIteration as exc:
-        return cast("T", exc.value)
 
 
 async def run_parser_in_ssh_server_process(
@@ -325,26 +226,21 @@ async def run_parser_in_ssh_server_process(
 
 
 def main() -> None:
-    """Entry point to test terminal capabilites."""
+    """Entry point to test terminal capabilities."""
+    from blessed import Terminal
 
-    # Check that stdin is a tty
+    from .colors import detect_local_color_mode
+
     if not sys.stdin.isatty():
         print("Stdin is not a tty")
-        exit(1)
+        sys.exit(1)
 
-    # Use prompt-toolkit to enable raw mode
-    with create_app_session() as app_session:
-        with app_session.input.raw_mode():
-            true_color_status = run_parser_in_app_session(
-                app_session, detect_true_color_support_parser
-            )
-            keyboard_protocol_status = run_parser_in_app_session(
-                app_session, detect_keyboard_protocol_support_parser
-            )
+    term = Terminal()
+    color_mode = detect_local_color_mode(term)
+    kitty_state = term.get_kitty_keyboard_state()
 
-    # Print the results
-    print(f"True color mode   : {true_color_status.name.lower()}")
-    print(f"Keyboard terminal : {keyboard_protocol_status.name.lower()}")
+    print(f"Color mode        : {color_mode.name.lower()}")
+    print(f"Keyboard protocol : {'supported' if kitty_state is not None else 'unsupported'}")
 
 
 if __name__ == "__main__":

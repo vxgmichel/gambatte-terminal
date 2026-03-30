@@ -34,11 +34,9 @@ def test_gambaterm(interactive: bool) -> None:
         text=True,
         capture_output=True,
     )
+    assert result.stderr == ""
     if interactive:
-        assert result.stderr == ""
         assert "| test_rom.gb |" in result.stdout
-    else:
-        assert result.stderr == "Warning: Input is not a terminal (fd=0).\n"
     if sys.platform == "linux":
         assert "▀ ▄▄ ▀" in result.stdout
 
