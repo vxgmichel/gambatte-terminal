@@ -163,7 +163,7 @@ About Windows:
 | Cmder              | Unplayable | 24-bit colors | Good                   | Yes                     | 2 FPS       | No window title          |
 | Terminus           | Unplayable | 24-bit colors | Misalignments          | No                      | 10 FPS      |                          |
 | Command prompt     | Bad        | 24-bit colors | Good                   | No                      | 1 FPS       | Slow/Unresponsive        |
-| Git bash (mingw64) | Ok         | 24-bit colors | Good                   | No                      | N/A         | Doesn't work with winpty |
+| Git bash (mingw64) | Ok         | 24-bit colors | Good                   | No                      | N/A         |                          |
 
 
 Terminals without Kitty keyboard protocol require X11 to play locally, or X11 forwarding to use over SSH.

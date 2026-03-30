@@ -20,7 +20,7 @@ class KeyboardState:
 
     pressed: set[DomCode] = field(default_factory=set)
     cpr_received: bool = False
-    keystrokes: list[Keystroke] = field(default_factory=list)
+    keystrokes: "list[Keystroke]" = field(default_factory=list)
 
 
 # Blessed synthesizes key_name as "KEY_{char}" for A-Z and 0-9 on release

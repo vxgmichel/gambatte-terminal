@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import sys
 from itertools import count
 from enum import Enum, auto
 from dataclasses import dataclass
 from string import ascii_lowercase, ascii_uppercase
 from typing import Callable, Generator, TypeAlias, TypeVar, cast
 
-from asyncssh import SSHServerProcess, TerminalSizeChanged
+import asyncssh
+from asyncssh import SSHServerProcess
 
 T = TypeVar("T")
 
@@ -210,7 +212,7 @@ async def run_parser_in_ssh_server_process(
         while True:
             try:
                 char = await process.stdin.read(1)
-            except TerminalSizeChanged:
+            except asyncssh.TerminalSizeChanged:
                 continue
             else:
                 command = coro.send(char)
@@ -221,3 +223,25 @@ async def run_parser_in_ssh_server_process(
     # Get the result
     except StopIteration as exc:
         return cast("T", exc.value)
+
+
+def main() -> None:
+    """Entry point to test terminal capabilities."""
+    from blessed import Terminal
+
+    from .colors import detect_local_color_mode
+
+    if not sys.stdin.isatty():
+        print("Stdin is not a tty")
+        sys.exit(1)
+
+    term = Terminal()
+    color_mode = detect_local_color_mode(term)
+    kitty_state = term.get_kitty_keyboard_state()
+
+    print(f"Color mode        : {color_mode.name.lower()}")
+    print(f"Keyboard protocol : {'supported' if kitty_state is not None else 'unsupported'}")
+
+
+if __name__ == "__main__":
+    main()
