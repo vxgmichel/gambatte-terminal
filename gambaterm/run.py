@@ -218,5 +218,5 @@ def run(
             title += f"Video: {video_fps:.0f} FPS - {video_percent:.0f}% CPU - "
             title += f"{data_rate:.0f} KB/s | "
             title += f"Audio: {audio_percent:.0f}% CPU"
-            term.stream.write(f"\033]0;{title}\007")
+            term.stream.write(term.set_window_title(title))
             term.stream.flush()

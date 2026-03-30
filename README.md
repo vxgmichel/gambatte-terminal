@@ -139,6 +139,7 @@ The table below sums up my findings when I tried the most common terminal emulat
 | foot             | Excellent  | 24-bit colors | Good                   | Yes                     | 60 FPS      |                                                             |
 | Alacritty        | Excellent  | 24-bit colors | Good                   | Yes                     | 60 FPS      |                                                             |
 | Rio              | Excellent  | 24-bit colors | Good                   | Yes                     | 60 FPS      |                                                             |
+| Konsole          | Good       | 24-bit colors | Good                   | No                      | 60 FPS      |                                                             |
 | Gnome terminal   | Good       | 24-bit colors | Good                   | No                      | 60 FPS      |                                                             |
 | Terminator       | Good       | 24-bit colors | Good                   | No                      | 60 FPS      |                                                             |
 | XTerm            | Good       | 24-bit colors | Good                   | No                      | 60 FPS      | No resize shortcuts, launch as ``xterm -tn xterm-256color`` |
