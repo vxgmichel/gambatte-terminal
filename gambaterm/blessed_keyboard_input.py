@@ -20,6 +20,7 @@ class KeyboardState:
 
     pressed: set[DomCode] = field(default_factory=set)
     cpr_received: bool = False
+    keystrokes: list = field(default_factory=list)
 
 
 # Blessed synthesizes key_name as "KEY_{char}" for A-Z and 0-9 on release
@@ -72,25 +73,12 @@ def blessed_key_pressed_context(
 
         def get_pressed() -> KeyboardState:
             state.cpr_received = False
+            state.keystrokes.clear()
             while True:
                 key = term.inkey(timeout=0)
                 if not key:
                     break
-                # Ctrl+C
-                ctrl = key.modifiers_bits & 4
-                if (
-                    str(key) == "\x03"
-                    or key.key_name == "KEY_CTRL_C"
-                    or (ctrl and key.key_value == "c")
-                ):
-                    raise KeyboardInterrupt
-                # Ctrl+D
-                if (
-                    str(key) == "\x04"
-                    or key.key_name == "KEY_CTRL_D"
-                    or (ctrl and key.key_value == "d")
-                ):
-                    raise OSError
+                state.keystrokes.append(key)
                 # Cursor position response
                 if _CPR_RE.match(str(key)):
                     state.cpr_received = True

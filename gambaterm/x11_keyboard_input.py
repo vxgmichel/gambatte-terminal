@@ -93,13 +93,6 @@ def x11_key_pressed_context(
                 if is_key_released:
                     pressed.discard(key)
 
-            # Check for Ctrl+C / Ctrl+D
-            if DomCode.CONTROL_LEFT in pressed or DomCode.CONTROL_RIGHT in pressed:
-                if DomCode.US_C in pressed:
-                    raise KeyboardInterrupt
-                if DomCode.US_D in pressed:
-                    raise OSError
-
             # Return the currently pressed keys
             return pressed
 

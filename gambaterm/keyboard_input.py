@@ -95,6 +95,7 @@ class GameInputGetter:
         result = self._get_pressed()
         if isinstance(result, KeyboardState):
             self.cpr_state.cpr_received = result.cpr_received
+            self.cpr_state.keystrokes = result.keystrokes
             new_pressed = set(result.pressed)
         else:
             self.cpr_state.cpr_received = False

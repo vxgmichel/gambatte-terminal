@@ -116,6 +116,31 @@ def run(
             if audio_out:
                 audio_out.send(audio[:samples, :])
 
+        # Read keys for ctrl-c/ctrl-d detection.
+        # We check for raw \x03 and \x04 bytes rather than physical key codes
+        # so that detection is keyboard-layout agnostic: e.g. a Bépo user
+        # presses Ctrl+C (physically Ctrl+H on US layout) and the terminal
+        # translates it to \x03 (ETX) before putting it on stdin.
+        # For blessed backend: keystrokes were collected during get_input()
+        if isinstance(get_input, GameInputGetter) and get_input.cpr_state.keystrokes:
+            for key in get_input.cpr_state.keystrokes:
+                if str(key) == "\x03":
+                    raise KeyboardInterrupt
+                if str(key) == "\x04":
+                    raise OSError
+        # For X11/pynput backends: game input comes from X11 events / OS key
+        # hooks (not stdin), so we read stdin here solely for ctrl-c/ctrl-d.
+        # This replaces prompt-toolkit's read_keys().
+        else:
+            while True:
+                key = term.inkey(timeout=0)
+                if not key:
+                    break
+                if str(key) == "\x03":
+                    raise KeyboardInterrupt
+                if str(key) == "\x04":
+                    raise OSError
+
         # Check for CPR response (set by keyboard handler during get_input)
         if use_cpr_sync and cpr_state is not None and cpr_state.cpr_received:
             screen_ready = True
