@@ -121,12 +121,15 @@ def run(
         # so that detection is keyboard-layout agnostic: e.g. a Bépo user
         # presses Ctrl+C (physically Ctrl+H on US layout) and the terminal
         # translates it to \x03 (ETX) before putting it on stdin.
-        # For blessed backend: keystrokes were collected during get_input()
+        # For blessed backend: keystrokes were collected during get_input().
+        # With kitty protocol, ctrl+c arrives as an enhanced CSI sequence
+        # (e.g. \x1b[99;5u) rather than raw \x03, so we also check blessed's
+        # decoded key_name attribute.
         if isinstance(get_input, GameInputGetter) and get_input.cpr_state.keystrokes:
             for key in get_input.cpr_state.keystrokes:
-                if str(key) == "\x03":
+                if str(key) == "\x03" or key.key_name == "KEY_CTRL_C":
                     raise KeyboardInterrupt
-                if str(key) == "\x04":
+                if str(key) == "\x04" or key.key_name == "KEY_CTRL_D":
                     raise OSError
         # For X11/pynput backends: game input comes from X11 events / OS key
         # hooks (not stdin), so we read stdin here solely for ctrl-c/ctrl-d.
