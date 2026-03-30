@@ -132,21 +132,21 @@ Not all terminals will actually offer a pleasant experience. The main criteria a
 
 The table below sums up my findings when I tried the most common terminal emulators. Here's about linux:
 
-| Linux            | Status     | Colors        | Unicode rendering      | Kitty keyboard protocol | Performance | Comments                 |
-|------------------|------------|---------------|------------------------|-------------------------|-------------|--------------------------|
-| Ghostty          | Excellent  | 24-bit colors | Good                   | Yes                     | 60 FPS      |                          |
-| Kitty            | Excellent  | 24-bit colors | Good                   | Yes                     | 60 FPS      |                          |
-| foot             | Excellent  | 24-bit colors | Good                   | Yes                     | 60 FPS      |                          |
-| Alacritty        | Excellent  | 24-bit colors | Good                   | Yes                     | 60 FPS      |                          |
-| Rio              | Excellent  | 24-bit colors | Good                   | Yes                     | 60 FPS      |                          |
-| Gnome terminal   | Good       | 24-bit colors | Good                   | No                      | 60 FPS      |                          |
-| Terminator       | Good       | 24-bit colors | Good                   | No                      | 60 FPS      |                          |
-| XTerm            | Good       | 24-bit colors | Good                   | No                      | 60 FPS      | No resize shortcuts      |
-| Rxvt             | Good       | 24-bit colors | Good                   | No                      | 60 FPS      | No resize shortcuts      |
-| Termit           | Ok         | 24-bit colors | Good                   | No                      | 60 FPS      | No window title          |
-| Mlterm           | Ok         | 24-bit colors | Light misalignments    | No                      | 60 FPS      | No resize shortcuts      |
-| Terminology      | Ok         | 24-bit colors | Possible misalignments | No                      | 30 FPS      | Weird colors             |
-| Contour          | Bad        | 24-bit colors | Good                   | Broken                  | 60 FPS      | [Bug (no release event!)](https://github.com/contour-terminal/contour/pull/1924)  |
+| Linux            | Status     | Colors        | Unicode rendering      | Kitty keyboard protocol | Performance | Comments                                                    |
+|------------------|------------|---------------|------------------------|-------------------------|-------------|-------------------------------------------------------------|
+| Ghostty          | Excellent  | 24-bit colors | Good                   | Yes                     | 60 FPS      |                                                             |
+| Kitty            | Excellent  | 24-bit colors | Good                   | Yes                     | 60 FPS      |                                                             |
+| foot             | Excellent  | 24-bit colors | Good                   | Yes                     | 60 FPS      |                                                             |
+| Alacritty        | Excellent  | 24-bit colors | Good                   | Yes                     | 60 FPS      |                                                             |
+| Rio              | Excellent  | 24-bit colors | Good                   | Yes                     | 60 FPS      |                                                             |
+| Gnome terminal   | Good       | 24-bit colors | Good                   | No                      | 60 FPS      |                                                             |
+| Terminator       | Good       | 24-bit colors | Good                   | No                      | 60 FPS      |                                                             |
+| XTerm            | Good       | 24-bit colors | Good                   | No                      | 60 FPS      | No resize shortcuts, launch as ``xterm -tn xterm-256color`` |
+| Rxvt             | Good       | 24-bit colors | Good                   | No                      | 60 FPS      | No resize shortcuts                                         |
+| Termit           | Ok         | 24-bit colors | Good                   | No                      | 60 FPS      | No window title                                             |
+| Mlterm           | Ok         | 24-bit colors | Light misalignments    | No                      | 60 FPS      | No resize shortcuts                                         |
+| Terminology      | Ok         | 24-bit colors | Possible misalignments | No                      | 30 FPS      | Weird colors                                                |
+| Contour          | Bad        | 24-bit colors | Good                   | Broken                  | 60 FPS      | [Bug (no release event!)](https://github.com/contour-terminal/contour/pull/1924) |
 
 About MacOS:
 
