@@ -6,7 +6,7 @@ import time
 import contextlib
 from itertools import count
 from collections import deque
-from typing import Callable, Deque, Iterator
+from typing import Callable, Deque, Iterator, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -136,9 +136,9 @@ def run(
         if w >= console.WIDTH and h >= console.HEIGHT // 2:
             return blit
         if not no_sextants and w >= console.WIDTH // 2 and h >= console.HEIGHT // 3:
-            return blit_sextant
+            return cast(Callable[..., bytes], blit_sextant)
         if not no_octants:
-            return blit_octant
+            return cast(Callable[..., bytes], blit_octant)
         return blit
 
     height, width = app_session.output.get_size()
