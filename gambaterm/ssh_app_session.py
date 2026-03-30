@@ -9,13 +9,16 @@ import codecs
 import asyncio
 import contextlib
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager, contextmanager
-from typing import AsyncIterator, Generator, IO, Iterator
+from typing import AsyncIterator, Generator, IO, Iterator, TypeVar, Callable
 
 from blessed import Terminal as BlessedTerminal
 from blessed.terminal import WINSZ
 
 from asyncssh import SSHServerProcess
+
+T = TypeVar("T")
 
 
 # Python's curses.setupterm() can only be called once per process — subsequent
@@ -145,23 +148,33 @@ def _bind_resize(
         del process.terminal_size_changed
 
 
-@asynccontextmanager
 async def process_to_terminal(
     process: SSHServerProcess[str],
-) -> AsyncIterator[SSHTerminal]:
-    """Create a blessed SSHTerminal from an SSH process."""
+    executor: ThreadPoolExecutor,
+    target: Callable[[SSHTerminal], T],
+) -> T:
+    """Create a blessed SSHTerminal from an SSH process.
+
+    Once the redirections are set up, I/O become synchronous,
+    so we run the target function in a thread executor to avoid blocking the event loop
+    """
     width, height, _, _ = process.get_terminal_size()
     if width == height == 0:
         width, height = 80, 24
 
+    def _target() -> T:
+        with open(write_fd, "w", newline="\r\n") as stream:
+            ssh_term = SSHTerminal(
+                stream=stream,
+                keyboard_fd=keyboard_fd,
+                rows=height,
+                columns=width,
+            )
+            with _bind_resize(process, ssh_term):
+                return target(ssh_term)
+
+    loop = asyncio.get_running_loop()
+
     async with _input_pipe_from_process(process) as keyboard_fd:
         async with _output_pipe_from_process(process) as write_fd:
-            with open(write_fd, "w", newline="\r\n") as stream:
-                ssh_term = SSHTerminal(
-                    stream=stream,
-                    keyboard_fd=keyboard_fd,
-                    rows=height,
-                    columns=width,
-                )
-                with _bind_resize(process, ssh_term):
-                    yield ssh_term
+            return await loop.run_in_executor(executor, _target)

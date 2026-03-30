@@ -119,17 +119,19 @@ def make_get_input(
     return GameInputGetter(console, get_pressed)
 
 
-def _kitty_supported(term: Terminal) -> bool:
+def is_kitty_keyboard_protocol_supported(
+    term: Terminal, timeout: float | None = None
+) -> bool:
     """Check if the terminal supports the kitty keyboard protocol.
 
     Some terminals (e.g. last release of Contour) responds to the kitty keyboard query but ignore
     the flags we set, so we verify that report_events is actually enabled after requesting it.
     """
-    state = term.get_kitty_keyboard_state()
+    state = term.get_kitty_keyboard_state(timeout=timeout)
     if state is None:
         return False
-    with term.enable_kitty_keyboard(report_events=True):
-        active = term.get_kitty_keyboard_state()
+    with term.enable_kitty_keyboard(report_events=True, timeout=timeout):
+        active = term.get_kitty_keyboard_state(timeout=timeout)
     return active is not None and active.report_events
 
 
@@ -164,7 +166,7 @@ def console_input_from_keyboard_context(
     display: str | None = None,
     xdg_session_type: str | None = None,
 ) -> Iterator[InputGetter]:
-    if _kitty_supported(term):
+    if is_kitty_keyboard_protocol_supported(term):
         with console_input_from_keyboard_protocol_context(console, term) as get_input:
             yield get_input
     elif sys.platform == "linux":
@@ -184,52 +186,59 @@ def key_pressed_context(
     term: Terminal,
     display: str | None = None,
     xdg_session_type: str | None = None,
-) -> Iterator[Callable[[], set[DomCode] | KeyboardState]]:
-    if _kitty_supported(term):
+) -> Iterator[tuple[str, Callable[[], set[DomCode] | KeyboardState]]]:
+    if is_kitty_keyboard_protocol_supported(term):
         with blessed_key_pressed_context(term) as get_pressed:
-            yield get_pressed
+            yield ("blessed", get_pressed)
     elif sys.platform == "linux":
         if xdg_session_type is None:
             xdg_session_type = os.environ.get("XDG_SESSION_TYPE", "")
         if xdg_session_type != "x11":
             raise RuntimeError(MESSAGE_SUGGESTING_KITTY_SUPPORT)
         with x11_key_pressed_context(display) as get_pressed:
-            yield get_pressed
+            yield ("x11", get_pressed)
     else:
         with pynput_key_pressed_context() as get_pressed:
-            yield get_pressed
+            yield ("pynput", get_pressed)
 
 
 def main() -> None:
     term = Terminal()
-    if _kitty_supported(term):
-        print("kitty keyboard mode supported")
     with term.raw():
         try:
             term.stream.write(term.hide_cursor)
             term.stream.flush()
-            with key_pressed_context(term) as get_pressed:
+            with key_pressed_context(term) as (source, get_pressed):
+                print(f"Using keyboard input source: {source}")
                 while True:
                     # Get codes
                     result = get_pressed()
-                    pressed = (
-                        result.pressed if isinstance(result, KeyboardState) else result
-                    )
-                    codes = (x.value for x in pressed)
+                    if isinstance(result, KeyboardState):
+                        pressed = result.pressed
+                        keys = result.keystrokes
+                    else:
+                        pressed = result
+                        keys = list(iter(lambda: term.inkey(timeout=0), ""))
+                    # Check for ctrl+c or ctrl+d
+                    for key in keys:
+                        if key == "\x03" or key.key_name == "KEY_CTRL_C":
+                            raise KeyboardInterrupt
+                        if key == "\x04" or key.key_name == "KEY_CTRL_D":
+                            raise EOFError
+                    codes = " ".join(x.value for x in pressed)
                     # Print pressed key codes
-                    print("\r", *codes, flush=True, end=term.clear_eol)
-                    # Tick
-                    time.sleep(1 / 30)
+                    term.stream.write(f"\r{codes}{term.clear_eol}")
                     # Clear line and hide cursor
                     term.stream.flush()
+                    # Tick
+                    time.sleep(1 / 30)
         except (KeyboardInterrupt, EOFError):
-            pass
+            term.stream.write(f"\r{term.clear_eol}")
         except RuntimeError as error:
             exit(str(error))
         finally:
             term.stream.write(term.normal_cursor)
             term.stream.flush()
-            print()
 
 
 if __name__ == "__main__":

@@ -6,9 +6,9 @@ import asyncio
 import argparse
 import traceback
 from pathlib import Path
-from typing import IO, cast
+from typing import IO, Callable, cast
 from enum import Enum, auto
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, CancelledError
 
 import asyncssh
 from asyncssh import SSHServerProcess
@@ -21,18 +21,15 @@ from .keyboard_input import (
     console_input_from_x11_keyboard_context,
     console_input_from_keyboard_protocol_context,
     MESSAGE_SUGGESTING_KITTY_SUPPORT,
+    is_kitty_keyboard_protocol_supported,
 )
 from .main import add_base_arguments, add_optional_arguments, AppConfig
 from .console import Console, GameboyColor
 
-from .ssh_app_session import process_to_terminal
-from .ansi_escape_code import (
-    detect_keyboard_protocol_support_parser,
-    run_parser_in_ssh_server_process,
-)
+from .ssh_app_session import SSHTerminal, process_to_terminal
 
 
-async def is_x11_display_functional(
+def is_x11_display_functional(
     display: str,
     executor: ThreadPoolExecutor,
     timeout: float = 3.0,
@@ -40,13 +37,10 @@ async def is_x11_display_functional(
     from .x11_keyboard_input import is_x11_display_functional
 
     try:
-        return await asyncio.wait_for(
-            asyncio.get_running_loop().run_in_executor(
-                executor, is_x11_display_functional, display
-            ),
-            timeout=timeout,
+        return executor.submit(is_x11_display_functional, display).result(
+            timeout=timeout
         )
-    except asyncio.TimeoutError:
+    except CancelledError:
         return False
 
 
@@ -55,38 +49,21 @@ class InputSource(Enum):
     KEYBOARD_PROTOCOL = auto()
     X11 = auto()
 
-    @classmethod
-    async def detect(
-        cls,
-        app_config: AppConfig,
-        process: SSHServerProcess[str],
-        display: str | None,
-        executor: ThreadPoolExecutor,
-    ) -> InputSource | None:
-        if app_config.input_file is not None:
-            return InputSource.INPUT_FILE
-        if await detect_keyboard_protocol_support(process):
-            return InputSource.KEYBOARD_PROTOCOL
-        if display and await is_x11_display_functional(display, executor):
-            return InputSource.X11
-        return None
 
-
-async def detect_keyboard_protocol_support(
-    process: SSHServerProcess[str],
-    timeout: float = 1.0,
-) -> bool:
-    try:
-        status = await asyncio.wait_for(
-            run_parser_in_ssh_server_process(
-                process, detect_keyboard_protocol_support_parser
-            ),
-            timeout,
-        )
-    except TimeoutError:
-        return False
-    else:
-        return status.is_supported()
+def detect_input_source(
+    app_config: AppConfig,
+    display: str | None,
+    executor: ThreadPoolExecutor,
+    term: Terminal,
+    timeout: float = 3.0,
+) -> InputSource | None:
+    if app_config.input_file is not None:
+        return InputSource.INPUT_FILE
+    if is_kitty_keyboard_protocol_supported(term, timeout=timeout):
+        return InputSource.KEYBOARD_PROTOCOL
+    if display and is_x11_display_functional(display, executor, timeout=timeout):
+        return InputSource.X11
+    return None
 
 
 async def safe_ssh_process_handler(process: SSHServerProcess[str]) -> None:
@@ -154,8 +131,35 @@ async def ssh_process_handler(process: SSHServerProcess[str]) -> int:
         print(f"< User `{username}` did not use an interactive terminal")
         return 1
 
-    # X11 or Kitty keyboard protocol is required
-    input_source = await InputSource.detect(app_config, process, display, executor)
+    return await process_to_terminal(
+        process,
+        executor,
+        lambda term: ssh_terminal_handler(
+            term,
+            console_callback,
+            app_config,
+            display,
+            username,
+            terminal_type,
+            executor,
+        ),
+    )
+
+
+def ssh_terminal_handler(
+    term: SSHTerminal,
+    console_callback: Callable[[], Console],
+    app_config: AppConfig,
+    display: str | None,
+    username: str,
+    terminal_type: str,
+    executor: ThreadPoolExecutor,
+) -> int:
+    # Now is a good time to instanciate the console
+    # (it might fail if the ROM does not exist for instance)
+    console = console_callback()
+
+    input_source = detect_input_source(app_config, display, executor, term)
     if input_source is None:
         message = (
             MESSAGE_SUGGESTING_KITTY_SUPPORT
@@ -170,52 +174,13 @@ sandbox. More information here: https://security.stackexchange.com/a/7496
 ===============================[ WARNING ]=====================================
 """
         )
-        process.stdout.write(message.replace("\n", "\r\n"))
+        term.stream.write(message)
+        term.stream.flush()
         print(
             f"< User `{username}` did not support keyboard protocol nor enable X11 forwarding"
         )
         return 1
-
-    # Detect color support
-    # Default to 24-bit color since the vast majority of modern terminals
-    # support it. Check COLORTERM if forwarded (recommend SendEnv COLORTERM
-    # in SSH client config), and fall back to env-based detection otherwise.
-    if app_config.color_mode is not None:
-        color_mode = app_config.color_mode
-    else:
-        color_mode = ColorMode.HAS_24_BIT_COLOR
-
-    # Now is a good time to instanciate the console
-    # (it might fail if the ROM does not exist for instance)
-    console = console_callback()
-
-    async with process_to_terminal(process) as term:
-        loop = asyncio.get_event_loop()
-        print(
-            f"[Terminal Info] {username}: {terminal_type}, {input_source},"
-            f" {color_mode}, {term.width}x{term.height}"
-        )
-        return await loop.run_in_executor(
-            executor,
-            thread_target,
-            term,
-            console,
-            app_config,
-            display,
-            input_source,
-            color_mode,
-        )
-
-
-def thread_target(
-    term: Terminal,
-    console: Console,
-    app_config: AppConfig,
-    display: str | None,
-    input_source: InputSource,
-    color_mode: ColorMode,
-) -> int:
-    if input_source == InputSource.INPUT_FILE:
+    elif input_source == InputSource.INPUT_FILE:
         assert app_config.input_file is not None
         console_input_context = console_input_from_file_context(
             console, app_config.input_file, app_config.skip_inputs
@@ -231,6 +196,18 @@ def thread_target(
         )
     else:
         assert False
+
+    # Default to 24-bit color since the vast majority of modern terminals
+    # support it.
+    color_mode = (
+        app_config.color_mode
+        if app_config.color_mode is not None
+        else ColorMode.HAS_24_BIT_COLOR
+    )
+
+    print(
+        f"[Terminal Info] {username}: {terminal_type}, {input_source}, {term.width}x{term.height}"
+    )
 
     try:
         # Prepare alternate screen

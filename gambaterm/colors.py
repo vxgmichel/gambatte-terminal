@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from enum import IntEnum
 
 from blessed import Terminal
@@ -43,3 +44,19 @@ def detect_local_color_mode(term: Terminal) -> ColorMode:
     if any(x in term_env for x in BASIC_TERMINALS):
         return ColorMode.HAS_4_BIT_COLOR
     return ColorMode.NO_COLOR
+
+
+def main() -> None:
+    """Entry point to test terminal capabilities."""
+
+    if not sys.stdin.isatty():
+        print("Stdin is not a tty")
+        sys.exit(1)
+
+    term = Terminal()
+    color_mode = detect_local_color_mode(term)
+    print(f"Color mode: {color_mode.name.lower()}")
+
+
+if __name__ == "__main__":
+    main()
