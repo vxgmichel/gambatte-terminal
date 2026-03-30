@@ -30,6 +30,8 @@ class AppConfig:
     cpr_sync: bool
     enable_controller: bool
     write_input: Path | None
+    no_sextants: bool
+    no_octants: bool
 
 
 def add_base_arguments(parser: argparse.ArgumentParser) -> None:
@@ -96,6 +98,18 @@ def add_optional_arguments(parser: argparse.ArgumentParser) -> None:
         "--wi",
         type=Path,
         help="Record inputs into a file",
+    )
+    parser.add_argument(
+        "--no-sextants",
+        action="store_true",
+        default=False,
+        help="Disable sextant block rendering",
+    )
+    parser.add_argument(
+        "--no-octants",
+        action="store_true",
+        default=False,
+        help="Disable octant block rendering, requires Unicode 17.0 or newer font",
     )
 
 
@@ -175,6 +189,8 @@ Try to force a color mode using the `--color-mode` option with a value between 1
                             break_after=args.break_after,
                             speed_factor=args.speed_factor,
                             use_cpr_sync=args.cpr_sync,
+                            no_sextants=args.no_sextants,
+                            no_octants=args.no_octants,
                         )
 
             # Deal with ctrl+c and ctrl+d exceptions

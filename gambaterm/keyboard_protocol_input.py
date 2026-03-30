@@ -20,7 +20,6 @@ from .ansi_escape_code import (
     parse_ansi_escape_code,
 )
 
-
 CSI_TO_FUNCTIONAL_KEY = {
     ("u", 27): FunctionalKeys.ESCAPE,
     ("u", 13): FunctionalKeys.ENTER,
