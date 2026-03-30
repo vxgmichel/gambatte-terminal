@@ -50,13 +50,11 @@ def pygame_button_pressed_context(
     try:
         import pygame
     except ImportError:
-        raise SystemExit(
-            """\
+        raise SystemExit("""\
 The pygame library is not available, which is required to get controller support.
 Please use the following command to install gambaterm with controller support:
   pip3 install gambaterm[controller-support]
-"""
-        )
+""")
 
     pygame.init()
     pygame.joystick.init()

@@ -3,6 +3,7 @@
 Encodes 2x3 pixel blocks into Unicode sextant characters (U+1FB00-U+1FB3B),
 For up to 80x48 terminal cells for a 160x144 Game Boy display.
 """
+
 from __future__ import annotations
 
 
@@ -19,16 +20,16 @@ def _build_sextant_table() -> list[str]:
     map to pre-existing block element characters; the remaining 60 patterns
     map to U+1FB00..U+1FB3B.
     """
-    table = [''] * 64
+    table = [""] * 64
     for i in range(64):
         if i == 0:
-            table[i] = ' '
+            table[i] = " "
         elif i == 21:
-            table[i] = '\u258c'
+            table[i] = "\u258c"
         elif i == 42:
-            table[i] = '\u2590'
+            table[i] = "\u2590"
         elif i == 63:
-            table[i] = '\u2588'
+            table[i] = "\u2588"
         else:
             offset = i
             if i > 42:
@@ -42,10 +43,15 @@ def _build_sextant_table() -> list[str]:
 
 
 SEXTANT = _build_sextant_table()
-SEXTANT_BYTES = [ch.encode('utf-8') for ch in SEXTANT]
+SEXTANT_BYTES = [ch.encode("utf-8") for ch in SEXTANT]
 
 # Initialize Cython blitter with lookup table
-from .sextblit import blit_sextant, clear_cache as _clear_cache, init_table  # noqa: E402
+from .sextblit import (  # noqa: E402, F401
+    blit_sextant,
+    clear_cache as _clear_cache,
+    init_table,
+)
+
 init_table(SEXTANT_BYTES)
 
 

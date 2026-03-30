@@ -29,8 +29,11 @@ def timing(deltas: Deque[float]) -> Iterator[None]:
 
 
 def get_ref(
-    width: int, height: int, console: Console,
-    sextant: bool = False, octant: bool = False,
+    width: int,
+    height: int,
+    console: Console,
+    sextant: bool = False,
+    octant: bool = False,
 ) -> tuple[int, int]:
     if octant:
         rows = console.HEIGHT // 4
@@ -69,7 +72,9 @@ def _cycle_color(cycle: float) -> tuple[int, int, int]:
 
 
 def _resize_hint_overlay(
-    width: int, height: int, elapsed: float,
+    width: int,
+    height: int,
+    elapsed: float,
 ) -> bytes:
     """Render the resize hint text with a red/black/white/black flash."""
     text = _RESIZE_HINT
@@ -138,8 +143,11 @@ def run(
     height, width = app_session.output.get_size()
     blit_fn = select_blit(width, height)
     refx, refy = get_ref(
-        width, height, console,
-        blit_fn is blit_sextant, blit_fn is blit_octant,
+        width,
+        height,
+        console,
+        blit_fn is blit_sextant,
+        blit_fn is blit_octant,
     )
 
     # Prepare reporting
@@ -214,8 +222,11 @@ def run(
                     height, width = new_size
                     blit_fn = select_blit(width, height)
                     refx, refy = get_ref(
-                        width, height, console,
-                        blit_fn is blit_sextant, blit_fn is blit_octant,
+                        width,
+                        height,
+                        console,
+                        blit_fn is blit_sextant,
+                        blit_fn is blit_octant,
                     )
                     # Screen cleared — pass None to force full redraw
                     # (clears sextant/octant _display_cache, and Cython
@@ -231,8 +242,13 @@ def run(
                     b"\033[?2026h"
                     + maybe_clear_seq
                     + blit_fn(
-                        video, last_frame, refx, refy,
-                        width, height, color_mode,
+                        video,
+                        last_frame,
+                        refx,
+                        refy,
+                        width,
+                        height,
+                        color_mode,
                     )
                     + b"\033[?2026l"
                 )
@@ -245,15 +261,15 @@ def run(
                     elapsed = time.perf_counter() - hint_start
                     if elapsed < _RESIZE_HINT_DURATION:
                         video_data += _resize_hint_overlay(
-                            width, height, elapsed,
+                            width,
+                            height,
+                            elapsed,
                         )
                     else:
                         hint_active = False
                         last_frame = None
                         row = max(1, height - 2)
-                        video_data += (
-                            f"\033[{row};1H\033[0m\033[K"
-                        ).encode()
+                        video_data += (f"\033[{row};1H\033[0m\033[K").encode()
 
                 # Update reporting
                 data_length.append(len(video_data))

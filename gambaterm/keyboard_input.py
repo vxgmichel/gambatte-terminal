@@ -18,7 +18,6 @@ from .pynput_keyboard_input import pynput_key_pressed_context
 from .x11_keyboard_input import x11_key_pressed_context
 from .keyboard_protocol_input import keyboard_protocol_key_pressed_context
 
-
 MESSAGE_FOR_WAYLAND_USERS = """\
 Your terminal does not support the kitty keyboard protocol
 Here is a list of terminals supporting this protocol:
