@@ -162,7 +162,7 @@ def run(
                     maybe_clear_seq = b"\033[H\033[2J"
                     height, width = new_height, new_width
                     refx, refy = get_ref(width, height, console)
-                    last_frame = ~video
+                    last_frame.fill(0)
                 # Render frame with synchronized output mode (DEC 2026) to prevent flickering
                 # when the screen is cleared, or an artificial CRT-like "rolling band" side-effects
                 # from fast "sprite blinking" meant to cause "transparency" effect on original HW,
