@@ -73,9 +73,7 @@ class AudioOut:
 
 
 @contextmanager
-def audio_player(
-    console: Console, speed_factor: float = 1.0
-) -> Iterator[AudioOut | None]:
+def audio_player(console: Console, speed: float = 1.0) -> Iterator[AudioOut | None]:
     # Perform late imports
     import samplerate
 
@@ -94,7 +92,7 @@ Otherswise, you can use the --no-audio option to run without audio support."""
 
     input_rate = console.FPS * console.TICKS_IN_FRAME
     resampler = samplerate.Resampler("linear", channels=2)
-    audio_out = AudioOut(input_rate, resampler, speed_factor)
+    audio_out = AudioOut(input_rate, resampler, speed)
     with sounddevice.OutputStream(
         samplerate=audio_out.output_rate,
         dtype="int16",
@@ -107,5 +105,5 @@ Otherswise, you can use the --no-audio option to run without audio support."""
 
 
 @contextmanager
-def no_audio(console: Console, speed_factor: float = 1.0) -> Iterator[AudioOut | None]:
+def no_audio(console: Console, speed: float = 1.0) -> Iterator[AudioOut | None]:
     yield None

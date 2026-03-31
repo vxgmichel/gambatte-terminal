@@ -55,7 +55,7 @@ def run(
     frame_advance: int = 1,
     color_mode: ColorMode = ColorMode.HAS_24_BIT_COLOR,
     break_after: int | None = None,
-    speed_factor: float = 1.0,
+    speed: float = 1.0,
     use_cpr_sync: bool = False,
 ) -> None:
     assert color_mode > 0
@@ -71,7 +71,7 @@ def run(
     refx, refy = get_ref(width, height, console)
 
     # Prepare reporting
-    fps = console.FPS * speed_factor
+    fps = console.FPS * speed
     average_over = int(round(fps))  # frames
     ticks: Deque[float] = deque(maxlen=average_over)
     emu_deltas: Deque[float] = deque(maxlen=average_over)
