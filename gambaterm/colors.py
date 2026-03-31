@@ -1,27 +1,13 @@
 from __future__ import annotations
 
-import os
 import sys
 from enum import IntEnum
 
 from blessed import Terminal
 
-# Terminals that support at least 16 colors but may not be detected
-# correctly by curses/terminfo.
-BASIC_TERMINALS = [
-    "screen",
-    "vt100",
-    "vt220",
-    "rxvt",
-    "color",
-    "ansi",
-    "cygwin",
-    "linux",
-]
-
 
 class ColorMode(IntEnum):
-    NO_COLOR = 0
+    COULD_NOT_DETECT = 0
     HAS_2_BIT_COLOR = 1
     HAS_4_BIT_COLOR = 2
     HAS_8_BIT_COLOR = 3
@@ -39,11 +25,7 @@ def detect_local_color_mode(term: Terminal) -> ColorMode:
         return ColorMode.HAS_4_BIT_COLOR
     if n >= 4:
         return ColorMode.HAS_2_BIT_COLOR
-    # Fallback for terminals that curses/terminfo under-reports
-    term_env = os.environ.get("TERM", "").lower()
-    if any(x in term_env for x in BASIC_TERMINALS):
-        return ColorMode.HAS_4_BIT_COLOR
-    return ColorMode.NO_COLOR
+    return ColorMode.COULD_NOT_DETECT
 
 
 def main() -> None:

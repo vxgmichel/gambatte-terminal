@@ -144,12 +144,10 @@ def main(
             # Detect color mode
             if args.color_mode is None:
                 args.color_mode = detect_local_color_mode(term)
-                if args.color_mode == ColorMode.NO_COLOR:
-                    raise exit(
-                        """\
-The ANSI color support for your terminal could not be detected from your environment.
-Try to force a color mode using the `--color-mode` option with a value between 1 and 4."""
-                    )
+                if args.color_mode == ColorMode.COULD_NOT_DETECT:
+                    # TODO: add a prompt to ask the user to choose a color mode
+                    # instead of silently falling back to 8-bit
+                    args.color_mode = ColorMode.HAS_8_BIT_COLOR
 
             # Prepare alternate screen
             term.stream.write(term.enter_fullscreen + term.clear + term.hide_cursor)
