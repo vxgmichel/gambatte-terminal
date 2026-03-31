@@ -50,8 +50,17 @@ def blessed_key_pressed_context(
     term: Terminal,
 ) -> Iterator[tuple[Callable[[], set[DomCode]], Callable[[], list[Keystroke]]]]:
     """Context manager providing a get_pressed() callable using blessed's kitty protocol."""
+    # `pressed` is the set of currently pressed keys
+    #  reported as DOM codes (i.e layout-agnostic key identifiers)
     pressed: set[DomCode] = set()
+    # `keystrokes` is the list of keystrokes that have occurred since the last call to pop_keystrokes(),
+    # as blessed `Keystroke` objects (i.e layout-aware data)
     keystrokes: list[Keystroke] = []
+
+    # Note: keystrokes are typically used for ctrl-c/ctrl-d detection,
+    # which is why they have to be layout-aware.
+    # For instance, when a Bépo user presses ctrl+c (physically ctrl+h on US layout),
+    # the terminal translates it to `\x03` (ETX) before putting it on stdin.
 
     with term.enable_kitty_keyboard(
         report_events=True,

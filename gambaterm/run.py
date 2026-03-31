@@ -116,23 +116,16 @@ def run(
             if audio_out:
                 audio_out.send(audio[:samples, :])
 
-        # Read keys for ctrl-c/ctrl-d detection.
-        # We check for raw \x03 and \x04 bytes rather than physical key codes
-        # so that detection is keyboard-layout agnostic: e.g. a Bépo user
-        # presses Ctrl+C (physically Ctrl+H on US layout) and the terminal
-        # translates it to \x03 (ETX) before putting it on stdin.
-        # For blessed backend: keystrokes were collected during get_input().
-        # With kitty protocol, ctrl+c arrives as an enhanced CSI sequence
-        # (e.g. \x1b[99;5u) rather than raw \x03, so we also check blessed's
-        # decoded key_name attribute.
-        # For X11/pynput backends: game input comes from X11 events / OS key
-        # hooks (not stdin), so we read stdin here solely for ctrl-c/ctrl-d.
-        # This replaces prompt-toolkit's read_keys().
+        # Read keys for ctrl-c, ctrl-d, and CPR response.
+        # If the kitty keyboard protocol is used, all inputs are sent as CSI sequences
+        # (e.g. `\x1b[99;5u` rather than raw `\x03`), so we check blessed's
+        # decoded `key_name` attribute, since it ends up being `KEY_CTRL_C` for ctrl+c
+        # and `KEY_CTRL_D` for ctrl+d regardless of the underlying encoding.
         for key in input_getter.pop_keystrokes():
-            if str(key) == "\x03" or key.key_name == "KEY_CTRL_C":
+            if key.key_name == "KEY_CTRL_C":
                 raise KeyboardInterrupt
-            if str(key) == "\x04" or key.key_name == "KEY_CTRL_D":
-                raise OSError
+            if key.key_name == "KEY_CTRL_D":
+                raise EOFError
             if _CPR_RE.match(str(key)):
                 screen_ready = True
 
