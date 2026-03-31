@@ -47,8 +47,8 @@ def get_input_mapping(console: Console) -> dict[DomCode, Console.Input]:
         DomCode.NUMPAD2: console.Input.DOWN,
         DomCode.NUMPAD4: console.Input.LEFT,
         DomCode.NUMPAD6: console.Input.RIGHT,
-        DomCode.US_Z: console.Input.A,
-        DomCode.US_X: console.Input.B,
+        DomCode.US_X: console.Input.A,
+        DomCode.US_Z: console.Input.B,
         # WASD controls
         DomCode.US_W: console.Input.UP,
         DomCode.US_S: console.Input.DOWN,
