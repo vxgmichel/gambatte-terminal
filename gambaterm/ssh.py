@@ -267,7 +267,9 @@ class SSHServer(asyncssh.SSHServer):
         )
 
     def password_auth_supported(self) -> bool:
-        return bool(self._gambaterm_password)
+        # Allow empty string as a valid password (--password ''),
+        # only None (unset) disables password auth.
+        return self._gambaterm_password is not None
 
     def validate_password(self, username: str, password: str) -> bool:
         assert self._gambaterm_password is not None
