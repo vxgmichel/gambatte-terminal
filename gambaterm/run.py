@@ -177,7 +177,7 @@ def run(
                 write_bytes(term, video_data)
                 # Send CPR request
                 if use_cpr_sync:
-                    term.stream.write("\033[6n")
+                    term.stream.write("\033[1;1H\033[6n")
                     term.stream.flush()
                     screen_ready = False
             # Timing sync
