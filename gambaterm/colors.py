@@ -20,6 +20,20 @@ class ColorMode(IntEnum):
             value += 1
         return ColorMode(value)
 
+    def report(self) -> str:
+        """Return a human-readable report of the color mode."""
+        if self == ColorMode.COULD_NOT_DETECT:
+            return "Could not detect color mode"
+        if self == ColorMode.HAS_2_BIT_COLOR:
+            return "4 colors"
+        if self == ColorMode.HAS_4_BIT_COLOR:
+            return "16 colors"
+        if self == ColorMode.HAS_8_BIT_COLOR:
+            return "256 colors"
+        if self == ColorMode.HAS_24_BIT_COLOR:
+            return "True color"
+        assert False
+
 
 def detect_local_color_mode(term: Terminal) -> ColorMode:
     """Detect the color mode of the local terminal using blessed."""
