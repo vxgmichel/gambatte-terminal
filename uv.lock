@@ -202,6 +202,7 @@ dependencies = [
     { name = "python-xlib", marker = "sys_platform == 'linux'" },
     { name = "samplerate" },
     { name = "sounddevice" },
+    { name = "telnetlib3" },
 ]
 
 [package.optional-dependencies]
@@ -219,6 +220,7 @@ requires-dist = [
     { name = "python-xlib", marker = "sys_platform == 'linux'" },
     { name = "samplerate", specifier = ">=0.1.0,<0.2.0" },
     { name = "sounddevice", specifier = ">=0.4,<1.0" },
+    { name = "telnetlib3", specifier = ">=2.6.1,<3" },
 ]
 provides-extras = ["controller-support"]
 
@@ -554,6 +556,18 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/88/a1/d19dd9889cd4bce2e233c4fac007cd8daaf5b9fe6e6a5d432cf17be0b807/sounddevice-0.5.5-py3-none-win32.whl", hash = "sha256:1234cc9b4c9df97b6cbe748146ae0ec64dd7d6e44739e8e42eaa5b595313a103", size = 317765, upload-time = "2026-01-23T18:36:39.047Z" },
     { url = "https://files.pythonhosted.org/packages/c3/0e/002ed7c4c1c2ab69031f78989d3b789fee3a7fba9e586eb2b81688bf4961/sounddevice-0.5.5-py3-none-win_amd64.whl", hash = "sha256:cfc6b2c49fb7f555591c78cb8ecf48d6a637fd5b6e1db5fec6ed9365d64b3519", size = 365324, upload-time = "2026-01-23T18:36:40.496Z" },
     { url = "https://files.pythonhosted.org/packages/4e/39/a61d4b83a7746b70d23d9173be688c0c6bfc7173772344b7442c2c155497/sounddevice-0.5.5-py3-none-win_arm64.whl", hash = "sha256:3861901ddd8230d2e0e8ae62ac320cdd4c688d81df89da036dcb812f757bb3e6", size = 317115, upload-time = "2026-01-23T18:36:42.235Z" },
+]
+
+[[package]]
+name = "telnetlib3"
+version = "2.6.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "wcwidth" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d7/ba/cd5deefdc3eb41e6a352c624b684e7388619b94579077e7184ba20fe1c3d/telnetlib3-2.6.1.tar.gz", hash = "sha256:6b365973df176ac1ddb823c98c99bb02f3a7540f7b94f22378651998e05754be", size = 308004, upload-time = "2026-02-28T01:12:32.812Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/77/38/de91b8542b5a91c5908d744b638305a7aac8d4895df0682bcf2ff5a1209e/telnetlib3-2.6.1-py3-none-any.whl", hash = "sha256:96f18e392ca769d2a6388dd72984345ca9075aa0c7beb019185ba289bc7733aa", size = 314784, upload-time = "2026-02-28T01:12:31.204Z" },
 ]
 
 [[package]]

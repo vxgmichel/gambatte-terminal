@@ -1,5 +1,6 @@
 import os
 import sys
+import asyncio
 import pytest
 import asyncssh
 from pathlib import Path
@@ -65,6 +66,64 @@ def test_gambaterm_ssh(ssh_config: Path) -> None:
         assert "| test_rom.gb |" in client.stdout
         if sys.platform == "linux":
             assert "▀ ▄▄ ▀" in client.stdout
+    finally:
+        server.terminate()
+        server.wait()
+        print(server.stdout.read(), end="", file=sys.stdout)
+        print(server.stderr.read(), end="", file=sys.stderr)
+        server.stdout.close()
+        server.stderr.close()
+
+
+def test_gambaterm_telnet() -> None:
+    assert TEST_ROM.exists()
+    command = (
+        f"{sys.executable} -m gambaterm.telnet {TEST_ROM} --break-after 10"
+        f" --input-file /dev/null --color-mode 4"
+    )
+    env = os.environ.copy()
+    env["PYTHONUNBUFFERED"] = "1"
+    server = Popen(
+        command.split(), stdout=PIPE, stderr=PIPE, bufsize=0, text=True, env=env
+    )
+    assert server.stdout is not None
+    assert server.stderr is not None
+    try:
+        assert (
+            server.stdout.readline() == "Running telnet server on 127.0.0.1:8023...\n"
+        )
+
+        async def telnet_client() -> str:
+            import telnetlib3
+
+            reader, writer = await telnetlib3.open_connection(
+                host="127.0.0.1",
+                port=8023,
+                encoding=False,
+                force_binary=True,
+                term="xterm-256color",
+                cols=80,
+                rows=24,
+            )
+            output = b""
+            try:
+                while True:
+                    chunk = await asyncio.wait_for(reader.read(65536), timeout=5)
+                    if not chunk:
+                        break
+                    if isinstance(chunk, bytes):
+                        output += chunk
+            except (asyncio.TimeoutError, EOFError):
+                pass
+            finally:
+                if not writer.is_closing():
+                    writer.close()
+            return output.decode("utf-8", errors="replace")
+
+        result = asyncio.run(telnet_client())
+        assert "| test_rom.gb |" in result
+        if sys.platform == "linux":
+            assert "\u2580" in result or "\u2584" in result
     finally:
         server.terminate()
         server.wait()

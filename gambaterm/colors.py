@@ -28,6 +28,21 @@ class ColorMode(IntEnum):
     HAS_24_BIT_COLOR = 4
 
 
+def detect_color_mode(env: dict[str, str]) -> ColorMode:
+    """Detect color support from environment variables.
+
+    Assumes 24-bit color for all terminals except TERM='ansi' which
+    gets 16 colors.
+
+    :param env: environment dict with keys like TERM
+    :returns: detected :class:`ColorMode`
+    """
+    term_val = env.get("TERM", "").lower()
+    if term_val == "ansi":
+        return ColorMode.HAS_4_BIT_COLOR
+    return ColorMode.HAS_24_BIT_COLOR
+
+
 def detect_local_color_mode(term: Terminal) -> ColorMode:
     """Detect the color mode of the local terminal using blessed."""
     n = term.number_of_colors

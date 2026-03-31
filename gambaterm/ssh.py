@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import time
+import hashlib
 import asyncio
 import argparse
 import traceback
@@ -107,12 +108,13 @@ async def ssh_process_handler(process: SSHServerProcess[str]) -> int:
         console_cls.add_console_arguments(parser)
         namespace = parser.parse_args(command.split(), namespace)
 
-    # Manage save directory
+    # Manage save directory — hash username to prevent path traversal
     if "save_directory" in namespace.__dict__:
+        safe_name = hashlib.sha256(username.encode("utf-8")).hexdigest()[:16]
         save_directory = (
             None
             if getattr(namespace, "input_file", False)
-            else Path("ssh_save") / username
+            else Path("ssh_save") / safe_name
         )
         setattr(namespace, "save_directory", save_directory)
 
@@ -197,13 +199,8 @@ sandbox. More information here: https://security.stackexchange.com/a/7496
     else:
         assert False
 
-    # Default to 24-bit color since the vast majority of modern terminals
-    # support it.
-    color_mode = (
-        app_config.color_mode
-        if app_config.color_mode is not None
-        else ColorMode.HAS_24_BIT_COLOR
-    )
+    # Kitty keyboard protocol implies 24-bit color support
+    color_mode = app_config.color_mode or ColorMode.HAS_24_BIT_COLOR
 
     print(
         f"[Terminal Info] {username}: {terminal_type}, {input_source}, {term.width}x{term.height}"
