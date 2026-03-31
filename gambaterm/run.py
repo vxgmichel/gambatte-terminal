@@ -205,6 +205,7 @@ def run(
             title += f"Emu: {emu_fps:.0f} FPS - {emu_percent:.0f}% CPU | "
             title += f"Video: {video_fps:.0f} FPS - {video_percent:.0f}% CPU - "
             title += f"{data_rate:.0f} KB/s | "
-            title += f"Audio: {audio_percent:.0f}% CPU"
+            title += f"Audio: {audio_percent:.0f}% CPU | "
+            title += f"{color_mode.report()} mode"
             term.stream.write(term.set_window_title(title))
             term.stream.flush()
