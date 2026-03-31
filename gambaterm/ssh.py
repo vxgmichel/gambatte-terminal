@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import time
 import hmac
+import hashlib
 import asyncio
 import argparse
 import traceback
@@ -112,14 +113,16 @@ async def ssh_process_handler(process: SSHServerProcess[str]) -> int:
         console_cls.add_console_arguments(parser)
         namespace = parser.parse_args(command.split(), namespace)
 
-    # Manage save directory
+    # Manage save directory — hash username to prevent path traversal
     if "save_directory" in namespace.__dict__:
-        save_directory = (
-            None
-            if getattr(namespace, "input_file", False)
-            else Path("ssh_save") / username
-        )
-        setattr(namespace, "save_directory", save_directory)
+        if getattr(namespace, "input_file", False):
+            setattr(namespace, "save_directory", None)
+        else:
+            safe_name = hashlib.sha256(username.encode("utf-8")).hexdigest()[:16]
+            save_directory = Path("ssh_save") / safe_name
+            save_directory.mkdir(parents=True, exist_ok=True)
+            (save_directory / "username").write_text(username)
+            setattr(namespace, "save_directory", save_directory)
 
     # Pop console arguments and extract configuration
     console_callback = console_cls.pop_console_arguments(namespace)
