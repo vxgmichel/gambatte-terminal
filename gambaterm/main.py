@@ -4,6 +4,7 @@ from __future__ import annotations
 import time
 import argparse
 from pathlib import Path
+from typing import ContextManager
 from dataclasses import dataclass
 
 from blessed import Terminal
@@ -12,6 +13,7 @@ from .run import run
 from .console import GameboyColor, Console
 from .audio import audio_player, no_audio
 from .colors import detect_local_color_mode, ColorMode
+from .input_getter import BaseInputGetter
 from .keyboard_input import console_input_from_keyboard_context
 from .controller_input import combine_console_input_from_controller_context
 from .file_input import console_input_from_file_context, write_input_context
@@ -117,21 +119,20 @@ def main(
     console = console_callback()
     args = AppConfig(**vars(namespace))
 
-    term = Terminal()
+    terminal = Terminal()
 
+    input_context: ContextManager[BaseInputGetter]
     if args.input_file is not None:
         input_context = console_input_from_file_context(
-            console, args.input_file, args.skip_inputs
+            console, terminal, args.input_file, args.skip_inputs
         )
     else:
-        input_context = console_input_from_keyboard_context(console, term)
+        input_context = console_input_from_keyboard_context(console, terminal)
         if args.enable_controller:
-            input_context = combine_console_input_from_controller_context(
-                console, input_context
-            )
+            input_context = combine_console_input_from_controller_context(input_context)
 
     if args.write_input:
-        input_context = write_input_context(console, input_context, args.write_input)
+        input_context = write_input_context(input_context, args.write_input)
 
     if args.color_mode not in [None, 1, 2, 3, 4]:
         exit(
@@ -139,19 +140,21 @@ def main(
         )
 
     # Enter terminal raw mode
-    with term.raw():
+    with terminal.raw():
         try:
             # Detect color mode
             if args.color_mode is None:
-                args.color_mode = detect_local_color_mode(term)
+                args.color_mode = detect_local_color_mode(terminal)
                 if args.color_mode == ColorMode.COULD_NOT_DETECT:
                     # TODO: add a prompt to ask the user to choose a color mode
                     # instead of silently falling back to 8-bit
                     args.color_mode = ColorMode.HAS_8_BIT_COLOR
 
             # Prepare alternate screen
-            term.stream.write(term.enter_fullscreen + term.clear + term.hide_cursor)
-            term.stream.flush()
+            terminal.stream.write(
+                terminal.enter_fullscreen + terminal.clear + terminal.hide_cursor
+            )
+            terminal.stream.flush()
 
             # Enter input and audio contexts
             with input_context as get_gb_input:
@@ -161,7 +164,7 @@ def main(
                     run(
                         console,
                         get_gb_input,
-                        term=term,
+                        term=terminal,
                         audio_out=audio_out,
                         frame_advance=args.frame_advance,
                         color_mode=args.color_mode,
@@ -187,8 +190,10 @@ def main(
             # Wait for a possible CPR
             time.sleep(0.1)
             # Clear alternate screen
-            term.stream.write(term.clear + term.exit_fullscreen + term.normal_cursor)
-            term.stream.flush()
+            terminal.stream.write(
+                terminal.clear + terminal.exit_fullscreen + terminal.normal_cursor
+            )
+            terminal.stream.flush()
 
 
 if __name__ == "__main__":

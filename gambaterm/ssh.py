@@ -6,7 +6,7 @@ import asyncio
 import argparse
 import traceback
 from pathlib import Path
-from typing import IO, Callable, cast
+from typing import IO, Callable, cast, ContextManager
 from enum import Enum, auto
 from concurrent.futures import ThreadPoolExecutor, CancelledError
 
@@ -17,6 +17,7 @@ from blessed import Terminal
 from .run import run
 from .colors import ColorMode
 from .file_input import console_input_from_file_context
+from .input_getter import BaseInputGetter
 from .keyboard_input import (
     console_input_from_x11_keyboard_context,
     console_input_from_keyboard_protocol_context,
@@ -136,8 +137,8 @@ async def ssh_process_handler(process: SSHServerProcess[str]) -> int:
     return await process_to_terminal(
         process,
         executor,
-        lambda term: ssh_terminal_handler(
-            term,
+        lambda terminal: ssh_terminal_handler(
+            terminal,
             console_callback,
             app_config,
             display,
@@ -149,7 +150,7 @@ async def ssh_process_handler(process: SSHServerProcess[str]) -> int:
 
 
 def ssh_terminal_handler(
-    term: SSHTerminal,
+    terminal: SSHTerminal,
     console_callback: Callable[[], Console],
     app_config: AppConfig,
     display: str | None,
@@ -161,7 +162,8 @@ def ssh_terminal_handler(
     # (it might fail if the ROM does not exist for instance)
     console = console_callback()
 
-    input_source = detect_input_source(app_config, display, executor, term)
+    input_source = detect_input_source(app_config, display, executor, terminal)
+    console_input_context: ContextManager[BaseInputGetter]
     if input_source is None:
         message = (
             MESSAGE_SUGGESTING_KITTY_SUPPORT
@@ -176,8 +178,8 @@ sandbox. More information here: https://security.stackexchange.com/a/7496
 ===============================[ WARNING ]=====================================
 """
         )
-        term.stream.write(message)
-        term.stream.flush()
+        terminal.stream.write(message)
+        terminal.stream.flush()
         print(
             f"< User `{username}` did not support keyboard protocol nor enable X11 forwarding"
         )
@@ -185,16 +187,16 @@ sandbox. More information here: https://security.stackexchange.com/a/7496
     elif input_source == InputSource.INPUT_FILE:
         assert app_config.input_file is not None
         console_input_context = console_input_from_file_context(
-            console, app_config.input_file, app_config.skip_inputs
+            console, terminal, app_config.input_file, app_config.skip_inputs
         )
     elif input_source == InputSource.KEYBOARD_PROTOCOL:
         console_input_context = console_input_from_keyboard_protocol_context(
             console,
-            term,
+            terminal,
         )
     elif input_source == InputSource.X11:
         console_input_context = console_input_from_x11_keyboard_context(
-            console, display
+            console, terminal, display
         )
     else:
         assert False
@@ -208,20 +210,22 @@ sandbox. More information here: https://security.stackexchange.com/a/7496
     )
 
     print(
-        f"[Terminal Info] {username}: {terminal_type}, {input_source}, {term.width}x{term.height}"
+        f"[Terminal Info] {username}: {terminal_type}, {input_source}, {terminal.width}x{terminal.height}"
     )
 
     try:
         # Prepare alternate screen
-        term.stream.write(term.enter_fullscreen + term.clear + term.hide_cursor)
-        term.stream.flush()
+        terminal.stream.write(
+            terminal.enter_fullscreen + terminal.clear + terminal.hide_cursor
+        )
+        terminal.stream.flush()
 
         with console_input_context as get_console_input:
             # Run the emulator
             run(
                 console,
-                get_input=get_console_input,
-                term=term,
+                input_getter=get_console_input,
+                term=terminal,
                 frame_advance=app_config.frame_advance,
                 color_mode=color_mode,
                 break_after=app_config.break_after,
@@ -237,10 +241,12 @@ sandbox. More information here: https://security.stackexchange.com/a/7496
         # Wait for CPR
         time.sleep(0.1)
         # Clear alternate screen
-        term.stream.write(term.clear + term.exit_fullscreen + term.normal_cursor)
+        terminal.stream.write(
+            terminal.clear + terminal.exit_fullscreen + terminal.normal_cursor
+        )
         # Flush if the connection is still active
         try:
-            term.stream.flush()
+            terminal.stream.flush()
         except BrokenPipeError:
             pass
 

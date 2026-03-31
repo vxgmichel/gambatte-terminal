@@ -6,7 +6,24 @@ from contextlib import contextmanager
 from zipfile import ZipFile, BadZipFile
 from typing import ContextManager, Iterator
 
-from .console import Console, InputGetter
+from blessed import Terminal
+
+from .console import Console
+from .input_getter import BaseInputGetter, StackedInputGetter
+
+
+class FileInputGetter(BaseInputGetter):
+    def __init__(
+        self,
+        console: Console,
+        terminal: Terminal,
+        input_generator: Iterator[set[Console.Input]],
+    ) -> None:
+        super().__init__(console, terminal)
+        self._generator = input_generator
+
+    def get_pressed(self) -> set[Console.Input]:
+        return next(self._generator)
 
 
 def get_inputs_ref(console: Console) -> list[Console.Input]:
@@ -45,8 +62,8 @@ def open_input_log_file(path: Path) -> Iterator[TextIOWrapper]:
 
 @contextmanager
 def console_input_from_file_context(
-    console: Console, path: Path, skip_first_frames: int = 188
-) -> Iterator[InputGetter]:
+    console: Console, terminal: Terminal, path: Path, skip_first_frames: int = 188
+) -> Iterator[FileInputGetter]:
     inputs_ref = get_inputs_ref(console)
     with open_input_log_file(path) as f:
 
@@ -62,19 +79,24 @@ def console_input_from_file_context(
                 yield set()
 
         input_generator = gen()
-        yield lambda: next(input_generator)
+        yield FileInputGetter(console, terminal, input_generator)
+
+
+class WriteInputGetter(StackedInputGetter):
+    def __init__(self, base_getter: BaseInputGetter, file: TextIOWrapper) -> None:
+        super().__init__(base_getter)
+        self._file = file
+
+    def get_pressed(self) -> set[Console.Input]:
+        value = super().get_pressed()
+        print(value_to_line(self.console, value), file=self._file)
+        return value
 
 
 @contextmanager
 def write_input_context(
-    console: Console, context: ContextManager[InputGetter], path: Path
-) -> Iterator[InputGetter]:
+    context: ContextManager[BaseInputGetter], path: Path
+) -> Iterator[WriteInputGetter]:
     with open(path, "w") as f:
-        with context as getter:
-
-            def new_getter() -> set[Console.Input]:
-                value = getter()
-                print(value_to_line(console, value), file=f)
-                return value
-
-            yield new_getter
+        with context as base_getter:
+            yield WriteInputGetter(base_getter, f)

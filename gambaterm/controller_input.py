@@ -4,7 +4,8 @@ import os
 from typing import Callable, ContextManager, Iterator
 from contextlib import contextmanager
 
-from .console import Console, InputGetter
+from .console import Console
+from .input_getter import BaseInputGetter, StackedInputGetter
 
 
 def get_controller_input_mapping(console: Console) -> dict[str, Console.Input]:
@@ -97,7 +98,9 @@ Please use the following command to install gambaterm with controller support:
 
 
 @contextmanager
-def console_input_from_controller_context(console: Console) -> Iterator[InputGetter]:
+def console_input_from_controller_context(
+    console: Console,
+) -> Iterator[Callable[[], set[Console.Input]]]:
     input_mapping = get_controller_input_mapping(console)
     event_mapping = get_controller_event_mapping(console)
     current_pressed: set[str] = set()
@@ -119,10 +122,23 @@ def console_input_from_controller_context(console: Console) -> Iterator[InputGet
         yield get_gb_input
 
 
+class ControllerInputGetter(StackedInputGetter):
+    def __init__(
+        self,
+        base_getter: BaseInputGetter,
+        extra_get_pressed: Callable[[], set[Console.Input]],
+    ) -> None:
+        super().__init__(base_getter)
+        self._extra_get_pressed = extra_get_pressed
+
+    def get_pressed(self) -> set[Console.Input]:
+        return super().get_pressed() | self._extra_get_pressed()
+
+
 @contextmanager
 def combine_console_input_from_controller_context(
-    console: Console, context: ContextManager[InputGetter]
-) -> Iterator[InputGetter]:
-    with context as getter1:
-        with console_input_from_controller_context(console) as getter2:
-            yield lambda: getter1() | getter2()
+    context: ContextManager[BaseInputGetter],
+) -> Iterator[ControllerInputGetter]:
+    with context as base_getter:
+        with console_input_from_controller_context(base_getter.console) as getter2:
+            yield ControllerInputGetter(base_getter, getter2)
