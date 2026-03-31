@@ -36,6 +36,11 @@ dependencies = [
     "pynput; sys_platform != 'linux'",
 ]
 
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]
+
 [project.optional-dependencies]
 controller-support = ["pygame>=1.9.5,<2.0.0"]
 
