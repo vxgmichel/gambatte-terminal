@@ -47,7 +47,9 @@ def add_optional_arguments(parser: argparse.ArgumentParser) -> None:
         type=lambda x: ColorMode(int(x)),
         default=None,
         help="Force a color mode "
-        "(1: 4 greyscale colors, 2: 16 colors, 3: 256 colors, 4: 24-bit colors)",
+        "(1: 4 greyscale colors, 2: 16 colors, 3: 256 colors, 4: 24-bit colors). "
+        "Note: the color mode can be cycled at runtime by pressing the Tab key, "
+        "which is useful for testing the different color modes supported by the terminal.",
     )
     parser.add_argument(
         "--frame-advance",

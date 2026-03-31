@@ -121,11 +121,14 @@ def run(
         # (e.g. `\x1b[99;5u` rather than raw `\x03`), so we check blessed's
         # decoded `key_name` attribute, since it ends up being `KEY_CTRL_C` for ctrl+c
         # and `KEY_CTRL_D` for ctrl+d regardless of the underlying encoding.
+        new_color_mode = color_mode
         for key in input_getter.pop_keystrokes():
             if key.key_name == "KEY_CTRL_C":
                 raise KeyboardInterrupt
             if key.key_name == "KEY_CTRL_D":
                 raise EOFError
+            if key.key_name == "KEY_TAB":
+                new_color_mode = color_mode.cycle()
             if _CPR_RE.match(str(key)):
                 screen_ready = True
 
@@ -139,10 +142,14 @@ def run(
                 new_height = term.height or 24
                 new_width = term.width or 80
                 maybe_clear_seq = b""
-                if (new_height, new_width) != (height, width):
+                if (new_height, new_width) != (
+                    height,
+                    width,
+                ) or new_color_mode != color_mode:
                     maybe_clear_seq = b"\033[H\033[2J"
                     height, width = new_height, new_width
                     refx, refy = get_ref(width, height, console)
+                    color_mode = new_color_mode
                     last_frame.fill(0)
                 # Render frame with synchronized output mode (DEC 2026) to prevent flickering
                 # when the screen is cleared, or an artificial CRT-like "rolling band" side-effects

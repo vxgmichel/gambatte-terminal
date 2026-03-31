@@ -73,7 +73,8 @@ def blessed_key_pressed_context(
                 key = term.inkey(timeout=0)
                 if not key:
                     break
-                keystrokes.append(key)
+                if not key.released:
+                    keystrokes.append(key)
                 dom_code = keystroke_to_dom_code(key)
                 if dom_code is None:
                     continue
