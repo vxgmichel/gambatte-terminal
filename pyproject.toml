@@ -37,6 +37,11 @@ dependencies = [
     "telnetlib3>=4.0.1,<5",
 ]
 
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]
+
 [project.optional-dependencies]
 controller-support = ["pygame>=1.9.5,<2.0.0"]
 
