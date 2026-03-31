@@ -77,10 +77,20 @@ def audio_player(
     console: Console, speed_factor: float = 1.0
 ) -> Iterator[AudioOut | None]:
     # Perform late imports
-    # Those can fail if a linux machine doesn't have portaudio or libsamplerate
-    # installed
     import samplerate
-    import sounddevice
+
+    # Especially for sounddevice, as it doesn't package the portaudio library in its manylinux wheels.
+    try:
+        import sounddevice
+    except OSError:
+        raise SystemExit(
+            """\
+Audio output is not available because the PortAudio library could not be found.
+Please make sure you have portaudio installed.
+For example, on Debian-based distributions, you can run:
+  $ sudo apt install libportaudio2
+Otherswise, you can use the --no-audio option to run without audio support."""
+        )
 
     input_rate = console.FPS * console.TICKS_IN_FRAME
     resampler = samplerate.Resampler("linear", channels=2)
