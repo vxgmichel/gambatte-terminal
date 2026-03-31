@@ -42,8 +42,10 @@ Usage and arguments
 
 Usage:
 ```
-usage: gambaterm [-h] [--input-file INPUT_FILE] [--frame-advance FRAME_ADVANCE] [--break-after BREAK_AFTER] [--speed-factor SPEED_FACTOR] [--force-gameboy]
-                 [--skip-inputs SKIP_INPUTS] [--cpr-sync] [--disable-audio] [--color-mode COLOR_MODE]
+usage: gambaterm [-h] [--input-file INPUT_FILE] [--frame-advance FRAME_ADVANCE]
+                 [--break-after BREAK_AFTER] [--speed SPEED] [--force-gameboy]
+                 [--skip-inputs SKIP_INPUTS] [--cpr-sync] [--disable-audio]
+                 [--color-mode COLOR_MODE]
                  ROM
 ```
 
@@ -65,9 +67,9 @@ Optional arguments:
 
     Number of frames to run before forcing the emulator to stop (doesn't stop by default)
 
-  - `--speed-factor SPEED_FACTOR, --sf SPEED_FACTOR`
+  - `--speed SPEED, -s SPEED`
 
-    Speed factor to apply to the emulation (default is 1.0 corresponding to 60 FPS)
+    Control the execution speed (default is 1.0)
 
   - `--force-gameboy, --fg`
 

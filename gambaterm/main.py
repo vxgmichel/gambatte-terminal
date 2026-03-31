@@ -26,7 +26,7 @@ class AppConfig:
     color_mode: ColorMode | None
     frame_advance: int
     break_after: int | None
-    speed_factor: float
+    speed: float
     skip_inputs: int
     cpr_sync: bool
     enable_controller: bool
@@ -67,12 +67,11 @@ def add_optional_arguments(parser: argparse.ArgumentParser) -> None:
         "(doesn't stop by default)",
     )
     parser.add_argument(
-        "--speed-factor",
-        "--sf",
+        "--speed",
+        "-s",
         type=float,
         default=1.0,
-        help="Speed factor to apply to the emulation "
-        "(default is 1.0 corresponding to 60 FPS)",
+        help="Control the execution speed (default is 1.0)",
     )
     parser.add_argument(
         "--skip-inputs",
@@ -161,7 +160,7 @@ def main(
             # Enter input and audio contexts
             with input_context as get_gb_input:
                 player = no_audio if disable_audio else audio_player
-                with player(console, args.speed_factor) as audio_out:
+                with player(console, args.speed) as audio_out:
                     # Run the emulator
                     run(
                         console,
@@ -171,7 +170,7 @@ def main(
                         frame_advance=args.frame_advance,
                         color_mode=args.color_mode,
                         break_after=args.break_after,
-                        speed_factor=args.speed_factor,
+                        speed=args.speed,
                         use_cpr_sync=args.cpr_sync,
                     )
 

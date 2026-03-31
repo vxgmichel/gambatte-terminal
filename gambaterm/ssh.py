@@ -229,7 +229,7 @@ sandbox. More information here: https://security.stackexchange.com/a/7496
                 frame_advance=app_config.frame_advance,
                 color_mode=color_mode,
                 break_after=app_config.break_after,
-                speed_factor=app_config.speed_factor,
+                speed=app_config.speed,
                 use_cpr_sync=app_config.cpr_sync,
             )
 
