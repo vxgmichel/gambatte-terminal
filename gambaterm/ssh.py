@@ -76,6 +76,8 @@ async def safe_ssh_process_handler(process: SSHServerProcess[str]) -> None:
             result = e.code
         else:
             result = 1 if e.code else 0
+    except BrokenPipeError:
+        result = 1
     except BaseException:
         traceback.print_exc()
         result = 1
