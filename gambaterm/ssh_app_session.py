@@ -95,10 +95,6 @@ async def _output_pipe_from_process(
         yield write_fd
     finally:
         await process.redirect_stdout(subprocess.PIPE)
-        try:
-            os.close(read_fd)
-        except OSError:
-            pass
         await asyncio.sleep(0)
 
 
@@ -116,15 +112,6 @@ async def _input_pipe_from_process(
     try:
         yield read_fd
     finally:
-        # The write end may already be closed by asyncssh
-        try:
-            os.close(write_fd)
-        except OSError:
-            pass
-        try:
-            os.close(read_fd)
-        except OSError:
-            pass
         await process.redirect_stdin(subprocess.PIPE)
         await asyncio.sleep(0)
 
