@@ -6,8 +6,7 @@ import argparse
 from pathlib import Path
 from dataclasses import dataclass
 
-from prompt_toolkit.application import create_app_session
-
+from blessed import Terminal
 
 from .run import run
 from .console import GameboyColor, Console
@@ -118,87 +117,80 @@ def main(
     console = console_callback()
     args = AppConfig(**vars(namespace))
 
-    # Use app session to detect kitty keyboard protocol
-    with create_app_session() as app_session:
-        if args.input_file is not None:
-            input_context = console_input_from_file_context(
-                console, args.input_file, args.skip_inputs
-            )
-        else:
-            input_context = console_input_from_keyboard_context(console, app_session)
-            if args.enable_controller:
-                input_context = combine_console_input_from_controller_context(
-                    console, input_context
-                )
+    term = Terminal()
 
-        if args.write_input:
-            input_context = write_input_context(
-                console, input_context, args.write_input
+    if args.input_file is not None:
+        input_context = console_input_from_file_context(
+            console, args.input_file, args.skip_inputs
+        )
+    else:
+        input_context = console_input_from_keyboard_context(console, term)
+        if args.enable_controller:
+            input_context = combine_console_input_from_controller_context(
+                console, input_context
             )
 
-        if args.color_mode not in [None, 1, 2, 3, 4]:
-            exit(
-                f"Invalid color mode `{args.color_mode}`: the value must be between 1 and 4"
-            )
+    if args.write_input:
+        input_context = write_input_context(console, input_context, args.write_input)
 
-        # Enter terminal raw mode
-        with app_session.input.raw_mode():
-            try:
-                # Detect color mode
-                if args.color_mode is None:
-                    args.color_mode = detect_local_color_mode(app_session)
-                    if args.color_mode == ColorMode.NO_COLOR:
-                        raise exit(
-                            """\
+    if args.color_mode not in [None, 1, 2, 3, 4]:
+        exit(
+            f"Invalid color mode `{args.color_mode}`: the value must be between 1 and 4"
+        )
+
+    # Enter terminal raw mode
+    with term.raw():
+        try:
+            # Detect color mode
+            if args.color_mode is None:
+                args.color_mode = detect_local_color_mode(term)
+                if args.color_mode == ColorMode.NO_COLOR:
+                    raise exit(
+                        """\
 The ANSI color support for your terminal could not be detected from your environment.
 Try to force a color mode using the `--color-mode` option with a value between 1 and 4."""
-                        )
+                    )
 
-                # Prepare alternate screen
-                app_session.output.enter_alternate_screen()
-                app_session.output.erase_screen()
-                app_session.output.hide_cursor()
-                app_session.output.flush()
+            # Prepare alternate screen
+            term.stream.write(term.enter_fullscreen + term.clear + term.hide_cursor)
+            term.stream.flush()
 
-                # Enter input and audio contexts
-                with input_context as get_gb_input:
-                    player = no_audio if disable_audio else audio_player
-                    with player(console, args.speed_factor) as audio_out:
-                        # Run the emulator
-                        run(
-                            console,
-                            get_gb_input,
-                            app_session=app_session,
-                            audio_out=audio_out,
-                            frame_advance=args.frame_advance,
-                            color_mode=args.color_mode,
-                            break_after=args.break_after,
-                            speed_factor=args.speed_factor,
-                            use_cpr_sync=args.cpr_sync,
-                        )
+            # Enter input and audio contexts
+            with input_context as get_gb_input:
+                player = no_audio if disable_audio else audio_player
+                with player(console, args.speed_factor) as audio_out:
+                    # Run the emulator
+                    run(
+                        console,
+                        get_gb_input,
+                        term=term,
+                        audio_out=audio_out,
+                        frame_advance=args.frame_advance,
+                        color_mode=args.color_mode,
+                        break_after=args.break_after,
+                        speed_factor=args.speed_factor,
+                        use_cpr_sync=args.cpr_sync,
+                    )
 
-            # Deal with ctrl+c and ctrl+d exceptions
-            except (KeyboardInterrupt, EOFError):
-                pass
+        # Deal with ctrl+c and ctrl+d exceptions
+        except (KeyboardInterrupt, EOFError):
+            pass
 
-            # Report runtime error without a stacktrace
-            except RuntimeError as error:
-                exit(str(error))
+        # Report runtime error without a stacktrace
+        except RuntimeError as error:
+            exit(str(error))
 
-            # Exit normally
-            else:
-                exit()
+        # Exit normally
+        else:
+            exit()
 
-            # Restore terminal to its initial state
-            finally:
-                # Wait for a possible CPR
-                time.sleep(0.1)
-                # Clear alternate screen
-                app_session.input.read_keys()
-                app_session.output.erase_screen()
-                app_session.output.quit_alternate_screen()
-                app_session.output.show_cursor()
-                app_session.output.flush()
+        # Restore terminal to its initial state
+        finally:
+            # Wait for a possible CPR
+            time.sleep(0.1)
+            # Clear alternate screen
+            term.stream.write(term.clear + term.exit_fullscreen + term.normal_cursor)
+            term.stream.flush()
 
 
 if __name__ == "__main__":

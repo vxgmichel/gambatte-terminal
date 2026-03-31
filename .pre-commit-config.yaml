@@ -21,7 +21,7 @@ repos:
       additional_dependencies: [
         "numpy>=1.20",
         "asyncssh>=2.9",
-        "prompt_toolkit>=3.0.29",
+        "blessed>=1.37.0",
         "types-setuptools",
         "pytest",
       ]

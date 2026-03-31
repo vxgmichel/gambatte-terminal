@@ -34,11 +34,9 @@ def test_gambaterm(interactive: bool) -> None:
         text=True,
         capture_output=True,
     )
+    assert result.stderr == ""
     if interactive:
-        assert result.stderr == ""
         assert "| test_rom.gb |" in result.stdout
-    else:
-        assert result.stderr == "Warning: Input is not a terminal (fd=0).\n"
     if sys.platform == "linux":
         assert "▀ ▄▄ ▀" in result.stdout
 
@@ -46,7 +44,11 @@ def test_gambaterm(interactive: bool) -> None:
 def test_gambaterm_ssh(ssh_config: Path) -> None:
     assert TEST_ROM.exists()
     command = f"gambaterm-ssh {TEST_ROM} --break-after 10 --input-file /dev/null --color-mode 4"
-    server = Popen(command.split(), stdout=PIPE, stderr=PIPE, bufsize=0, text=True)
+    env = os.environ.copy()
+    env["PYTHONUNBUFFERED"] = "1"
+    server = Popen(
+        command.split(), stdout=PIPE, stderr=PIPE, bufsize=0, text=True, env=env
+    )
     assert server.stdout is not None
     assert server.stderr is not None
     try:
@@ -57,6 +59,7 @@ def test_gambaterm_ssh(ssh_config: Path) -> None:
             check=True,
             capture_output=True,
             text=True,
+            timeout=5,
         )
         assert client.stderr == ""
         assert "| test_rom.gb |" in client.stdout

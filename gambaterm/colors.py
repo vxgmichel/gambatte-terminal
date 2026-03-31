@@ -1,19 +1,15 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import os
+import sys
 from enum import IntEnum
-from typing import Generator
-from string import ascii_lowercase, ascii_uppercase
-from prompt_toolkit.application import AppSession
-from .ansi_escape_code import (
-    run_parser_in_app_session,
-    detect_true_color_support_parser,
-)
 
+from blessed import Terminal
+
+# Terminals that support at least 16 colors but may not be detected
+# correctly by curses/terminfo.
 BASIC_TERMINALS = [
     "screen",
-    "xterm",
     "vt100",
     "vt220",
     "rxvt",
@@ -32,106 +28,35 @@ class ColorMode(IntEnum):
     HAS_24_BIT_COLOR = 4
 
 
-def detect_local_color_mode(
-    app_session: AppSession,
-    environ: dict[str, str] | None = None,
-) -> ColorMode:
-    if run_parser_in_app_session(
-        app_session, detect_true_color_support_parser
-    ).is_supported():
+def detect_local_color_mode(term: Terminal) -> ColorMode:
+    """Detect the color mode of the local terminal using blessed."""
+    n = term.number_of_colors
+    if n >= 1 << 24:
         return ColorMode.HAS_24_BIT_COLOR
-    if environ is None:
-        environ = dict(os.environ)
-    return detect_color_mode(environ)
-
-
-def detect_color_mode(env: dict[str, str]) -> ColorMode:
-    # Extract interesting variables
-    term = env.get("TERM", "").lower()
-    colorterm = env.get("COLORTERM", "").lower()
-    term_program = env.get("TERM_PROGRAM", "").lower()
-    term_program_version = env.get("TERM_PROGRAM_VERSION", "").lower()
-    con_emu_ansi = env.get("ConEmuANSI", "").lower()
-    # True color, says $COLORTERM
-    if "truecolor" in colorterm or "24bit" in colorterm:
-        return ColorMode.HAS_24_BIT_COLOR
-    # Windows
-    if con_emu_ansi == "on":
-        return ColorMode.HAS_24_BIT_COLOR
-    # Apple terminal
-    if term_program == "apple_terminal":
+    if n >= 256:
         return ColorMode.HAS_8_BIT_COLOR
-    # iTerm app terminal
-    if term_program == "iterm.app":
-        try:
-            version = int(term_program_version.split(".")[0])
-        except ValueError:
-            return ColorMode.HAS_8_BIT_COLOR
-        return ColorMode.HAS_8_BIT_COLOR if version < 3 else ColorMode.HAS_24_BIT_COLOR
-    # 256 colors, says $TERM or $COLORTERM
-    if "256" in term or "256" in colorterm:
-        return ColorMode.HAS_8_BIT_COLOR
-    # Basic terminal, says $TERM
-    if any(x in term for x in BASIC_TERMINALS):
+    if n >= 16:
         return ColorMode.HAS_4_BIT_COLOR
-    # Basic color, says $COLORTERM
-    if colorterm:
+    if n >= 4:
+        return ColorMode.HAS_2_BIT_COLOR
+    # Fallback for terminals that curses/terminfo under-reports
+    term_env = os.environ.get("TERM", "").lower()
+    if any(x in term_env for x in BASIC_TERMINALS):
         return ColorMode.HAS_4_BIT_COLOR
-    # Does not support color apparently
     return ColorMode.NO_COLOR
 
 
-@dataclass
-class CSI:
-    code: str
-    payload: str
+def main() -> None:
+    """Entry point to test terminal capabilities."""
 
-    CODES = r"@[\]^_`{|}~"
-    CODES += ascii_uppercase
-    CODES += ascii_lowercase
+    if not sys.stdin.isatty():
+        print("Stdin is not a tty")
+        sys.exit(1)
 
-
-@dataclass
-class OSC:
-    payload: str
-
-    BELL = "\x07"
-    ST1 = "\x5c"
-    ST2 = "\x9c"
+    term = Terminal()
+    color_mode = detect_local_color_mode(term)
+    print(f"Color mode: {color_mode.name.lower()}")
 
 
-def parse_ansi_escape_code() -> Generator[CSI | OSC | None, str, None]:
-    while True:
-        while (yield None) == "\033":
-            pass
-        code = yield None
-        if code == "[":
-            yield from parse_csi()
-        if code == "]":
-            yield from parse_osc()
-
-
-def parse_csi() -> Generator[CSI | OSC | None, str, None]:
-    payload = ""
-    while True:
-        char = yield None
-        if char in CSI.CODES:
-            break
-        payload += char
-    yield CSI(char, payload)
-
-
-def parse_osc() -> Generator[CSI | OSC | None, str, None]:
-    payload = ""
-    while True:
-        char = yield None
-        while char == "\033":
-            extra = yield None
-            if extra == OSC.ST1:
-                break
-            payload += char
-            char = extra
-        if char in (OSC.BELL, OSC.ST2):
-            break
-        payload += char
-    yield OSC(payload)
+if __name__ == "__main__":
+    main()

@@ -1,77 +1,144 @@
 """
-Provide an async context manager to create a prompt-toolkit app session
+Provide an async context manager to create a blessed SSHTerminal
 from an AsyncSSH process.
 """
 from __future__ import annotations
 
 import os
-import sys
+import codecs
 import asyncio
+import contextlib
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager, contextmanager
-from typing import AsyncIterator, Iterator
+from typing import AsyncIterator, Generator, IO, Iterator, TypeVar, Callable
 
-from prompt_toolkit.data_structures import Size
-from prompt_toolkit.output.vt100 import Vt100_Output
-from prompt_toolkit.input import create_pipe_input, PipeInput
-from prompt_toolkit.application.current import create_app_session, AppSession
+from blessed import Terminal as BlessedTerminal
+from blessed.terminal import WINSZ
 
 from asyncssh import SSHServerProcess
 
-if sys.platform != "win32":
-    from prompt_toolkit.input.posix_pipe import PosixPipeInput
+T = TypeVar("T")
+
+
+# Python's curses.setupterm() can only be called once per process — subsequent
+# calls with a different terminal type are silently ignored. Since the SSH
+# server handles multiple concurrent connections in threads, all SSHTerminal
+# instances share whatever terminal type was initialized first by the local
+# Terminal(). We hardcode 'xterm-256color' as the kind since:
+#   1. It's universally compatible with modern terminals
+#   2. We use standard VT100/ANSI escape codes directly, not terminfo caps
+#   3. It avoids issues where the first SSH client's TERM value differs
+SSH_TERMINAL_TYPE = "xterm-256color"
+
+
+class SSHTerminal(BlessedTerminal):
+    """A blessed Terminal subclass for SSH streams.
+
+    Following the pattern from x84 (x84/terminal.py), this stubs raw/cbreak
+    mode (SSH is already raw) and overrides size detection to use values
+    provided by the SSH server.
+    """
+
+    def __init__(
+        self,
+        stream: IO[str],
+        keyboard_fd: int,
+        rows: int,
+        columns: int,
+    ) -> None:
+        self._rows = rows
+        self._columns = columns
+        super().__init__(kind=SSH_TERMINAL_TYPE, stream=stream, force_styling=True)
+        # Blessed only sets _keyboard_fd when stream is sys.__stdout__, so
+        # for SSH pipes we must set it and initialize the decoder manually
+        self._keyboard_fd = keyboard_fd  # type: ignore[assignment]
+        self._keyboard_decoder = codecs.getincrementaldecoder("UTF-8")()
+
+    @property
+    def is_a_tty(self) -> bool:
+        return True
+
+    @contextlib.contextmanager
+    def raw(self) -> Generator[None, None, None]:
+        yield
+
+    @contextlib.contextmanager
+    def cbreak(self) -> Generator[None, None, None]:
+        yield
+
+    def _height_and_width(self) -> WINSZ:
+        return WINSZ(
+            ws_row=self._rows,
+            ws_col=self._columns,
+            ws_xpixel=0,
+            ws_ypixel=0,
+        )
+
+    def update_size(self, rows: int, columns: int) -> None:
+        self._rows = rows
+        self._columns = columns
 
 
 @asynccontextmanager
-async def vt100_output_from_process(
+async def _output_pipe_from_process(
     process: SSHServerProcess[str],
-) -> AsyncIterator[Vt100_Output]:
-    def get_size() -> Size:
-        width, height, _, _ = process.get_terminal_size()
-        if width == height == 0:
-            width, height = 80, 24
-        return Size(rows=height, columns=width)
+) -> AsyncIterator[int]:
+    """Create a pipe and redirect SSH stdout to the read end.
 
-    term = process.get_terminal_type()
+    Yields the write fd. Data written to write_fd flows through
+    the pipe to the SSH client.
+    """
     read_fd, write_fd = os.pipe()
-    with open(write_fd, "w", newline="\r\n") as stdout:
-        vt100_output = Vt100_Output(stdout, get_size, term=term)
-        await process.redirect_stdout(read_fd)
+    await process.redirect_stdout(read_fd)
+    try:
+        yield write_fd
+    finally:
+        await process.redirect_stdout(subprocess.PIPE)
         try:
-            yield vt100_output
-        finally:
-            await process.redirect_stdout(subprocess.PIPE)
-            await asyncio.sleep(0)  # Let the loop remove the file descriptor
+            os.close(read_fd)
+        except OSError:
+            pass
+        await asyncio.sleep(0)
 
 
 @asynccontextmanager
-async def vt100_input_from_process(
+async def _input_pipe_from_process(
     process: SSHServerProcess[str],
-) -> AsyncIterator[PipeInput]:
-    with create_pipe_input() as vt100_input:
-        assert isinstance(vt100_input, PosixPipeInput)
-        await process.redirect_stdin(vt100_input.pipe.write_fd)
+) -> AsyncIterator[int]:
+    """Create a pipe and redirect SSH stdin to the write end.
+
+    Yields the read fd. Data from the SSH client flows through
+    the pipe and can be read from read_fd.
+    """
+    read_fd, write_fd = os.pipe()
+    await process.redirect_stdin(write_fd)
+    try:
+        yield read_fd
+    finally:
+        # The write end may already be closed by asyncssh
         try:
-            yield vt100_input
-        finally:
-            # Prevent vt100_input.pipe.close from failing with an OSError
-            # as the write end of the pipe has already been closed by asyncssh
-            vt100_input.pipe._write_closed = True
-            await process.redirect_stdin(subprocess.PIPE)
-            await asyncio.sleep(0)  # Let the loop remove the file descriptor
+            os.close(write_fd)
+        except OSError:
+            pass
+        try:
+            os.close(read_fd)
+        except OSError:
+            pass
+        await process.redirect_stdin(subprocess.PIPE)
+        await asyncio.sleep(0)
 
 
 @contextmanager
-def bind_resize_process_to_app_session(
-    process: SSHServerProcess[str], app_session: AppSession
+def _bind_resize(
+    process: SSHServerProcess[str], ssh_term: SSHTerminal
 ) -> Iterator[None]:
     original_method = process.terminal_size_changed
 
     def terminal_size_changed(
         width: int, height: int, pixwidth: int, pixheight: int
     ) -> None:
-        if app_session.app is not None:
-            app_session.app._on_resize()
+        ssh_term.update_size(rows=height, columns=width)
         return original_method(width, height, pixheight, pixwidth)
 
     try:
@@ -81,14 +148,33 @@ def bind_resize_process_to_app_session(
         del process.terminal_size_changed
 
 
-@asynccontextmanager
-async def process_to_app_session(
+async def process_to_terminal(
     process: SSHServerProcess[str],
-) -> AsyncIterator[AppSession]:
-    async with vt100_input_from_process(process) as vt100_input:
-        async with vt100_output_from_process(process) as vt100_output:
-            with create_app_session(
-                input=vt100_input, output=vt100_output
-            ) as app_session:
-                with bind_resize_process_to_app_session(process, app_session):
-                    yield app_session
+    executor: ThreadPoolExecutor,
+    target: Callable[[SSHTerminal], T],
+) -> T:
+    """Create a blessed SSHTerminal from an SSH process.
+
+    Once the redirections are set up, I/O become synchronous,
+    so we run the target function in a thread executor to avoid blocking the event loop
+    """
+    width, height, _, _ = process.get_terminal_size()
+    if width == height == 0:
+        width, height = 80, 24
+
+    def _target() -> T:
+        with open(write_fd, "w", newline="\r\n") as stream:
+            ssh_term = SSHTerminal(
+                stream=stream,
+                keyboard_fd=keyboard_fd,
+                rows=height,
+                columns=width,
+            )
+            with _bind_resize(process, ssh_term):
+                return target(ssh_term)
+
+    loop = asyncio.get_running_loop()
+
+    async with _input_pipe_from_process(process) as keyboard_fd:
+        async with _output_pipe_from_process(process) as write_fd:
+            return await loop.run_in_executor(executor, _target)
