@@ -13,6 +13,13 @@ class ColorMode(IntEnum):
     HAS_8_BIT_COLOR = 3
     HAS_24_BIT_COLOR = 4
 
+    def cycle(self) -> ColorMode:
+        """Cycle to the next color mode, for testing purposes."""
+        value = (self + 1) % len(ColorMode)
+        if value == ColorMode.COULD_NOT_DETECT:
+            value += 1
+        return ColorMode(value)
+
 
 def detect_local_color_mode(term: Terminal) -> ColorMode:
     """Detect the color mode of the local terminal using blessed."""
