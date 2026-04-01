@@ -99,7 +99,7 @@ def x11_key_pressed_context(
                     pressed.discard(key)
 
             # Return the currently pressed keys
-            return pressed
+            return pressed.copy()
 
         try:
             yield get_pressed

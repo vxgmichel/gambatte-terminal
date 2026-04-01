@@ -63,7 +63,7 @@ def pynput_key_pressed_context() -> Iterator[Callable[[], set[DomCode]]]:
     listener = pynput.keyboard.Listener(on_press=on_press, on_release=on_release)
     try:
         listener.start()
-        yield lambda: pressed
+        yield lambda: pressed.copy()
     finally:
         pressed.clear()
         listener.stop()

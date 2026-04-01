@@ -3,14 +3,17 @@ from __future__ import annotations
 import os
 import sys
 import time
+from functools import partial
 from contextlib import contextmanager
 from typing import Callable, Iterator
 
 from blessed import Terminal
+from blessed.keyboard import Keystroke
 
+from .console import Console
 from .dom_codes import DomCode
-from .console import Console, InputGetter
-from .blessed_keyboard_input import KeyboardState, blessed_key_pressed_context
+from .input_getter import BaseInputGetter, pop_keystrokes_from_terminal
+from .blessed_keyboard_input import blessed_key_pressed_context
 from .pynput_keyboard_input import pynput_key_pressed_context
 from .x11_keyboard_input import x11_key_pressed_context
 
@@ -47,8 +50,8 @@ def get_input_mapping(console: Console) -> dict[DomCode, Console.Input]:
         DomCode.NUMPAD2: console.Input.DOWN,
         DomCode.NUMPAD4: console.Input.LEFT,
         DomCode.NUMPAD6: console.Input.RIGHT,
-        DomCode.US_Z: console.Input.A,
-        DomCode.US_X: console.Input.B,
+        DomCode.US_X: console.Input.A,
+        DomCode.US_Z: console.Input.B,
         # WASD controls
         DomCode.US_W: console.Input.UP,
         DomCode.US_S: console.Input.DOWN,
@@ -76,35 +79,26 @@ def get_event_mapping(console: Console) -> dict[DomCode, Console.Event]:
     }
 
 
-class GameInputGetter:
-    """Callable that translates raw key state into console inputs."""
-
+class KeyboardInputGetter(BaseInputGetter):
     def __init__(
         self,
         console: Console,
-        get_pressed: Callable[[], set[DomCode] | KeyboardState],
+        terminal: Terminal,
+        get_pressed: Callable[[], set[DomCode]],
     ) -> None:
+        super().__init__(console, terminal)
         self._get_pressed = get_pressed
         self._current_pressed: set[DomCode] = set()
         self._input_mapping = get_input_mapping(console)
         self._event_mapping = get_event_mapping(console)
-        self._console = console
-        self.cpr_state = KeyboardState()
 
-    def __call__(self) -> set[Console.Input]:
-        result = self._get_pressed()
-        if isinstance(result, KeyboardState):
-            self.cpr_state.cpr_received = result.cpr_received
-            self.cpr_state.keystrokes = result.keystrokes
-            new_pressed = set(result.pressed)
-        else:
-            self.cpr_state.cpr_received = False
-            new_pressed = set(result)
+    def get_pressed(self) -> set[Console.Input]:
+        new_pressed = self._get_pressed()
         old_pressed, self._current_pressed = self._current_pressed, new_pressed
         for event in map(self._event_mapping.get, new_pressed - old_pressed):
             if event is None:
                 continue
-            self._console.handle_event(event)
+            self.console.handle_event(event)
         return {
             self._input_mapping[keysym]
             for keysym in self._current_pressed
@@ -112,11 +106,29 @@ class GameInputGetter:
         }
 
 
-def make_get_input(
-    console: Console,
-    get_pressed: Callable[[], set[DomCode] | KeyboardState],
-) -> GameInputGetter:
-    return GameInputGetter(console, get_pressed)
+class X11KeyboardInputGetter(KeyboardInputGetter):
+    pass
+
+
+class PynputKeyboardInputGetter(KeyboardInputGetter):
+    pass
+
+
+class KittyKeyboardInputGetter(KeyboardInputGetter):
+    def __init__(
+        self,
+        console: Console,
+        terminal: Terminal,
+        get_pressed: Callable[[], set[DomCode]],
+        pop_keystrokes: Callable[[], list[Keystroke]],
+    ) -> None:
+        super().__init__(console, terminal, get_pressed)
+        self._pop_keystrokes = pop_keystrokes
+
+    def pop_keystrokes(self) -> list[Keystroke]:
+        if self._pop_keystrokes is not None:
+            return self._pop_keystrokes()
+        return super().pop_keystrokes()
 
 
 def is_kitty_keyboard_protocol_supported(
@@ -137,88 +149,97 @@ def is_kitty_keyboard_protocol_supported(
 
 @contextmanager
 def console_input_from_keyboard_protocol_context(
-    console: Console, term: Terminal
-) -> Iterator[InputGetter]:
-    with blessed_key_pressed_context(term) as get_pressed:
-        yield make_get_input(console, get_pressed)
+    console: Console, terminal: Terminal
+) -> Iterator[KeyboardInputGetter]:
+    with blessed_key_pressed_context(terminal) as (get_pressed, pop_keystrokes):
+        yield KittyKeyboardInputGetter(console, terminal, get_pressed, pop_keystrokes)
 
 
 @contextmanager
 def console_input_from_x11_keyboard_context(
-    console: Console, display: str | None = None
-) -> Iterator[InputGetter]:
+    console: Console, terminal: Terminal, display: str | None = None
+) -> Iterator[KeyboardInputGetter]:
     with x11_key_pressed_context(display) as get_pressed:
-        yield make_get_input(console, get_pressed)
+        yield X11KeyboardInputGetter(console, terminal, get_pressed)
 
 
 @contextmanager
 def console_input_from_pynput_keyboard_context(
-    console: Console,
-) -> Iterator[InputGetter]:
+    console: Console, terminal: Terminal
+) -> Iterator[KeyboardInputGetter]:
     with pynput_key_pressed_context() as get_pressed:
-        yield make_get_input(console, get_pressed)
+        yield PynputKeyboardInputGetter(console, terminal, get_pressed)
 
 
 @contextmanager
 def console_input_from_keyboard_context(
     console: Console,
-    term: Terminal,
+    terminal: Terminal,
     display: str | None = None,
     xdg_session_type: str | None = None,
-) -> Iterator[InputGetter]:
-    if is_kitty_keyboard_protocol_supported(term):
-        with console_input_from_keyboard_protocol_context(console, term) as get_input:
+) -> Iterator[KeyboardInputGetter]:
+    if is_kitty_keyboard_protocol_supported(terminal):
+        with console_input_from_keyboard_protocol_context(
+            console, terminal
+        ) as get_input:
             yield get_input
     elif sys.platform == "linux":
         if xdg_session_type is None:
             xdg_session_type = os.environ.get("XDG_SESSION_TYPE", "")
         if xdg_session_type != "x11":
             raise RuntimeError(MESSAGE_SUGGESTING_KITTY_SUPPORT)
-        with console_input_from_x11_keyboard_context(console, display) as get_input:
+        with console_input_from_x11_keyboard_context(
+            console, terminal, display
+        ) as get_input:
             yield get_input
     else:
-        with console_input_from_pynput_keyboard_context(console) as get_input:
+        with console_input_from_pynput_keyboard_context(console, terminal) as get_input:
             yield get_input
+
+
+# Entry point for testing keyboard input, that prints the currently pressed keys every frame.
 
 
 @contextmanager
 def key_pressed_context(
-    term: Terminal,
+    terminal: Terminal,
     display: str | None = None,
     xdg_session_type: str | None = None,
-) -> Iterator[tuple[str, Callable[[], set[DomCode] | KeyboardState]]]:
-    if is_kitty_keyboard_protocol_supported(term):
-        with blessed_key_pressed_context(term) as get_pressed:
-            yield ("blessed", get_pressed)
+) -> Iterator[tuple[str, Callable[[], set[DomCode]], Callable[[], list[Keystroke]]]]:
+    """
+    This helper is only used for the `keyboard_input.py` entry point, that allows for testing keyboard input.
+    """
+    if is_kitty_keyboard_protocol_supported(terminal):
+        with blessed_key_pressed_context(terminal) as (get_pressed, pop_keystrokes):
+            yield ("blessed", get_pressed, pop_keystrokes)
     elif sys.platform == "linux":
         if xdg_session_type is None:
             xdg_session_type = os.environ.get("XDG_SESSION_TYPE", "")
         if xdg_session_type != "x11":
             raise RuntimeError(MESSAGE_SUGGESTING_KITTY_SUPPORT)
         with x11_key_pressed_context(display) as get_pressed:
-            yield ("x11", get_pressed)
+            yield ("x11", get_pressed, partial(pop_keystrokes_from_terminal, terminal))
     else:
         with pynput_key_pressed_context() as get_pressed:
-            yield ("pynput", get_pressed)
+            yield (
+                "pynput",
+                get_pressed,
+                partial(pop_keystrokes_from_terminal, terminal),
+            )
 
 
 def main() -> None:
-    term = Terminal()
-    with term.raw():
+    terminal = Terminal()
+    with terminal.raw():
         try:
-            term.stream.write(term.hide_cursor)
-            term.stream.flush()
-            with key_pressed_context(term) as (source, get_pressed):
+            terminal.stream.write(terminal.hide_cursor)
+            terminal.stream.flush()
+            with key_pressed_context(terminal) as (source, get_pressed, pop_keystrokes):
                 print(f"Using keyboard input source: {source}")
                 while True:
                     # Get codes
-                    result = get_pressed()
-                    if isinstance(result, KeyboardState):
-                        pressed = result.pressed
-                        keys = result.keystrokes
-                    else:
-                        pressed = result
-                        keys = list(iter(lambda: term.inkey(timeout=0), ""))
+                    pressed = get_pressed()
+                    keys = pop_keystrokes()
                     # Check for ctrl+c or ctrl+d
                     for key in keys:
                         if key == "\x03" or key.key_name == "KEY_CTRL_C":
@@ -227,18 +248,18 @@ def main() -> None:
                             raise EOFError
                     codes = " ".join(x.value for x in pressed)
                     # Print pressed key codes
-                    term.stream.write(f"\r{codes}{term.clear_eol}")
+                    terminal.stream.write(f"\r{codes}{terminal.clear_eol}")
                     # Clear line and hide cursor
-                    term.stream.flush()
+                    terminal.stream.flush()
                     # Tick
                     time.sleep(1 / 30)
         except (KeyboardInterrupt, EOFError):
-            term.stream.write(f"\r{term.clear_eol}")
+            terminal.stream.write(f"\r{terminal.clear_eol}")
         except RuntimeError as error:
             exit(str(error))
         finally:
-            term.stream.write(term.normal_cursor)
-            term.stream.flush()
+            terminal.stream.write(terminal.normal_cursor)
+            terminal.stream.flush()
 
 
 if __name__ == "__main__":

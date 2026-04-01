@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sys
 import time
 import contextlib
@@ -13,9 +14,11 @@ from blessed import Terminal
 
 from .termblit import blit
 from .audio import AudioOut
-from .console import Console, InputGetter
-from .keyboard_input import GameInputGetter
+from .console import Console
+from .input_getter import BaseInputGetter
 from .colors import ColorMode
+
+_CPR_RE = re.compile(r"\x1b\[\d+;\d+R")
 
 
 @contextlib.contextmanager
@@ -46,7 +49,7 @@ def write_bytes(term: Terminal, video_data: bytes) -> None:
 
 def run(
     console: Console,
-    get_input: InputGetter,
+    input_getter: BaseInputGetter,
     term: Terminal,
     audio_out: AudioOut | None = None,
     frame_advance: int = 1,
@@ -85,9 +88,6 @@ def run(
     if audio_out:
         start -= 0.1
 
-    # Resolve CPR state once (only GameInputGetter has it)
-    cpr_state = get_input.cpr_state if isinstance(get_input, GameInputGetter) else None
-
     # Prepare state
     new_frame = False
     screen_ready = True
@@ -106,7 +106,7 @@ def run(
 
         # Tick the emulator
         with timing(emu_deltas):
-            console.set_input(get_input())
+            console.set_input(input_getter.get_pressed())
             offset, samples = console.advance_one_frame(video, audio)
             new_frame = new_frame or offset > 0
             ticks.append(samples)
@@ -125,28 +125,16 @@ def run(
         # With kitty protocol, ctrl+c arrives as an enhanced CSI sequence
         # (e.g. \x1b[99;5u) rather than raw \x03, so we also check blessed's
         # decoded key_name attribute.
-        if isinstance(get_input, GameInputGetter) and get_input.cpr_state.keystrokes:
-            for key in get_input.cpr_state.keystrokes:
-                if str(key) == "\x03" or key.key_name == "KEY_CTRL_C":
-                    raise KeyboardInterrupt
-                if str(key) == "\x04" or key.key_name == "KEY_CTRL_D":
-                    raise OSError
         # For X11/pynput backends: game input comes from X11 events / OS key
         # hooks (not stdin), so we read stdin here solely for ctrl-c/ctrl-d.
         # This replaces prompt-toolkit's read_keys().
-        else:
-            while True:
-                key = term.inkey(timeout=0)
-                if not key:
-                    break
-                if str(key) == "\x03":
-                    raise KeyboardInterrupt
-                if str(key) == "\x04":
-                    raise OSError
-
-        # Check for CPR response (set by keyboard handler during get_input)
-        if use_cpr_sync and cpr_state is not None and cpr_state.cpr_received:
-            screen_ready = True
+        for key in input_getter.pop_keystrokes():
+            if str(key) == "\x03" or key.key_name == "KEY_CTRL_C":
+                raise KeyboardInterrupt
+            if str(key) == "\x04" or key.key_name == "KEY_CTRL_D":
+                raise OSError
+            if _CPR_RE.match(str(key)):
+                screen_ready = True
 
         # Render video
         with timing(video_deltas):
@@ -162,7 +150,7 @@ def run(
                     maybe_clear_seq = b"\033[H\033[2J"
                     height, width = new_height, new_width
                     refx, refy = get_ref(width, height, console)
-                    last_frame = ~video
+                    last_frame.fill(0)
                 # Render frame with synchronized output mode (DEC 2026) to prevent flickering
                 # when the screen is cleared, or an artificial CRT-like "rolling band" side-effects
                 # from fast "sprite blinking" meant to cause "transparency" effect on original HW,
@@ -189,7 +177,7 @@ def run(
                 write_bytes(term, video_data)
                 # Send CPR request
                 if use_cpr_sync:
-                    term.stream.write("\033[6n")
+                    term.stream.write("\033[1;1H\033[6n")
                     term.stream.flush()
                     screen_ready = False
             # Timing sync

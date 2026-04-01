@@ -4,7 +4,7 @@ import argparse
 from pathlib import Path
 import tempfile
 from enum import IntEnum
-from typing import Callable, Set
+from typing import Callable
 
 import numpy as np
 import numpy.typing as npt
@@ -94,10 +94,6 @@ class Console:
             self.save_state()
         else:
             assert False
-
-
-# Type Alias
-InputGetter = Callable[[], Set[Console.Input]]
 
 
 class GameboyColor(Console):

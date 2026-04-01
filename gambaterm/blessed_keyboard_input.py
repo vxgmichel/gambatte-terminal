@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import re
 from contextlib import contextmanager
-from dataclasses import dataclass, field
 from typing import Callable, Iterator
 
 from blessed import Terminal
@@ -10,17 +8,6 @@ from blessed.keyboard import Keystroke
 
 from .dom_codes import DomCode
 from .keys import ASCII_PRINTABLE_TO_DOM_CODE
-
-_CPR_RE = re.compile(r"\x1b\[\d+;\d+R")
-
-
-@dataclass
-class KeyboardState:
-    """Snapshot returned by a keyboard polling function."""
-
-    pressed: set[DomCode] = field(default_factory=set)
-    cpr_received: bool = False
-    keystrokes: "list[Keystroke]" = field(default_factory=list)
 
 
 # Blessed synthesizes key_name as "KEY_{char}" for A-Z and 0-9 on release
@@ -61,9 +48,10 @@ def keystroke_to_dom_code(keystroke: Keystroke) -> DomCode | None:
 @contextmanager
 def blessed_key_pressed_context(
     term: Terminal,
-) -> Iterator[Callable[[], KeyboardState]]:
+) -> Iterator[tuple[Callable[[], set[DomCode]], Callable[[], list[Keystroke]]]]:
     """Context manager providing a get_pressed() callable using blessed's kitty protocol."""
-    state = KeyboardState()
+    pressed: set[DomCode] = set()
+    keystrokes: list[Keystroke] = []
 
     with term.enable_kitty_keyboard(
         report_events=True,
@@ -71,28 +59,31 @@ def blessed_key_pressed_context(
         report_all_keys=True,
     ):
 
-        def get_pressed() -> KeyboardState:
-            state.cpr_received = False
-            state.keystrokes.clear()
+        def _update() -> None:
             while True:
                 key = term.inkey(timeout=0)
                 if not key:
                     break
-                state.keystrokes.append(key)
-                # Cursor position response
-                if _CPR_RE.match(str(key)):
-                    state.cpr_received = True
-                    continue
+                keystrokes.append(key)
                 dom_code = keystroke_to_dom_code(key)
                 if dom_code is None:
                     continue
                 if key.released:
-                    state.pressed.discard(dom_code)
+                    pressed.discard(dom_code)
                 else:
-                    state.pressed.add(dom_code)
-            return state
+                    pressed.add(dom_code)
+
+        def get_pressed() -> set[DomCode]:
+            _update()
+            return pressed.copy()
+
+        def pop_keystrokes() -> list[Keystroke]:
+            nonlocal keystrokes
+            _update()
+            result, keystrokes = keystrokes, []
+            return result
 
         try:
-            yield get_pressed
+            yield get_pressed, pop_keystrokes
         finally:
-            state.pressed.clear()
+            pressed.clear()

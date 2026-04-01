@@ -219,8 +219,8 @@ The key bindings are not configurable at the moment:
 | Buttons    | Keyboard with arrows | Keyboard with WASD | Controller            |
 |------------|----------------------|--------------------|-----------------------|
 | Directions | Arrows               | W A S D            | Left hat / Left stick |
-| A          | Z                    | K                  | Button 0 / Button 3   |
-| B          | X                    | J                  | Button 1 / Button 2   |
+| A          | X                    | K                  | Button 0 / Button 3   |
+| B          | Z                    | J                  | Button 1 / Button 2   |
 | Start      | Enter                | Enter              | Button 7              |
 | Select     | Right Shift          | Right Shift        | Button 6              |
 
