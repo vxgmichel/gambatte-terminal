@@ -7,8 +7,9 @@ import hashlib
 import asyncio
 import argparse
 import traceback
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
+from contextlib import AbstractContextManager as ContextManager
 from typing import TYPE_CHECKING, Any, Callable, Coroutine, Iterator
 from concurrent.futures import ThreadPoolExecutor
 
@@ -83,15 +84,15 @@ def thread_target(
     console: Console = console_callback()
 
     if app_config.input_file is not None:
-        console_input_context = console_input_from_file_context(
-            console, term, app_config.input_file, app_config.skip_inputs
+        console_input_context: ContextManager[BaseInputGetter] = (
+            console_input_from_file_context(
+                console, term, app_config.input_file, app_config.skip_inputs
+            )
         )
     elif input_state is not None:
-        input_getter = TelnetInputGetter(console, term, input_state)
-        console_input_context = contextmanager(lambda: (yield input_getter))()
+        console_input_context = nullcontext(TelnetInputGetter(console, term, input_state))
     else:
-        input_getter = NoInputGetter(console, term)
-        console_input_context = contextmanager(lambda: (yield input_getter))()
+        console_input_context = nullcontext(NoInputGetter(console, term))
 
     with console_input_context as get_console_input:
         try:
