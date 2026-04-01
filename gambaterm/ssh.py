@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import time
+import hashlib
 import asyncio
 import argparse
 import traceback
@@ -27,7 +28,8 @@ from .keyboard_input import (
 from .main import add_base_arguments, add_optional_arguments, AppConfig
 from .console import Console, GameboyColor
 
-from .ssh_app_session import SSHTerminal, process_to_terminal
+from .remote_terminal import RemoteTerminal
+from .ssh_app_session import process_to_terminal
 
 
 def is_x11_display_functional(
@@ -110,12 +112,13 @@ async def ssh_process_handler(process: SSHServerProcess[str]) -> int:
         console_cls.add_console_arguments(parser)
         namespace = parser.parse_args(command.split(), namespace)
 
-    # Manage save directory
+    # Manage save directory — hash username to prevent path traversal
     if "save_directory" in namespace.__dict__:
+        safe_name = hashlib.sha256(username.encode("utf-8")).hexdigest()[:16]
         save_directory = (
             None
             if getattr(namespace, "input_file", False)
-            else Path("ssh_save") / username
+            else Path("ssh_save") / safe_name
         )
         setattr(namespace, "save_directory", save_directory)
 
@@ -150,7 +153,7 @@ async def ssh_process_handler(process: SSHServerProcess[str]) -> int:
 
 
 def ssh_terminal_handler(
-    terminal: SSHTerminal,
+    terminal: RemoteTerminal,
     console_callback: Callable[[], Console],
     app_config: AppConfig,
     display: str | None,
@@ -201,13 +204,8 @@ sandbox. More information here: https://security.stackexchange.com/a/7496
     else:
         assert False
 
-    # Default to 24-bit color since the vast majority of modern terminals
-    # support it.
-    color_mode = (
-        app_config.color_mode
-        if app_config.color_mode is not None
-        else ColorMode.HAS_24_BIT_COLOR
-    )
+    # Kitty keyboard protocol implies 24-bit color support
+    color_mode = app_config.color_mode or ColorMode.HAS_24_BIT_COLOR
 
     print(
         f"[Terminal Info] {username}: {terminal_type}, {input_source}, {terminal.width}x{terminal.height}"
@@ -278,7 +276,9 @@ class SSHServer(asyncssh.SSHServer):
         )
 
     def password_auth_supported(self) -> bool:
-        return bool(self._gambaterm_password)
+        # Allow empty string as a valid password (--password ''),
+        # only None (unset) disables password auth.
+        return self._gambaterm_password is not None
 
     def validate_password(self, username: str, password: str) -> bool:
         assert self._gambaterm_password is not None
