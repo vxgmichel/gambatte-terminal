@@ -27,7 +27,8 @@ from .keyboard_input import (
 from .main import add_base_arguments, add_optional_arguments, AppConfig
 from .console import Console, GameboyColor
 
-from .ssh_app_session import SSHTerminal, process_to_terminal
+from .remote_terminal import RemoteTerminal
+from .ssh_app_session import process_to_terminal
 
 
 def is_x11_display_functional(
@@ -149,7 +150,7 @@ async def ssh_process_handler(process: SSHServerProcess[str]) -> int:
 
 
 def ssh_terminal_handler(
-    term: SSHTerminal,
+    term: RemoteTerminal,
     console_callback: Callable[[], Console],
     app_config: AppConfig,
     display: str | None,

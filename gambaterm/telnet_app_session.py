@@ -1,74 +1,21 @@
 """
-Provide a blessed TelnetTerminal and paced output forwarding
-for the telnet server.
+Provide paced output forwarding and terminal setup for the telnet server.
 """
-
 from __future__ import annotations
 
 import os
 import socket
-import codecs
 import asyncio
-import contextlib
 from contextlib import contextmanager
-from typing import IO, TYPE_CHECKING, Callable, Generator, Iterator, TypeVar
+from typing import TYPE_CHECKING, Callable, Iterator, TypeVar
 from concurrent.futures import ThreadPoolExecutor
-
-from blessed import Terminal as BlessedTerminal
-from blessed.terminal import WINSZ
 
 if TYPE_CHECKING:
     from telnetlib3.stream_writer import TelnetWriter
 
+from .remote_terminal import RemoteTerminal
+
 T = TypeVar("T")
-
-# See ssh_app_session.py for rationale on hardcoding the terminal type.
-TELNET_TERMINAL_TYPE = "xterm-256color"
-
-
-class TelnetTerminal(BlessedTerminal):
-    """A blessed Terminal subclass for telnet streams.
-
-    Stubs raw/cbreak mode (telnet is already raw) and overrides size
-    detection to use values from NAWS negotiation.
-    """
-
-    def __init__(
-        self,
-        stream: IO[str],
-        keyboard_fd: int,
-        rows: int,
-        columns: int,
-    ) -> None:
-        self._rows = rows
-        self._columns = columns
-        super().__init__(kind=TELNET_TERMINAL_TYPE, stream=stream, force_styling=True)
-        self._keyboard_fd = keyboard_fd  # type: ignore[assignment]
-        self._keyboard_decoder = codecs.getincrementaldecoder("UTF-8")()
-
-    @property
-    def is_a_tty(self) -> bool:
-        return True
-
-    @contextlib.contextmanager
-    def raw(self) -> Generator[None, None, None]:
-        yield
-
-    @contextlib.contextmanager
-    def cbreak(self) -> Generator[None, None, None]:
-        yield
-
-    def _height_and_width(self) -> WINSZ:
-        return WINSZ(
-            ws_row=self._rows,
-            ws_col=self._columns,
-            ws_xpixel=0,
-            ws_ypixel=0,
-        )
-
-    def update_size(self, rows: int, columns: int) -> None:
-        self._rows = rows
-        self._columns = columns
 
 
 def set_tcp_nodelay(writer: TelnetWriter) -> None:
@@ -136,9 +83,9 @@ async def paced_forward_output(
 @contextmanager
 def bind_resize_telnet(
     writer: TelnetWriter,
-    term: TelnetTerminal,
+    term: RemoteTerminal,
 ) -> Iterator[None]:
-    """Hook telnetlib3 NAWS callbacks to update TelnetTerminal size.
+    """Hook telnetlib3 NAWS callbacks to update RemoteTerminal size.
 
     telnetlib3 dispatches NAWS via a callback registry on the writer
     (``_ext_callback[NAWS]``), not through ``protocol.on_naws`` directly.
@@ -162,16 +109,16 @@ def bind_resize_telnet(
 async def telnet_to_terminal(
     writer: TelnetWriter,
     executor: ThreadPoolExecutor,
-    target: Callable[[TelnetTerminal], T],
+    target: Callable[[RemoteTerminal], T],
     input_read_fd: int,
 ) -> T:
-    """Create a TelnetTerminal and run *target* in a thread executor.
+    """Create a RemoteTerminal and run *target* in a thread executor.
 
     Sets up a pipe for output forwarding with paced delivery at 60 pps.
 
     :param writer: telnetlib3 writer
     :param executor: ThreadPoolExecutor for running the game thread
-    :param target: callable receiving the TelnetTerminal, run in executor
+    :param target: callable receiving the RemoteTerminal, run in executor
     :param input_read_fd: read end of the input pipe (keyboard_fd for blessed)
     :returns: return value of *target*
     """
@@ -183,7 +130,7 @@ async def telnet_to_terminal(
 
     def _target() -> T:
         with open(write_fd, "w", newline="\r\n") as stream:
-            telnet_term = TelnetTerminal(
+            telnet_term = RemoteTerminal(
                 stream=stream,
                 keyboard_fd=input_read_fd,
                 rows=rows,

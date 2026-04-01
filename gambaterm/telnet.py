@@ -23,8 +23,8 @@ from .main import add_base_arguments, add_optional_arguments, AppConfig
 from .console import Console, InputGetter, GameboyColor
 from .keyboard_input import MESSAGE_SUGGESTING_KITTY_SUPPORT
 from .telnet_input import TelnetInputState, read_telnet_input
+from .remote_terminal import RemoteTerminal
 from .telnet_app_session import (
-    TelnetTerminal,
     set_tcp_nodelay,
     telnet_to_terminal,
 )
@@ -62,13 +62,13 @@ def _save_dir_name(username: str | None) -> str:
 
 
 def thread_target(
-    term: TelnetTerminal,
+    term: RemoteTerminal,
     console_callback: Callable[[], Console],
     app_config: AppConfig,
     color_mode: ColorMode,
     input_state: TelnetInputState | None = None,
 ) -> int:
-    """Run the emulator in a thread with the given TelnetTerminal."""
+    """Run the emulator in a thread with the given RemoteTerminal."""
     console: Console = console_callback()
 
     if app_config.input_file is not None:
@@ -345,7 +345,7 @@ async def _telnet_shell(
         console_callback = console_cls.pop_console_arguments(namespace)
         config = AppConfig(**vars(namespace))
 
-        def target(term: TelnetTerminal) -> int:
+        def target(term: RemoteTerminal) -> int:
             return thread_target(term, console_callback, config, color_mode, state)
 
         return await telnet_to_terminal(
