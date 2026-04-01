@@ -7,10 +7,9 @@ import hashlib
 import asyncio
 import argparse
 import traceback
-from contextlib import contextmanager, nullcontext
+from contextlib import AbstractContextManager as ContextManager, nullcontext
 from pathlib import Path
-from contextlib import AbstractContextManager as ContextManager
-from typing import TYPE_CHECKING, Any, Callable, Coroutine, Iterator
+from typing import TYPE_CHECKING, Any, Callable, Coroutine
 from concurrent.futures import ThreadPoolExecutor
 
 if TYPE_CHECKING:
@@ -90,7 +89,9 @@ def thread_target(
             )
         )
     elif input_state is not None:
-        console_input_context = nullcontext(TelnetInputGetter(console, term, input_state))
+        console_input_context = nullcontext(
+            TelnetInputGetter(console, term, input_state)
+        )
     else:
         console_input_context = nullcontext(NoInputGetter(console, term))
 
