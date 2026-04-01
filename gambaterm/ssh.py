@@ -153,7 +153,7 @@ async def ssh_process_handler(process: SSHServerProcess[str]) -> int:
 
 
 def ssh_terminal_handler(
-    term: RemoteTerminal,
+    terminal: RemoteTerminal,
     console_callback: Callable[[], Console],
     app_config: AppConfig,
     display: str | None,

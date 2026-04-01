@@ -16,11 +16,14 @@ if TYPE_CHECKING:
     from telnetlib3.stream_reader import TelnetReader
     from telnetlib3.stream_writer import TelnetWriter
 
+from blessed.keyboard import Keystroke
+
 from .run import run
 from .colors import ColorMode
 from .file_input import console_input_from_file_context
 from .main import add_base_arguments, add_optional_arguments, AppConfig
-from .console import Console, InputGetter, GameboyColor
+from .console import Console, GameboyColor
+from .input_getter import BaseInputGetter
 from .keyboard_input import MESSAGE_SUGGESTING_KITTY_SUPPORT
 from .telnet_input import TelnetInputState, read_telnet_input
 from .remote_terminal import RemoteTerminal
@@ -30,24 +33,32 @@ from .telnet_app_session import (
 )
 
 
-@contextmanager
-def no_input_context(console: Console) -> Iterator[InputGetter]:
-    """Provide a no-op input getter that returns no button presses."""
-    yield lambda: set()
+class TelnetInputGetter(BaseInputGetter):
+    """Input getter that reads from telnet input state."""
+
+    def __init__(
+        self, console: Console, terminal: RemoteTerminal, state: TelnetInputState
+    ) -> None:
+        super().__init__(console, terminal)
+        self._state = state
+
+    def get_pressed(self) -> set[Console.Input]:
+        for event in self._state.pop_events():
+            self._console.handle_event(event)
+        return self._state.get_input()
+
+    def pop_keystrokes(self) -> list[Keystroke]:
+        return []
 
 
-@contextmanager
-def telnet_input_context(
-    console: Console, state: TelnetInputState
-) -> Iterator[InputGetter]:
-    """Provide input from telnet keyboard state."""
+class NoInputGetter(BaseInputGetter):
+    """Input getter that returns no button presses."""
 
-    def get_input() -> set[Console.Input]:
-        for event in state.pop_events():
-            console.handle_event(event)
-        return state.get_input()
+    def get_pressed(self) -> set[Console.Input]:
+        return set()
 
-    yield get_input
+    def pop_keystrokes(self) -> list[Keystroke]:
+        return []
 
 
 def _save_dir_name(username: str | None) -> str:
@@ -73,12 +84,14 @@ def thread_target(
 
     if app_config.input_file is not None:
         console_input_context = console_input_from_file_context(
-            console, app_config.input_file, app_config.skip_inputs
+            console, term, app_config.input_file, app_config.skip_inputs
         )
     elif input_state is not None:
-        console_input_context = telnet_input_context(console, input_state)
+        input_getter = TelnetInputGetter(console, term, input_state)
+        console_input_context = contextmanager(lambda: (yield input_getter))()
     else:
-        console_input_context = no_input_context(console)
+        input_getter = NoInputGetter(console, term)
+        console_input_context = contextmanager(lambda: (yield input_getter))()
 
     with console_input_context as get_console_input:
         try:
@@ -87,7 +100,7 @@ def thread_target(
 
             run(
                 console,
-                get_input=get_console_input,
+                input_getter=get_console_input,
                 term=term,
                 frame_advance=app_config.frame_advance,
                 color_mode=color_mode,
