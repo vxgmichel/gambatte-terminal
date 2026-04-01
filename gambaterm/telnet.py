@@ -83,10 +83,10 @@ def thread_target(
     console: Console = console_callback()
 
     if app_config.input_file is not None:
-        console_input_context: ContextManager[BaseInputGetter] = (
-            console_input_from_file_context(
-                console, term, app_config.input_file, app_config.skip_inputs
-            )
+        console_input_context: ContextManager[
+            BaseInputGetter
+        ] = console_input_from_file_context(
+            console, term, app_config.input_file, app_config.skip_inputs
         )
     elif input_state is not None:
         console_input_context = nullcontext(
