@@ -2,6 +2,7 @@
 Provide an async context manager to create a blessed SSHTerminal
 from an AsyncSSH process.
 """
+
 from __future__ import annotations
 
 import os
