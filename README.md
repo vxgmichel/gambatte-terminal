@@ -42,10 +42,12 @@ Usage and arguments
 
 Usage:
 ```
-usage: gambaterm [-h] [--input-file INPUT_FILE] [--frame-advance FRAME_ADVANCE]
-                 [--break-after BREAK_AFTER] [--speed SPEED] [--force-gameboy]
-                 [--skip-inputs SKIP_INPUTS] [--cpr-sync] [--disable-audio]
-                 [--color-mode COLOR_MODE]
+usage: gambaterm [-h] [--input-file INPUT_FILE] [--color-mode COLOR_MODE]
+                 [--frame-advance FRAME_ADVANCE] [--break-after BREAK_AFTER]
+                 [--speed SPEED] [--skip-inputs SKIP_INPUTS] [--cpr-sync]
+                 [--enable-controller] [--write-input WRITE_INPUT]
+                 [--no-sextants] [--octants] [--cp437] [--force-gameboy]
+                 [--save-directory SAVE_DIRECTORY] [--disable-audio]
                  ROM
 ```
 
@@ -97,6 +99,27 @@ Optional arguments:
     Note: the color mode can be cycled at runtime by pressing the Tab key, which is useful for testing the different color modes supported by the terminal.
 
 
+  - `--no-sextants`
+
+    Disable sextant block rendering
+
+  - `--octants`
+
+    Enable octant block rendering, requires a Unicode 16.0 or newer font. Toggle at runtime with Ctrl+O.
+
+  - `--cp437`
+
+    Restrict to CP437 block characters only (▀ ▄ █ ▌ ▐), disabling sextants, octants, and
+    eighth-height blocks. Toggle at runtime with Ctrl+P.
+
+  - `--write-input WRITE_INPUT, --wi WRITE_INPUT`
+
+    Record inputs into a file
+
+  - `--save-directory SAVE_DIRECTORY, --sd SAVE_DIRECTORY`
+
+    Path to the save directory
+
 SSH server
 ----------
 
@@ -118,9 +141,20 @@ Not all terminals will actually offer a pleasant experience. The main criteria a
   In this case, it might be better to use greyscale colors using `--force-gameboy` or `--color-mode=1`.
 
 - **Support for UTF-8 and good rendering of unicode block elements**
-  More specifically the following characters `▄ █ ▀`.
-  Also, the alignement might be off (e.g small spaces between pixels)
-  This is not always well supported.
+  More specifically the half-block characters `▄ █ ▀` for terminals sizes 160x72 or larger.
+
+  For smaller terminal sizes, Unicode 13.0 (2020) Sextant (🬴) characters are used automatically,
+  and Unicode 16.0 (2024) Octant (𜷠) characters can be enabled with `--octants` or by toggled
+  by pressing ``Ctrl + O`` in the lowest resolution, providing very comparable quality..
+
+  Octant rendering requires a font with glyphs in the U+1CD00 plane. [GNU
+  Unifont](https://unifoundry.com/unifont/) provides full coverage by installing **both** files:
+
+  - unifont-XX.X.XX.otf - Basic Multilingual Plane
+  - unifont_upper-XX.X.XX.otf - Supplementary planes
+
+  Also, the alignment might be off (e.g small spaces between pixels), such as in Mac OSX
+  Terminal.app, and can be adjusted by vertical and horizontal spacing of font preferences.
 
 - **Support for the [kitty keyboard protocol](https://sw.kovidgoyal.net/kitty/keyboard-protocol/)**
   This is mandatory if you're using Wayland, and recommended on every other platforms.
@@ -176,7 +210,54 @@ Terminals without Kitty keyboard protocol require X11 to play locally, or X11 fo
 Terminal size
 -------------
 
-The emulator uses a single character on screen to display two vertically aligned pixels, like so `▄▀`. The gameboy being 160 pixels wide over 144 pixels high, you'll need your terminal to be at least 160 characters wide over 72 characters high to display the entire screen. Setting the terminal to full screen is usually enough but you might want to tweak the character size, typically using the `ctrl - / ctrl +` or `ctrl wheel` shortcuts.
+The Game Boy display is 160x144 pixels. The emulator automatically selects the best rendering mode based on the terminal size:
+
+| Mode | Characters | Terminal size | Pixels per cell |
+|------|-----------|---------------|-----------------|
+| Full-res half-blocks | `▄ █ ▀` | 160+ cols, 72+ rows | 1×2 |
+| Sextants | U+1FB00 (64 chars) | 80+ cols, 48+ rows | 2×3 |
+| Half-res half-blocks | `▂ ▄ ▆ ▌ ▐` + U+1FB82/85 | below 80×48 | 2×4 |
+| Octants (opt-in) | U+1CD00 (256 chars) | below 80×48 | 2×4 |
+
+- **Full-res half-blocks** render the full 160-column image at its native horizontal resolution.
+  Each terminal cell maps to 2 vertically stacked pixels using `▀` (upper half) and `▄` (lower
+  half). This requires a wide terminal (160+ columns) and at least 72 rows.
+
+- **Sextants** pack 2×3 pixels into each character cell, halving the required width to 80 columns
+  and needing 48 rows. The best 2-color pair is selected per cell and mapped to one of 64 sextant
+  characters (U+1FB00–U+1FB3B). This mode is auto-selected when the terminal is narrower than
+  160 columns. Sextant characters have been widely supported since Unicode 13.0 (2020).
+
+- **Half-res half-blocks** are the default fallback for terminals below 80×48. Each cell covers a
+  2×4 pixel region (same grid as octants) but uses widely-supported block elements instead of
+  Unicode 16.0 characters. The blitter analyzes all 8 pixels per cell, finds the best 2-color
+  pair, then scores horizontal splits at 1/4, 1/2, and 3/4 boundaries and a vertical left/right
+  split, picking whichever has the fewest mismatched pixels:
+
+  - Horizontal: `▂` (lower 2/8), `▄` (lower 4/8), `▆` (lower 6/8), and their upper
+    counterparts U+1FB82 (upper 2/8) and U+1FB85 (upper 6/8)
+  - Vertical: `▌` (left half), `▐` (right half)
+
+  This gives 4 smooth vertical scroll steps per cell instead of 2, and correctly renders
+  vertical strokes that would otherwise be lost in a horizontal-only downscale. All characters
+  used are from Unicode 1.0 (U+2580–U+259F) except U+1FB82 and U+1FB85 which are from
+  Unicode 13.0 — both universally supported.
+
+- **Octants** pack 2×4 pixels per cell with 256 possible binary patterns, providing the highest
+  spatial fidelity of the reduced modes. Enabled with `--octants` or Ctrl+O at runtime. Octant
+  characters are part of Unicode 16.0 (2024) and require a supporting font. See the font
+  installation section above.
+
+All reduced-resolution modes (sextant, half-res, octant) are limited to 2 colors per cell.
+Content with 3 or more colors in a single cell is quantized to the best 2-color pair, which can
+cause color oscillation during scrolling. A per-cell hysteresis cache dampens this by snapping to
+previously rendered colors when the new pair is perceptually close. A per-cell hysteresis cache dampens this by snapping to previously rendered
+colors when the new pair is perceptually close.
+
+The mode is re-evaluated on terminal resize, so shrinking or growing the window switches modes
+dynamically. Use `--no-sextants` to disable sextant mode, `--octants` to enable octants.
+
+Setting the terminal to full screen is usually enough but you might want to tweak the character size, typically using the `ctrl - / ctrl +` or `ctrl wheel` shortcuts.
 
 Keyboard, game controller and file inputs
 -----------------------------------------

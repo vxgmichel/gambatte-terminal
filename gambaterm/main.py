@@ -31,6 +31,9 @@ class AppConfig:
     cpr_sync: bool
     enable_controller: bool
     write_input: Path | None
+    no_sextants: bool
+    octants: bool
+    cp437: bool
 
 
 def add_base_arguments(parser: argparse.ArgumentParser) -> None:
@@ -98,6 +101,25 @@ def add_optional_arguments(parser: argparse.ArgumentParser) -> None:
         "--wi",
         type=Path,
         help="Record inputs into a file",
+    )
+    parser.add_argument(
+        "--no-sextants",
+        action="store_true",
+        default=False,
+        help="Disable sextant block rendering",
+    )
+    parser.add_argument(
+        "--octants",
+        action="store_true",
+        default=False,
+        help="Enable octant block rendering, requires a Unicode 16.0 or newer font",
+    )
+    parser.add_argument(
+        "--cp437",
+        action="store_true",
+        default=False,
+        help="Restrict to CP437 block characters only, "
+        "disabling sextants, octants, and eighth-height blocks",
     )
 
 
@@ -172,6 +194,9 @@ def main(
                         break_after=args.break_after,
                         speed=args.speed,
                         use_cpr_sync=args.cpr_sync,
+                        no_sextants=args.no_sextants or args.cp437,
+                        use_octants=args.octants and not args.cp437,
+                        cp437=args.cp437,
                     )
 
         # Deal with ctrl+c and ctrl+d exceptions
