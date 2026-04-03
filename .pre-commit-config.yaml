@@ -15,7 +15,7 @@ repos:
     - id: trailing-whitespace
       exclude: \.patch$
 -   repo: https://github.com/pre-commit/mirrors-mypy
-    rev: "v1.7.0"
+    rev: "v1.20.0"
     hooks:
     - id: mypy
       additional_dependencies: [
@@ -23,6 +23,7 @@ repos:
         "asyncssh>=2.9",
         "blessed>=1.37.0",
         "types-setuptools",
+        "types-pillow>=10.2.0.20240822",
         "pytest",
       ]
       args: []

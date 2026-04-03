@@ -10,6 +10,7 @@ from collections import deque
 from typing import Deque, Iterator
 
 import numpy as np
+from PIL import Image
 from blessed import Terminal
 
 from .termblit import blit
@@ -30,9 +31,11 @@ def timing(deltas: Deque[float]) -> Iterator[None]:
         deltas.append(time.perf_counter() - start)
 
 
-def get_ref(width: int, height: int, console: Console) -> tuple[int, int]:
-    refx = 2 + max(0, (height - console.HEIGHT // 2) // 2)
-    refy = 3 + max(0, (width - console.WIDTH) // 2)
+def get_ref(
+    term_width: int, term_height: int, video_width: int, video_height: int
+) -> tuple[int, int]:
+    refx = 2 + max(0, (term_height - video_height // 2) // 2)
+    refy = 1 + max(0, (term_width - video_width) // 2)
     return refx, refy
 
 
@@ -45,6 +48,36 @@ def write_bytes(term: Terminal, video_data: bytes) -> None:
         sys.stdout.buffer.flush()
     else:
         os.write(term.stream.fileno(), video_data)
+
+
+def scale_frame(
+    frame: np.ndarray, width: int, height: int, method: Image.Resampling
+) -> np.ndarray:
+    image = Image.fromarray(frame, mode="RGBA")
+    x = max(1, width - 12)
+    y = max(1, height * 2 - 6)
+    image.thumbnail((x, y), method)
+    return (
+        np.array(image, dtype=np.uint8)
+        .view(np.uint32)
+        .reshape(image.size[1], image.size[0])
+    )
+
+
+def initialize_last_frame(
+    console: Console, width: int, height: int
+) -> tuple[np.ndarray, int, int]:
+    empty = np.zeros((console.HEIGHT, console.WIDTH), dtype=np.uint32)
+    last_frame = scale_frame(empty, width, height, Image.Resampling.NEAREST)
+    refx, refy = get_ref(width, height, last_frame.shape[1], last_frame.shape[0])
+    return last_frame, refx, refy
+
+
+def cycle_resampling_method(method: Image.Resampling) -> Image.Resampling:
+    value = method.value
+    value += 1
+    value %= len(Image.Resampling)
+    return Image.Resampling(value)
 
 
 def run(
@@ -63,12 +96,14 @@ def run(
     # Prepare buffers with invalid data
     video = np.full((console.HEIGHT, console.WIDTH), 0, np.uint32)
     audio = np.full((2 * console.TICKS_IN_FRAME, 2), -0x7FFF, np.int16)
-    last_frame = video.copy()
 
     # Print area (default to 24x80 if terminal reports zero)
     height = term.height or 24
     width = term.width or 80
-    refx, refy = get_ref(width, height, console)
+
+    # Prepare scaled video buffer and reference frame for blitting
+    resampling_method = Image.Resampling.NEAREST
+    last_frame, refx, refy = initialize_last_frame(console, width, height)
 
     # Prepare reporting
     fps = console.FPS * speed
@@ -129,6 +164,8 @@ def run(
                 raise EOFError
             if key.key_name == "KEY_TAB":
                 new_color_mode = color_mode.cycle()
+            if key.key_name == "KEY_F1":
+                resampling_method = cycle_resampling_method(resampling_method)
             if _CPR_RE.match(str(key)):
                 screen_ready = True
 
@@ -148,9 +185,16 @@ def run(
                 ) or new_color_mode != color_mode:
                     maybe_clear_seq = b"\033[H\033[2J"
                     height, width = new_height, new_width
-                    refx, refy = get_ref(width, height, console)
                     color_mode = new_color_mode
-                    last_frame.fill(0)
+                    last_frame, refx, refy = initialize_last_frame(
+                        console,
+                        width,
+                        height,
+                    )
+
+                # Scale frame to fit terminal size, minus 1 column to prevent line-wrapping on the right edge
+                scaled_video = scale_frame(video, width, height, resampling_method)
+
                 # Render frame with synchronized output mode (DEC 2026) to prevent flickering
                 # when the screen is cleared, or an artificial CRT-like "rolling band" side-effects
                 # from fast "sprite blinking" meant to cause "transparency" effect on original HW,
@@ -158,10 +202,18 @@ def run(
                 video_data = (
                     b"\033[?2026h"
                     + maybe_clear_seq
-                    + blit(video, last_frame, refx, refy, width - 1, height, color_mode)
+                    + blit(
+                        scaled_video,
+                        last_frame,
+                        refx,
+                        refy,
+                        width,
+                        height,
+                        color_mode,
+                    )
                     + b"\033[?2026l"
                 )
-                last_frame = video.copy()
+                last_frame = scaled_video.copy()
                 # Update reporting
                 data_length.append(len(video_data))
                 shown_frames.append(True)
