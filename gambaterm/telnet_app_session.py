@@ -12,6 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 if TYPE_CHECKING:
     from telnetlib3.stream_writer import TelnetWriter
+    from telnetlib3.stream_reader import TelnetReader
 
 from .remote_terminal import RemoteTerminal
 
@@ -106,11 +107,30 @@ def bind_resize_telnet(
         writer.set_ext_callback(NAWS, original_on_naws)
 
 
+async def async_reader_to_sync_pipe(reader: TelnetReader, write_fd: int) -> None:
+    loop = asyncio.get_running_loop()
+    pipe_file = os.fdopen(write_fd, "wb", buffering=0)
+    transport, protocol = await loop.connect_write_pipe(
+        lambda: asyncio.streams.FlowControlMixin(), pipe_file
+    )
+    writer = asyncio.StreamWriter(transport, protocol, None, loop)
+
+    try:
+        while True:
+            data = await reader.read(4096)
+            if not data:
+                break
+            writer.write(data)
+            await writer.drain()
+    finally:
+        writer.close()
+
+
 async def telnet_to_terminal(
+    reader: TelnetReader,
     writer: TelnetWriter,
     executor: ThreadPoolExecutor,
     target: Callable[[RemoteTerminal], T],
-    input_read_fd: int,
 ) -> T:
     """Create a RemoteTerminal and run *target* in a thread executor.
 
@@ -125,29 +145,40 @@ async def telnet_to_terminal(
     cols = writer.get_extra_info("cols") or 80
     rows = writer.get_extra_info("rows") or 24
 
-    read_fd, write_fd = os.pipe()
+    forward_read_fd, forward_write_fd = os.pipe()
     forward_task: asyncio.Task[None] | None = None
 
+    input_read_fd, input_write_fd = os.pipe()
+    input_task: asyncio.Task[None] | None = None
+
     def _target() -> T:
-        with open(write_fd, "w", newline="\r\n") as stream:
-            telnet_term = RemoteTerminal(
-                stream=stream,
-                keyboard_fd=input_read_fd,
-                rows=rows,
-                columns=cols,
-            )
-            with bind_resize_telnet(writer, telnet_term):
-                return target(telnet_term)
+        try:
+            with open(forward_write_fd, "w", newline="\r\n") as stream:
+                telnet_term = RemoteTerminal(
+                    stream=stream,
+                    keyboard_fd=input_read_fd,
+                    rows=rows,
+                    columns=cols,
+                )
+                with bind_resize_telnet(writer, telnet_term):
+                    return target(telnet_term)
+        finally:
+            os.close(input_read_fd)
 
     loop = asyncio.get_running_loop()
-    forward_task = asyncio.create_task(paced_forward_output(read_fd, writer))
+    forward_task = asyncio.create_task(paced_forward_output(forward_read_fd, writer))
+    input_task = asyncio.create_task(async_reader_to_sync_pipe(reader, input_write_fd))
     try:
         return await loop.run_in_executor(executor, _target)
     finally:
         # write_fd is closed by open(write_fd, "w").__exit__ in _target,
         # so forward_task will see EOF. Just wait for it to finish.
-        if forward_task is not None:
-            try:
-                await asyncio.wait_for(forward_task, timeout=2.0)
-            except asyncio.TimeoutError:
-                forward_task.cancel()
+        try:
+            await asyncio.wait_for(forward_task, timeout=2.0)
+        except asyncio.TimeoutError:
+            forward_task.cancel()
+        try:
+            input_task.cancel()
+            await asyncio.wait_for(input_task, timeout=2.0)
+        except (asyncio.TimeoutError, asyncio.CancelledError):
+            pass

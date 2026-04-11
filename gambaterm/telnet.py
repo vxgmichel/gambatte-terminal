@@ -1,15 +1,12 @@
 from __future__ import annotations
 
-import os
-import re
 import time
 import hashlib
 import asyncio
 import argparse
 import traceback
-from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Coroutine, Iterator
+from typing import TYPE_CHECKING, Any, Callable, Coroutine, ContextManager
 from concurrent.futures import ThreadPoolExecutor
 
 if TYPE_CHECKING:
@@ -20,34 +17,18 @@ from .run import run
 from .colors import ColorMode
 from .file_input import console_input_from_file_context
 from .main import add_base_arguments, add_optional_arguments, AppConfig
-from .console import Console, InputGetter, GameboyColor
-from .keyboard_input import MESSAGE_SUGGESTING_KITTY_SUPPORT
-from .telnet_input import TelnetInputState, read_telnet_input
+from .console import Console, GameboyColor
+from .input_getter import BaseInputGetter
+from .keyboard_input import (
+    MESSAGE_SUGGESTING_KITTY_SUPPORT,
+    console_input_from_keyboard_protocol_context,
+    is_kitty_keyboard_protocol_supported,
+)
 from .remote_terminal import RemoteTerminal
 from .telnet_app_session import (
     set_tcp_nodelay,
     telnet_to_terminal,
 )
-
-
-@contextmanager
-def no_input_context(console: Console) -> Iterator[InputGetter]:
-    """Provide a no-op input getter that returns no button presses."""
-    yield lambda: set()
-
-
-@contextmanager
-def telnet_input_context(
-    console: Console, state: TelnetInputState
-) -> Iterator[InputGetter]:
-    """Provide input from telnet keyboard state."""
-
-    def get_input() -> set[Console.Input]:
-        for event in state.pop_events():
-            console.handle_event(event)
-        return state.get_input()
-
-    yield get_input
 
 
 def _save_dir_name(username: str | None) -> str:
@@ -62,90 +43,60 @@ def _save_dir_name(username: str | None) -> str:
 
 
 def thread_target(
-    term: RemoteTerminal,
+    terminal: RemoteTerminal,
     console_callback: Callable[[], Console],
     app_config: AppConfig,
     color_mode: ColorMode,
-    input_state: TelnetInputState | None = None,
+    username: str | None,
 ) -> int:
     """Run the emulator in a thread with the given RemoteTerminal."""
     console: Console = console_callback()
 
+    console_input_context: ContextManager[BaseInputGetter]
     if app_config.input_file is not None:
         console_input_context = console_input_from_file_context(
-            console, app_config.input_file, app_config.skip_inputs
+            console, terminal, app_config.input_file, app_config.skip_inputs
         )
-    elif input_state is not None:
-        console_input_context = telnet_input_context(console, input_state)
+    elif is_kitty_keyboard_protocol_supported(terminal, timeout=3):
+        console_input_context = console_input_from_keyboard_protocol_context(
+            console,
+            terminal,
+        )
     else:
-        console_input_context = no_input_context(console)
+        message = MESSAGE_SUGGESTING_KITTY_SUPPORT
+        terminal.stream.write(message)
+        terminal.stream.flush()
+        print(f"< User `{username}` did not support keyboard protocol")
+        return 1
 
-    with console_input_context as get_console_input:
-        try:
-            term.stream.write(term.enter_fullscreen + term.clear + term.hide_cursor)
-            term.stream.flush()
-
+    try:
+        terminal.stream.write(
+            terminal.enter_fullscreen + terminal.clear + terminal.hide_cursor
+        )
+        terminal.stream.flush()
+        with console_input_context as get_console_input:
             run(
                 console,
-                get_input=get_console_input,
-                term=term,
+                input_getter=get_console_input,
+                term=terminal,
                 frame_advance=app_config.frame_advance,
                 color_mode=color_mode,
                 break_after=app_config.break_after,
-                speed_factor=app_config.speed_factor,
+                speed=app_config.speed,
             )
-        except (KeyboardInterrupt, OSError):
-            return 0
-        else:
-            return 0
-        finally:
-            time.sleep(0.1)
-            term.stream.write(term.clear + term.exit_fullscreen + term.normal_cursor)
-            try:
-                term.stream.flush()
-            except BrokenPipeError:
-                pass
-
-
-_KITTY_RESPONSE_RE = re.compile(rb"\x1b\[\?([0-9]*)u")
-
-
-async def _detect_kitty_keyboard(
-    reader: TelnetReader, writer: TelnetWriter, timeout: float = 3.0
-) -> bool:
-    """Check if the telnet client supports the kitty keyboard protocol.
-
-    Must be called before the input reading task starts.
-
-    :param reader: telnetlib3 reader
-    :param writer: telnetlib3 writer
-    :param timeout: seconds to wait for response
-    :returns: ``True`` if the terminal responds to the kitty keyboard query
-    """
-    writer.write(b"\x1b[?u")
-    await writer.drain()
-
-    buf = b""
-    loop = asyncio.get_event_loop()
-    deadline = loop.time() + timeout
-    while True:
-        remaining = deadline - loop.time()
-        if remaining <= 0:
-            break
+    except (KeyboardInterrupt, OSError):
+        return 0
+    else:
+        return 0
+    finally:
+        time.sleep(0.1)
+        terminal.stream.write(
+            terminal.clear + terminal.exit_fullscreen + terminal.normal_cursor
+        )
         try:
-            chunk = await asyncio.wait_for(
-                reader.read(256),
-                timeout=remaining,
-            )
-            if not chunk:
-                break
-            buf += chunk if isinstance(chunk, bytes) else chunk.encode("latin-1")
-            if _KITTY_RESPONSE_RE.search(buf):
-                return True
-        except asyncio.TimeoutError:
-            break
-
-    return False
+            terminal.stream.flush()
+        except BrokenPipeError:
+            pass
 
 
 ShellCallback = Callable[["TelnetReader", "TelnetWriter"], Coroutine[Any, Any, None]]
@@ -298,25 +249,6 @@ async def _telnet_shell(
     # Set TCP_NODELAY to disable Nagle's algorithm for paced output
     set_tcp_nodelay(writer)
 
-    # Require kitty keyboard protocol (must be checked before input task starts)
-    if getattr(app_config, "input_file", None) is None:
-        if not await _detect_kitty_keyboard(reader, writer):
-            print(
-                f"< Telnet client {peer_host} does not support "
-                f"kitty keyboard protocol"
-            )
-            msg = MESSAGE_SUGGESTING_KITTY_SUPPORT.replace("\n", "\r\n")
-            writer.write(msg.encode("utf-8"))
-            await writer.drain()
-            return 1
-
-    # Create input pipe for Ctrl+C/D forwarding
-    input_read_fd, input_write_fd = os.pipe()
-
-    state = TelnetInputState()
-    input_task = asyncio.create_task(
-        read_telnet_input(reader, writer, state, input_write_fd)
-    )
     stats_task = asyncio.create_task(
         _log_connection_stats(writer, peer_host, peer_port)
     )
@@ -346,32 +278,19 @@ async def _telnet_shell(
         config = AppConfig(**vars(namespace))
 
         def target(term: RemoteTerminal) -> int:
-            return thread_target(term, console_callback, config, color_mode, state)
+            return thread_target(term, console_callback, config, color_mode, username)
 
         return await telnet_to_terminal(
+            reader,
             writer,
             executor,
             target,
-            input_read_fd,
         )
     finally:
-        input_task.cancel()
         stats_task.cancel()
-        try:
-            await input_task
-        except asyncio.CancelledError:
-            pass
         try:
             await stats_task
         except asyncio.CancelledError:
-            pass
-        try:
-            os.close(input_write_fd)
-        except OSError:
-            pass
-        try:
-            os.close(input_read_fd)
-        except OSError:
             pass
 
 
