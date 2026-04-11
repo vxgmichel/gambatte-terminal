@@ -231,6 +231,9 @@ sandbox. More information here: https://security.stackexchange.com/a/7496
                 break_after=app_config.break_after,
                 speed=app_config.speed,
                 use_cpr_sync=app_config.cpr_sync,
+                no_sextants=app_config.no_sextants or app_config.cp437,
+                use_octants=app_config.octants and not app_config.cp437,
+                cp437=app_config.cp437,
             )
 
     except (KeyboardInterrupt, OSError):

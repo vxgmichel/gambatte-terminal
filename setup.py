@@ -59,7 +59,34 @@ def get_extensions() -> list[Extension]:
         sources=["termblit_ext/termblit.pyx"],
     )
 
-    return [gambatte_extension, termblit_extension]
+    sextblit_extension = Extension(
+        "gambaterm.sextblit",
+        language="c",
+        include_dirs=[numpy.get_include()],
+        sources=["termblit_ext/sextblit.pyx"],
+    )
+
+    octblit_extension = Extension(
+        "gambaterm.octblit",
+        language="c",
+        include_dirs=[numpy.get_include()],
+        sources=["termblit_ext/octblit.pyx"],
+    )
+
+    halfblit_extension = Extension(
+        "gambaterm.halfblit",
+        language="c",
+        include_dirs=[numpy.get_include()],
+        sources=["termblit_ext/halfblit.pyx"],
+    )
+
+    return [
+        gambatte_extension,
+        termblit_extension,
+        sextblit_extension,
+        octblit_extension,
+        halfblit_extension,
+    ]
 
 
 setup(ext_modules=get_extensions())

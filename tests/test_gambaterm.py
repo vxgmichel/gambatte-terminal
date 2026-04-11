@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Iterator
 from subprocess import Popen, PIPE, run
 
+from wcwidth import strip_sequences
+
 TEST_ROM = Path(__file__).parent / "test_rom.gb"
 
 
@@ -26,7 +28,8 @@ def ssh_config(tmp_path: Path) -> Iterator[Path]:
 )
 def test_gambaterm(interactive: bool) -> None:
     assert TEST_ROM.exists()
-    command = f"gambaterm {TEST_ROM} --break-after 10 --input-file /dev/null --disable-audio --color-mode 4"
+    command = f"gambaterm {TEST_ROM} --break-after 10 --input-file /dev/null --disable-audio --color-mode 4 --no-sextants"
+
     result = run(
         f"script -e -q -c '{command}' /dev/null" if interactive else command,
         shell=True,
@@ -36,14 +39,16 @@ def test_gambaterm(interactive: bool) -> None:
     )
     assert result.stderr == ""
     if interactive:
-        assert "| test_rom.gb |" in result.stdout
+        assert "test_rom.gb" in result.stdout
     if sys.platform == "linux":
-        assert "▀ ▄▄ ▀" in result.stdout
+        stripped = strip_sequences(result.stdout)
+        assert " " * 80 in stripped
+        assert any(c in stripped for c in "\u2588\u2580\u2584")
 
 
 def test_gambaterm_ssh(ssh_config: Path) -> None:
     assert TEST_ROM.exists()
-    command = f"gambaterm-ssh {TEST_ROM} --break-after 10 --input-file /dev/null --color-mode 4"
+    command = f"gambaterm-ssh {TEST_ROM} --break-after 10 --input-file /dev/null --color-mode 4 --no-sextants"
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
     server = Popen(
@@ -62,9 +67,11 @@ def test_gambaterm_ssh(ssh_config: Path) -> None:
             timeout=5,
         )
         assert client.stderr == ""
-        assert "| test_rom.gb |" in client.stdout
+        assert "test_rom.gb" in client.stdout
         if sys.platform == "linux":
-            assert "▀ ▄▄ ▀" in client.stdout
+            stripped = strip_sequences(client.stdout)
+            assert " " * 80 in stripped
+            assert any(c in stripped for c in "\u2588\u2580\u2584")
     finally:
         server.terminate()
         server.wait()

@@ -13,11 +13,12 @@ class ColorMode(IntEnum):
     HAS_8_BIT_COLOR = 3
     HAS_24_BIT_COLOR = 4
 
-    def cycle(self) -> ColorMode:
-        """Cycle to the next color mode, for testing purposes."""
-        value = (self + 1) % len(ColorMode)
+    def cycle(self, reverse: bool = False) -> ColorMode:
+        """Cycle to the next (or previous) color mode."""
+        step = -1 if reverse else 1
+        value = (self + step) % len(ColorMode)
         if value == ColorMode.COULD_NOT_DETECT:
-            value += 1
+            value = (value + step) % len(ColorMode)
         return ColorMode(value)
 
     def report(self) -> str:
@@ -25,13 +26,13 @@ class ColorMode(IntEnum):
         if self == ColorMode.COULD_NOT_DETECT:
             return "Could not detect color mode"
         if self == ColorMode.HAS_2_BIT_COLOR:
-            return "4 colors"
+            return "4col"
         if self == ColorMode.HAS_4_BIT_COLOR:
-            return "16 colors"
+            return "16col"
         if self == ColorMode.HAS_8_BIT_COLOR:
-            return "256 colors"
+            return "256col"
         if self == ColorMode.HAS_24_BIT_COLOR:
-            return "True color"
+            return "24bit"
         assert False
 
 
