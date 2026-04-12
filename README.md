@@ -100,7 +100,29 @@ Optional arguments:
 SSH server
 ----------
 
-It is possible to serve the emulation through SSH. Clients with terminals supporting the [kitty keyboard protocol](https://sw.kovidgoyal.net/kitty/keyboard-protocol/) can send input directly without X11 forwarding. Otherwise, X11 forwarding (`ssh -X`) can be used as a fallback. Use `gambaterm-ssh --help` for more information. 24-bit color is always true over ssh.
+It is possible to serve the emulation through SSH. Clients must use a terminal that supports the [kitty keyboard protocol](https://sw.kovidgoyal.net/kitty/keyboard-protocol/), or use X11 forwarding (`ssh -X`) as a fallback. Use `gambaterm-ssh --help` for more information. 24-bit color is always assumed over SSH. Audio is not available over SSH.
+
+```shell
+# Serve `myrom.gbc` locally on port 8022, disabling authentication for local testing
+# Note: an SSH host key is automatically generated on the first run
+$ gambaterm-ssh --no-auth myrom.gbc
+Generating SSH host key at ~/.config/gambaterm/ssh_host_key...
+Authentication disabled (no password nor public key required)
+Running SSH server on 127.0.0.1:8022...
+
+# Listen on all interfaces, using a global password as authentication method
+$ gambaterm-ssh --password mypassword --bind 0.0.0.0 --port 8022 myrom.gbc
+Authentication methods:
+- Global password
+- Public keys from: /home/user/.ssh/id_rsa.pub
+Running SSH server on 0.0.0.0:8022...
+```
+
+Connect with ssh client:
+
+```shell
+$ ssh localhost -p 8022
+```
 
 
 Terminal support
