@@ -125,6 +125,25 @@ $ ssh localhost -p 8022
 ```
 
 
+Telnet server
+-------------
+
+The emulator can also be served over telnet, requiring no authentication or SSH keys:
+
+```shell
+$ gambaterm-telnet myrom.gbc
+$ gambaterm-telnet --bind 0.0.0.0 --port 8023 myrom.gbc  # listen on all interfaces
+```
+
+Connect with any telnet client:
+
+```shell
+$ telnet localhost 8023
+```
+
+Clients must use a terminal that supports the [kitty keyboard protocol](https://sw.kovidgoyal.net/kitty/keyboard-protocol/) -- connections without it are rejected. Use `--max-players N` to limit concurrent connections. 24-bit color is always assumed. Audio is not available over telnet.
+
+
 Terminal support
 ----------------
 
@@ -247,6 +266,7 @@ Here is the list of the dependencies used in this project, all great open source
 - [xlib](https://github.com/python-xlib/python-xlib)/[pynput](https://github.com/moses-palmer/pynput) - Getting keyboard inputs
 - [pygame](https://github.com/pygame/pygame) - Getting game controller inputs
 - [asyncssh](https://github.com/ronf/asyncssh) - Running the SSH server
+- [telnetlib3](https://github.com/jquast/telnetlib3) - Running the telnet server
 
 
 Contact

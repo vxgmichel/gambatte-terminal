@@ -30,7 +30,8 @@ from .keyboard_input import (
 from .main import add_base_arguments, add_optional_arguments, AppConfig
 from .console import Console, GameboyColor
 
-from .ssh_app_session import SSHTerminal, process_to_terminal
+from .remote_terminal import RemoteTerminal
+from .ssh_app_session import process_to_terminal
 
 
 def is_x11_display_functional(
@@ -155,7 +156,7 @@ async def ssh_process_handler(process: SSHServerProcess[str]) -> int:
 
 
 def ssh_terminal_handler(
-    terminal: SSHTerminal,
+    terminal: RemoteTerminal,
     console_callback: Callable[[], Console],
     app_config: AppConfig,
     display: str | None,
@@ -206,13 +207,8 @@ sandbox. More information here: https://security.stackexchange.com/a/7496
     else:
         assert False
 
-    # Default to 24-bit color since the vast majority of modern terminals
-    # support it.
-    color_mode = (
-        app_config.color_mode
-        if app_config.color_mode is not None
-        else ColorMode.HAS_24_BIT_COLOR
-    )
+    # Kitty keyboard protocol implies 24-bit color support
+    color_mode = app_config.color_mode or ColorMode.HAS_24_BIT_COLOR
 
     print(
         f"[Terminal Info] {username}: {terminal_type}, {input_source}, {terminal.width}x{terminal.height}"
