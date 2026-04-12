@@ -6,7 +6,15 @@ import asyncio
 import argparse
 import traceback
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Coroutine, ContextManager
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Coroutine,
+    ContextManager,
+    Type,
+    TypeAlias,
+)
 from concurrent.futures import ThreadPoolExecutor
 
 if TYPE_CHECKING:
@@ -26,7 +34,6 @@ from .keyboard_input import (
 )
 from .remote_terminal import RemoteTerminal
 from .telnet_app_session import (
-    set_tcp_nodelay,
     telnet_to_terminal,
 )
 
@@ -99,17 +106,21 @@ def thread_target(
             pass
 
 
-ShellCallback = Callable[["TelnetReader", "TelnetWriter"], Coroutine[Any, Any, None]]
+ShellCallback: TypeAlias = Callable[
+    ["TelnetReader", "TelnetWriter"], Coroutine[Any, Any, None]
+]
 
 
 def make_telnet_shell(
-    app_config: argparse.Namespace, executor: ThreadPoolExecutor
+    app_config: argparse.Namespace,
+    console_cls: Type[Console],
+    executor: ThreadPoolExecutor,
 ) -> ShellCallback:
     """Create a telnet shell callback with app_config and executor bound."""
 
     async def telnet_shell(reader: TelnetReader, writer: TelnetWriter) -> None:
         try:
-            await _telnet_shell(reader, writer, app_config, executor)
+            await _telnet_shell(reader, writer, app_config, console_cls, executor)
         except KeyboardInterrupt:
             pass
         except SystemExit:
@@ -217,6 +228,7 @@ async def _telnet_shell(
     reader: TelnetReader,
     writer: TelnetWriter,
     app_config: argparse.Namespace,
+    console_cls: type[Console],
     executor: ThreadPoolExecutor,
 ) -> int:
     peername = writer.get_extra_info("peername")
@@ -246,9 +258,6 @@ async def _telnet_shell(
     # Kitty keyboard protocol implies 24-bit color support
     color_mode = app_config.color_mode or ColorMode.HAS_24_BIT_COLOR
 
-    # Set TCP_NODELAY to disable Nagle's algorithm for paced output
-    set_tcp_nodelay(writer)
-
     stats_task = asyncio.create_task(
         _log_connection_stats(writer, peer_host, peer_port)
     )
@@ -273,7 +282,6 @@ async def _telnet_shell(
             save_directory.mkdir(parents=True, exist_ok=True)
 
         # Pop console-specific args and build console factory + AppConfig
-        console_cls: type[Console] = namespace.__dict__.pop("console_cls")
         console_callback = console_cls.pop_console_arguments(namespace)
         config = AppConfig(**vars(namespace))
 
@@ -305,7 +313,7 @@ async def run_server(
 ) -> None:
     import telnetlib3
 
-    shell = make_telnet_shell(namespace, executor)
+    shell = make_telnet_shell(namespace, console_cls, executor)
 
     if robot_check or max_players > 0:
         from telnetlib3.guard_shells import ConnectionCounter, busy_shell
@@ -399,7 +407,6 @@ def main(
     port: int = namespace.__dict__.pop("port")
     robot_check: bool = namespace.__dict__.pop("robot_check")
     max_players: int = namespace.__dict__.pop("max_players")
-    namespace.console_cls = console_cls
 
     try:
         with ThreadPoolExecutor(max_workers=32) as executor:

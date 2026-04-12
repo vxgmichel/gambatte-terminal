@@ -29,58 +29,6 @@ def set_tcp_nodelay(writer: TelnetWriter) -> None:
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 
 
-async def paced_forward_output(
-    read_fd: int,
-    writer: TelnetWriter,
-    fps: float = 60.0,
-) -> None:
-    """Read from a pipe and forward to the telnet writer at a paced rate.
-
-    Accumulates data written to *read_fd* over each ``1/fps`` interval,
-    then writes the batch to *writer* and drains.  Combined with
-    ``TCP_NODELAY``, this produces roughly one TCP packet per interval.
-
-    :param read_fd: read end of the output pipe
-    :param writer: telnetlib3 writer
-    :param fps: target packets per second
-    """
-    loop = asyncio.get_event_loop()
-    reader = asyncio.StreamReader()
-    read_file = os.fdopen(read_fd, "rb")
-    transport, _ = await loop.connect_read_pipe(
-        lambda: asyncio.StreamReaderProtocol(reader),
-        read_file,
-    )
-    interval = 1.0 / fps
-    try:
-        while not reader.at_eof():
-            deadline = loop.time() + interval
-            buf = bytearray()
-            while True:
-                remaining = deadline - loop.time()
-                if remaining <= 0:
-                    break
-                try:
-                    chunk = await asyncio.wait_for(
-                        reader.read(65536), timeout=remaining
-                    )
-                    if not chunk:
-                        if buf:
-                            writer.write(bytes(buf))
-                            await writer.drain()
-                        return
-                    buf.extend(chunk)
-                except asyncio.TimeoutError:
-                    break
-            if buf:
-                writer.write(bytes(buf))
-                await writer.drain()
-    except (ConnectionResetError, BrokenPipeError, EOFError):
-        pass
-    finally:
-        transport.close()
-
-
 @contextmanager
 def bind_resize_telnet(
     writer: TelnetWriter,
@@ -122,8 +70,32 @@ async def async_reader_to_sync_pipe(reader: TelnetReader, write_fd: int) -> None
                 break
             writer.write(data)
             await writer.drain()
+    except (ConnectionResetError, BrokenPipeError, EOFError):
+        pass
     finally:
         writer.close()
+
+
+async def sync_pipe_to_async_writer(writer: TelnetWriter, read_fd: int) -> None:
+    loop = asyncio.get_event_loop()
+    reader = asyncio.StreamReader()
+    read_file = os.fdopen(read_fd, "rb")
+    transport, _ = await loop.connect_read_pipe(
+        lambda: asyncio.StreamReaderProtocol(reader),
+        read_file,
+    )
+    try:
+        while True:
+            # Choose a buffer big enough to hold a full frame and avoid fragmentation
+            chunk = await reader.read(65536)
+            if not chunk:
+                break
+            writer.write(chunk)
+            await writer.drain()
+    except (ConnectionResetError, BrokenPipeError, EOFError):
+        pass
+    finally:
+        transport.close()
 
 
 async def telnet_to_terminal(
@@ -145,15 +117,21 @@ async def telnet_to_terminal(
     cols = writer.get_extra_info("cols") or 80
     rows = writer.get_extra_info("rows") or 24
 
-    forward_read_fd, forward_write_fd = os.pipe()
+    output_read_fd, output_write_fd = os.pipe()
     forward_task: asyncio.Task[None] | None = None
 
     input_read_fd, input_write_fd = os.pipe()
     input_task: asyncio.Task[None] | None = None
 
+    # Set TCP_NODELAY to disable Nagle's algorithm
+    set_tcp_nodelay(writer)
+
     def _target() -> T:
         try:
-            with open(forward_write_fd, "w", newline="\r\n") as stream:
+            # The output stream is created so that the remote terminal can be instanciated.
+            # However, it's not used in practice since the `run` function writes bytes directly to the file decriptor.
+            # Still, this context manager is responsible for closing the `output_write_fd` file descriptor.
+            with open(output_write_fd, "w", newline="\r\n") as stream:
                 telnet_term = RemoteTerminal(
                     stream=stream,
                     keyboard_fd=input_read_fd,
@@ -166,7 +144,9 @@ async def telnet_to_terminal(
             os.close(input_read_fd)
 
     loop = asyncio.get_running_loop()
-    forward_task = asyncio.create_task(paced_forward_output(forward_read_fd, writer))
+    forward_task = asyncio.create_task(
+        sync_pipe_to_async_writer(writer, output_read_fd)
+    )
     input_task = asyncio.create_task(async_reader_to_sync_pipe(reader, input_write_fd))
     try:
         return await loop.run_in_executor(executor, _target)
@@ -175,10 +155,11 @@ async def telnet_to_terminal(
         # so forward_task will see EOF. Just wait for it to finish.
         try:
             await asyncio.wait_for(forward_task, timeout=2.0)
-        except asyncio.TimeoutError:
+        except (asyncio.TimeoutError, asyncio.CancelledError):
             forward_task.cancel()
         try:
-            input_task.cancel()
+            if not writer.is_closing():
+                writer.close()
             await asyncio.wait_for(input_task, timeout=2.0)
         except (asyncio.TimeoutError, asyncio.CancelledError):
-            pass
+            input_task.cancel()
