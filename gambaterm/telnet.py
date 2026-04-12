@@ -114,14 +114,17 @@ ShellCallback: TypeAlias = Callable[
 def make_telnet_shell(
     app_config: argparse.Namespace,
     console_cls: Type[Console],
+    idle_timeout: float | None,
     executor: ThreadPoolExecutor,
 ) -> ShellCallback:
     """Create a telnet shell callback with app_config and executor bound."""
 
     async def telnet_shell(reader: TelnetReader, writer: TelnetWriter) -> None:
         try:
-            await _telnet_shell(reader, writer, app_config, console_cls, executor)
-        except KeyboardInterrupt:
+            await _telnet_shell(
+                reader, writer, app_config, console_cls, idle_timeout, executor
+            )
+        except (KeyboardInterrupt, EOFError):
             pass
         except SystemExit:
             pass
@@ -141,11 +144,12 @@ def _fmt_idle(seconds: float) -> str:
 
 
 async def _log_connection_stats(
+    reader: TelnetReader,
     writer: TelnetWriter,
     peer_host: str,
     peer_port: int,
-    interval: float = 30.0,
-    idle_timeout: float = 300.0,
+    idle_timeout: float,
+    interval: float = 10.0,
 ) -> None:
     """Periodically log tx stats and idle time. Kick idle clients."""
     protocol = writer.protocol
@@ -200,13 +204,8 @@ async def _log_connection_stats(
                     f"[Stats {peer_host}:{peer_port}] "
                     f"kicking idle client after {_fmt_idle(idle_duration)}"
                 )
-                try:
-                    await writer.drain()
-                    writer.write(b"\r\n\r\nConnection closed for idle client\r\n")
-                    await writer.drain()
-                except (ConnectionError, OSError):
-                    pass
-                writer.close()
+                # Send an EOF to the emulator thread to trigger a graceful shutdown.
+                reader.feed_data(b"\x04")
                 return
 
             prev_time = now
@@ -229,6 +228,7 @@ async def _telnet_shell(
     writer: TelnetWriter,
     app_config: argparse.Namespace,
     console_cls: type[Console],
+    idle_timeout: float | None,
     executor: ThreadPoolExecutor,
 ) -> int:
     peername = writer.get_extra_info("peername")
@@ -258,9 +258,12 @@ async def _telnet_shell(
     # Kitty keyboard protocol implies 24-bit color support
     color_mode = app_config.color_mode or ColorMode.HAS_24_BIT_COLOR
 
-    stats_task = asyncio.create_task(
-        _log_connection_stats(writer, peer_host, peer_port)
-    )
+    if idle_timeout is not None:
+        stats_task = asyncio.create_task(
+            _log_connection_stats(reader, writer, peer_host, peer_port, idle_timeout)
+        )
+    else:
+        stats_task = None
 
     cols = writer.get_extra_info("cols") or 80
     rows = writer.get_extra_info("rows") or 24
@@ -295,11 +298,12 @@ async def _telnet_shell(
             target,
         )
     finally:
-        stats_task.cancel()
-        try:
-            await stats_task
-        except asyncio.CancelledError:
-            pass
+        if stats_task is not None:
+            stats_task.cancel()
+            try:
+                await stats_task
+            except asyncio.CancelledError:
+                pass
 
 
 async def run_server(
@@ -307,13 +311,14 @@ async def run_server(
     port: int,
     robot_check: bool,
     max_players: int,
+    idle_timeout: float | None,
     console_cls: type[Console],
     namespace: argparse.Namespace,
     executor: ThreadPoolExecutor,
 ) -> None:
     import telnetlib3
 
-    shell = make_telnet_shell(namespace, console_cls, executor)
+    shell = make_telnet_shell(namespace, console_cls, idle_timeout, executor)
 
     if robot_check or max_players > 0:
         from telnetlib3.guard_shells import ConnectionCounter, busy_shell
@@ -401,12 +406,19 @@ def main(
         default=8023,
         help="Port of the telnet server (default is 8023)",
     )
+    parser.add_argument(
+        "--idle-timeout",
+        type=float,
+        default=None,
+        help="Idle timeout in seconds (default is disabled)",
+    )
 
     namespace = parser.parse_args(parser_args)
     bind: str = namespace.__dict__.pop("bind")
     port: int = namespace.__dict__.pop("port")
     robot_check: bool = namespace.__dict__.pop("robot_check")
     max_players: int = namespace.__dict__.pop("max_players")
+    idle_timeout: float | None = namespace.__dict__.pop("idle_timeout")
 
     try:
         with ThreadPoolExecutor(max_workers=32) as executor:
@@ -416,6 +428,7 @@ def main(
                     port,
                     robot_check,
                     max_players,
+                    idle_timeout,
                     console_cls,
                     namespace,
                     executor,
