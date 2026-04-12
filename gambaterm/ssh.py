@@ -460,6 +460,11 @@ def main(
             "Both `--password` and `--no-auth` cannot be provided at the same time"
         )
 
+    # Make sure that the ROM file exists before starting the server
+    rom_path: Path = namespace.romfile
+    if not rom_path.exists():
+        raise SystemExit(f"ROM file `{rom_path}` does not exist")
+
     # Run an executor with no limit on the number of threads
     try:
         with ThreadPoolExecutor(max_workers=32) as executor:
