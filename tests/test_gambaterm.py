@@ -16,9 +16,16 @@ def ssh_config(tmp_path: Path) -> Iterator[Path]:
     (tmp_path / "id_rsa.pub").write_bytes(rsa_key.export_public_key())
     os.chmod(tmp_path / "id_rsa", 0o600)
     os.chmod(tmp_path / "id_rsa.pub", 0o600)
-    os.environ["GAMBATERM_SSH_KEY_DIR"] = str(tmp_path)
+    os.environ["GAMBATERM_USER_SSH_DIR"] = str(tmp_path)
     yield tmp_path
-    del os.environ["GAMBATERM_SSH_KEY_DIR"]
+    del os.environ["GAMBATERM_USER_SSH_DIR"]
+
+
+@pytest.fixture
+def gambaterm_config(tmp_path: Path) -> Iterator[Path]:
+    os.environ["GAMBATERM_CONFIG_DIR"] = str(tmp_path)
+    yield tmp_path
+    del os.environ["GAMBATERM_CONFIG_DIR"]
 
 
 @pytest.mark.parametrize(
@@ -41,7 +48,7 @@ def test_gambaterm(interactive: bool) -> None:
         assert "▀ ▄▄ ▀" in result.stdout
 
 
-def test_gambaterm_ssh(ssh_config: Path) -> None:
+def test_gambaterm_ssh(ssh_config: Path, gambaterm_config: Path) -> None:
     assert TEST_ROM.exists()
     command = f"gambaterm-ssh {TEST_ROM} --break-after 10 --input-file /dev/null --color-mode 4"
     env = os.environ.copy()
@@ -52,7 +59,17 @@ def test_gambaterm_ssh(ssh_config: Path) -> None:
     assert server.stdout is not None
     assert server.stderr is not None
     try:
-        assert server.stdout.readline() == "Running ssh server on 127.0.0.1:8022...\n"
+        assert (
+            server.stdout.readline()
+            == f"Generating SSH host key at {gambaterm_config / 'ssh_host_key'}...\n"
+        )
+        assert server.stdout.readline() == "Authentication methods:\n"
+        assert (
+            server.stdout.readline()
+            == f"- Public keys from: {ssh_config / 'id_rsa.pub'}\n"
+        )
+        assert server.stdout.readline() == "Running SSH server on 127.0.0.1:8022...\n"
+        assert (gambaterm_config / "ssh_host_key").exists()
         client = run(
             f"ssh -tt -q localhost -p 8022 -X -i {ssh_config / 'id_rsa'} -o StrictHostKeyChecking=no",
             shell=True,

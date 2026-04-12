@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import os
 import time
+import hmac
 import asyncio
 import argparse
 import traceback
 from pathlib import Path
-from typing import IO, Callable, cast, ContextManager
+from dataclasses import dataclass
+from typing import IO, Callable, TypeAlias, cast, ContextManager
 from enum import Enum, auto
 from concurrent.futures import ThreadPoolExecutor, CancelledError
 
@@ -251,10 +253,30 @@ sandbox. More information here: https://security.stackexchange.com/a/7496
             pass
 
 
+@dataclass
+class PasswordAndPublicKeyAuthentication:
+    password: str
+
+
+@dataclass
+class PublicKeyAuthentication:
+    pass
+
+
+@dataclass
+class NoAuthentication:
+    pass
+
+
+AuthenticationMethod: TypeAlias = (
+    PasswordAndPublicKeyAuthentication | PublicKeyAuthentication | NoAuthentication
+)
+
+
 class SSHServer(asyncssh.SSHServer):
     def __init__(
         self,
-        password: str | None,
+        authentication: AuthenticationMethod,
         console_cls: type[Console],
         namespace: argparse.Namespace,
         executor: ThreadPoolExecutor,
@@ -262,7 +284,7 @@ class SSHServer(asyncssh.SSHServer):
         self._gambaterm_console_cls = console_cls
         self._gambaterm_namespace = namespace
         self._gambaterm_executor = executor
-        self._gambaterm_password = password
+        self._gambaterm_authentication = authentication
 
     def connection_made(self, conn: asyncssh.SSHServerConnection) -> None:
         conn.set_extra_info(console_cls=self._gambaterm_console_cls)
@@ -270,7 +292,7 @@ class SSHServer(asyncssh.SSHServer):
         conn.set_extra_info(namespace=self._gambaterm_namespace)
 
     def begin_auth(self, username: str) -> bool:
-        return True
+        return not isinstance(self._gambaterm_authentication, NoAuthentication)
 
     def session_requested(self) -> SSHServerProcess[str]:
         return asyncssh.SSHServerProcess(
@@ -278,34 +300,65 @@ class SSHServer(asyncssh.SSHServer):
         )
 
     def password_auth_supported(self) -> bool:
-        return bool(self._gambaterm_password)
+        return isinstance(
+            self._gambaterm_authentication, (PasswordAndPublicKeyAuthentication,)
+        )
 
     def validate_password(self, username: str, password: str) -> bool:
-        assert self._gambaterm_password is not None
-        return password == self._gambaterm_password
+        assert isinstance(
+            self._gambaterm_authentication, PasswordAndPublicKeyAuthentication
+        )
+        return hmac.compare_digest(password, self._gambaterm_authentication.password)
 
 
 async def run_server(
     bind: str,
     port: int,
-    password: str | None,
+    authentication: AuthenticationMethod,
     console_cls: type[Console],
     namespace: argparse.Namespace,
     executor: ThreadPoolExecutor,
 ) -> None:
-    ssh_key_dir = Path(os.environ.get("GAMBATERM_SSH_KEY_DIR", "~/.ssh"))
-    user_private_key = (ssh_key_dir / "id_rsa").expanduser()
-    user_public_key = (ssh_key_dir / "id_rsa.pub").expanduser()
-    if not user_private_key.exists():
-        raise SystemExit(
-            f"The server requires a private RSA key to use as a host hey.\n"
-            f"You may generate one by running the following command:\n\n"
-            f"    ssh-keygen -f {ssh_key_dir / 'id_rsa'} -P ''\n"
-        )
-    server_host_keys = [str(user_private_key)]
+    # Gambaterm configuration
+    gambaterm_config_dir = Path(
+        os.environ.get("GAMBATERM_CONFIG_DIR", "~/.config/gambaterm")
+    ).expanduser()
+    server_host_key = gambaterm_config_dir / "ssh_host_key"
+    config_authorized_keys = gambaterm_config_dir / "authorized_keys"
+
+    # User SSH public keys (for authentication)
+    user_ssh_dir = Path(os.environ.get("GAMBATERM_USER_SSH_DIR", "~/.ssh")).expanduser()
+    user_authorized_keys = user_ssh_dir / "authorized_keys"
+
+    # Generate host key if it does not exist
+    if not server_host_key.exists():
+        print(f"Generating SSH host key at {server_host_key}...")
+        server_host_key.parent.mkdir(parents=True, exist_ok=True)
+        key = asyncssh.generate_private_key("ssh-ed25519")
+        server_host_key.write_bytes(key.export_private_key())
+        server_host_key.chmod(0o600)
+    server_host_keys = [str(server_host_key)]
+
+    # Collect authorized client keys for public key authentication
     authorized_client_keys = []
-    if user_public_key.exists():
-        authorized_client_keys = [str(user_public_key)]
+    if isinstance(
+        authentication, (PublicKeyAuthentication, PasswordAndPublicKeyAuthentication)
+    ):
+        for key_type in ["rsa", "ed25519", "ecdsa"]:
+            user_public_key = user_ssh_dir / f"id_{key_type}.pub"
+            if user_public_key.exists():
+                authorized_client_keys.append(str(user_public_key))
+        if user_authorized_keys.exists():
+            authorized_client_keys.append(str(user_authorized_keys))
+        if config_authorized_keys.exists():
+            authorized_client_keys.append(str(config_authorized_keys))
+    if not authorized_client_keys and isinstance(
+        authentication, PublicKeyAuthentication
+    ):
+        raise SystemExit(
+            f"Public key authentication is enabled, but no authorized keys were found.\n"
+            f"Please add the public keys of allowed clients to {config_authorized_keys}."
+        )
 
     # Remove chacha20 from encryption_algs because it's a bit too expensive
     encryption_algs = [
@@ -318,7 +371,7 @@ async def run_server(
     ]
 
     server = await asyncssh.create_server(
-        lambda: SSHServer(password, console_cls, namespace, executor),
+        lambda: SSHServer(authentication, console_cls, namespace, executor),
         bind,
         port,
         server_host_keys=server_host_keys,
@@ -328,8 +381,22 @@ async def run_server(
         line_editor=False,
         reuse_address=True,
     )
+
+    match authentication:
+        case NoAuthentication():
+            print("Authentication disabled (no password nor public key required)")
+        case PasswordAndPublicKeyAuthentication():
+            print("Authentication methods:")
+            print("- Global password")
+            for key_path in authorized_client_keys:
+                print(f"- Public keys from: {key_path}")
+        case PublicKeyAuthentication():
+            print("Authentication methods:")
+            for key_path in authorized_client_keys:
+                print(f"- Public keys from: {key_path}")
     bind, port = server.sockets[0].getsockname()
-    print(f"Running ssh server on {bind}:{port}...", flush=True)
+    print(f"Running SSH server on {bind}:{port}...", flush=True)
+
     async with server:
         # Sleep forever
         await asyncio.Future()
@@ -365,19 +432,37 @@ def main(
         default=None,
         help="Enable password authentification with the given global password",
     )
+    parser.add_argument(
+        "--no-auth",
+        action="store_true",
+        help="Disable authentication altogether (no password nor public key required)",
+    )
 
     # Parse arguments
     namespace = parser.parse_args(parser_args)
     bind: str = namespace.__dict__.pop("bind")
     port: int = namespace.__dict__.pop("port")
     password: str = namespace.__dict__.pop("password")
+    no_auth: bool = namespace.__dict__.pop("no_auth")
+
+    # Determine authentication method
+    if no_auth and password is None:
+        authentication: AuthenticationMethod = NoAuthentication()
+    elif not no_auth and password is not None:
+        authentication = PasswordAndPublicKeyAuthentication(password)
+    elif not no_auth and password is None:
+        authentication = PublicKeyAuthentication()
+    else:
+        raise SystemExit(
+            "Both `--password` and `--no-auth` cannot be provided at the same time"
+        )
 
     # Run an executor with no limit on the number of threads
     try:
         with ThreadPoolExecutor(max_workers=32) as executor:
             # Run the server in asyncio
             asyncio.run(
-                run_server(bind, port, password, console_cls, namespace, executor)
+                run_server(bind, port, authentication, console_cls, namespace, executor)
             )
     except KeyboardInterrupt:
         pass
