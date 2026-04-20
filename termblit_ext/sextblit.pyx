@@ -5,6 +5,7 @@ from libc.stdio cimport sprintf
 from libc.stdlib cimport malloc, free
 from libc.string cimport memset, memcpy
 from libc.stdint cimport uint32_t, int64_t
+from libc.math cimport round
 
 include "blitcommon.pxi"
 include "bitonal.pxi"
@@ -97,7 +98,7 @@ cdef extern from *:
     int _table_len[64]
 
 # Display cache: flat arrays indexed by row * max_cols + col
-DEF MAX_CELLS = 3840  # 80 * 48
+DEF MAX_CELLS = 5136  # 107 * 48
 
 # Color snapping threshold, in redmean color distance units (see
 # color_distance).  When a cell's new bg/fg pair is closer than this
@@ -118,8 +119,8 @@ cdef int _cache_fg[MAX_CELLS]
 cdef int _cache_idx[MAX_CELLS]
 cdef int _cache_pixels[MAX_CELLS * 6]
 cdef int _cache_valid[MAX_CELLS]
-cdef int _last_refx, _last_refy, _last_max_rows, _last_max_cols
-_last_refx = _last_refy = _last_max_rows = _last_max_cols = -1
+cdef int _last_refx, _last_refy, _last_max_rows, _last_max_cols, _last_stretch
+_last_refx = _last_refy = _last_max_rows = _last_max_cols = _last_stretch = -1
 
 
 @boundscheck(False)
@@ -131,13 +132,14 @@ cdef char* _blit_sextant(
     int color_mode, char* base,
     int max_rows, int max_cols,
     int hysteresis,
+    int stretch,
 ) noexcept nogil:
 
     cdef int current_x = refx
     cdef int current_y = refy
     cdef int current_fg = -1
     cdef int current_bg = -2
-    cdef int row, col, py, px
+    cdef int row, col, py1, py2, py3, px1, px2
     cdef int pixels[6]
     cdef int bg, fg, sxt_idx
     cdef int orig_bg, orig_fg, orig_idx
@@ -152,17 +154,34 @@ cdef char* _blit_sextant(
 
     # Loop over terminal cells
     for row in range(max_rows):
-        py = row * 3
+
+        if stretch:
+            py1 = row * 3 + 0
+            py2 = row * 3 + 1
+            py3 = row * 3 + 2
+        else:
+            py1 = <int>round((<double>(row * 3 + 0) * 4.0) / 3.0)
+            py2 = <int>round((<double>(row * 3 + 1) * 4.0) / 3.0)
+            py3 = <int>round((<double>(row * 3 + 2) * 4.0) / 3.0)
+
         for col in range(max_cols):
-            px = col * 2
+
+            if stretch:
+                px1 = <int>round((<double>(col * 2 + 0) * 3.0) / 4.0)
+                px2 = <int>round((<double>(col * 2 + 1) * 3.0) / 4.0)
+            else:
+                px1 = col * 2 + 0
+                px2 = col * 2 + 1
+
 
             # Extract 6 pixels (masked to RGB)
-            pixels[0] = image[py, px] & 0xFFFFFF
-            pixels[1] = image[py, px + 1] & 0xFFFFFF
-            pixels[2] = image[py + 1, px] & 0xFFFFFF
-            pixels[3] = image[py + 1, px + 1] & 0xFFFFFF
-            pixels[4] = image[py + 2, px] & 0xFFFFFF
-            pixels[5] = image[py + 2, px + 1] & 0xFFFFFF
+
+            pixels[0] = image[py1, px1] & 0xFFFFFF
+            pixels[1] = image[py1, px2] & 0xFFFFFF
+            pixels[2] = image[py2, px1] & 0xFFFFFF
+            pixels[3] = image[py2, px2] & 0xFFFFFF
+            pixels[4] = image[py3, px1] & 0xFFFFFF
+            pixels[5] = image[py3, px2] & 0xFFFFFF
 
             select_bitonal_pair(pixels, 6, 0x3F, &bg, &fg, &sxt_idx)
 
@@ -210,12 +229,12 @@ cdef char* _blit_sextant(
                     and pixels[4] == _cache_pixels[cell * 6 + 4]
                     and pixels[5] == _cache_pixels[cell * 6 + 5]
                     and has_last
-                    and <int>(last[py, px] & 0xFFFFFF) == pixels[0]
-                    and <int>(last[py, px + 1] & 0xFFFFFF) == pixels[1]
-                    and <int>(last[py + 1, px] & 0xFFFFFF) == pixels[2]
-                    and <int>(last[py + 1, px + 1] & 0xFFFFFF) == pixels[3]
-                    and <int>(last[py + 2, px] & 0xFFFFFF) == pixels[4]
-                    and <int>(last[py + 2, px + 1] & 0xFFFFFF) == pixels[5]
+                    and <int>(last[py1, px1] & 0xFFFFFF) == pixels[0]
+                    and <int>(last[py1, px2] & 0xFFFFFF) == pixels[1]
+                    and <int>(last[py2, px1] & 0xFFFFFF) == pixels[2]
+                    and <int>(last[py2, px2] & 0xFFFFFF) == pixels[3]
+                    and <int>(last[py3, px1] & 0xFFFFFF) == pixels[4]
+                    and <int>(last[py3, px2] & 0xFFFFFF) == pixels[5]
                 ):
                     continue
 
@@ -276,37 +295,62 @@ def blit_sextant(
     uint32_t[:, ::1] image,
     uint32_t[:, ::1] last,
     int refx, int refy, int width, int height,
-    int color_mode,
+    int color_mode, int stretch,
 ):
     cdef int img_h = image.shape[0]
     cdef int img_w = image.shape[1]
-    cdef int max_rows = min(height - refx, img_h // 3)
-    cdef int max_cols = min(width - refy, img_w // 2)
+    cdef int max_rows, max_cols
     cdef char* base
     cdef char* result
     cdef int has_last = 0 if last is None else 1
 
+    if stretch:
+        max_rows = min(height - refx, img_h // 3)
+        max_cols = min(width - refy, img_w * 2 // 3)
+    else:
+        max_rows = min(height - refx, img_h // 4)
+        max_cols = min(width - refy, img_w // 2)
+
     if max_rows <= 0 or max_cols <= 0:
         return b''
 
-    global _last_refx, _last_refy, _last_max_rows, _last_max_cols
+    global _last_refx, _last_refy, _last_max_rows, _last_max_cols, _last_stretch
     if (not has_last or refx != _last_refx or refy != _last_refy
-            or max_rows != _last_max_rows or max_cols != _last_max_cols):
+            or max_rows != _last_max_rows or max_cols != _last_max_cols or stretch != _last_stretch):
         memset(_cache_valid, 0, MAX_CELLS * sizeof(int))
     _last_refx = refx
     _last_refy = refy
     _last_max_rows = max_rows
     _last_max_cols = max_cols
+    _last_stretch = stretch
 
     with nogil:
         base = <char*>malloc(max_rows * max_cols * 60)
         result = _blit_sextant(
             image, last, has_last,
             refx, refy, width, height, color_mode,
-            base, max_rows, max_cols, _hysteresis,
+            base, max_rows, max_cols, _hysteresis, stretch,
         )
 
     try:
         return base[:result - base]
     finally:
         free(base)
+
+
+def blit_sextant_streched(
+    uint32_t[:, ::1] image,
+    uint32_t[:, ::1] last,
+    int refx, int refy, int width, int height,
+    int color_mode
+):
+    return blit_sextant(image, last, refx, refy, width, height, color_mode, True)
+
+
+def blit_sextant_compressed(
+    uint32_t[:, ::1] image,
+    uint32_t[:, ::1] last,
+    int refx, int refy, int width, int height,
+    int color_mode
+):
+    return blit_sextant(image, last, refx, refy, width, height, color_mode, False)

@@ -14,7 +14,7 @@ import numpy.typing as npt
 from blessed import Terminal
 
 from .termblit import blit
-from .sextant import blit_sextant
+from .sextant import blit_sextant_streched, blit_sextant_compressed
 from .octant import blit_octant
 from .halfblock import blit_half
 from .halfblit import set_cp437 as _half_set_cp437
@@ -27,7 +27,8 @@ _CPR_RE = re.compile(r"\x1b\[\d+;\d+R")
 
 _BLIT_NAMES = {
     blit: "fullres",
-    blit_sextant: "sextant",
+    blit_sextant_streched: "sextant_streched",
+    blit_sextant_compressed: "sextant_compressed",
     blit_octant: "octant",
     blit_half: "halfres",
 }
@@ -46,16 +47,17 @@ def get_ref(
     width: int,
     height: int,
     console: Console,
-    sextant: bool = False,
     octant: bool = False,
     halfblock: bool = False,
+    sextant_streched: bool = False,
+    sextant_compressed: bool = False,
 ) -> tuple[int, int]:
-    if octant or halfblock:
+    if octant or halfblock or sextant_compressed:
         rows = console.HEIGHT // 4
         cols = console.WIDTH // 2
-    elif sextant:
+    elif sextant_streched:
         rows = console.HEIGHT // 3
-        cols = console.WIDTH // 2
+        cols = console.WIDTH * 2 // 3
     else:
         rows = console.HEIGHT // 2
         cols = console.WIDTH
@@ -173,11 +175,11 @@ def run(
     def select_blit(w: int, h: int) -> Callable[..., bytes]:
         if h >= console.HEIGHT // 2 and w >= console.WIDTH:
             return blit
-        if not no_sextants and h >= console.HEIGHT // 3 and w >= console.WIDTH // 2:
-            return cast(Callable[..., bytes], blit_sextant)
+        if not no_sextants and h >= console.HEIGHT // 3 and w >= console.WIDTH * 2 // 3:
+            return cast(Callable[..., bytes], blit_sextant_streched)
         if use_octants:
             return cast(Callable[..., bytes], blit_octant)
-        return cast(Callable[..., bytes], blit_half)
+        return cast(Callable[..., bytes], blit_sextant_compressed)
 
     # Print area (default to 24x80 if terminal reports zero)
     height = term.height or 24
@@ -187,9 +189,10 @@ def run(
         width,
         height,
         console,
-        sextant=blit_fn is blit_sextant,
+        sextant_streched=blit_fn is blit_sextant_streched,
         octant=blit_fn is blit_octant,
         halfblock=blit_fn is blit_half,
+        sextant_compressed=blit_fn is blit_sextant_compressed,
     )
 
     # Prepare reporting
@@ -218,7 +221,7 @@ def run(
     # Overlay notification — resize hint at startup when not at full resolution
     _RESIZE_TEXT = " !! Resize window and font size for higher resolution graphics !! "
     overlay: Overlay | None = None
-    if blit_fn in (blit_sextant, blit_octant, blit_half):
+    if blit_fn in (blit_sextant_streched, blit_octant, blit_sextant_compressed):
         overlay = Overlay(_RESIZE_TEXT, duration=6.0)
 
     # Loop over emulator frames
@@ -304,9 +307,10 @@ def run(
                         width,
                         height,
                         console,
-                        sextant=blit_fn is blit_sextant,
+                        sextant_streched=blit_fn is blit_sextant_streched,
                         octant=blit_fn is blit_octant,
                         halfblock=blit_fn is blit_half,
+                        sextant_compressed=blit_fn is blit_sextant_compressed,
                     )
                     color_mode = new_color_mode
                     # Screen cleared — pass None to force full redraw

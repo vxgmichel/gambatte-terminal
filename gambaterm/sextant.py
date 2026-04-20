@@ -6,7 +6,7 @@ For up to 80x48 terminal cells for a 160x144 Game Boy display.
 
 from __future__ import annotations
 
-__all__ = ["SEXTANT", "blit_sextant"]
+__all__ = ["SEXTANT", "blit_sextant_streched", "blit_sextant_compressed"]
 
 
 def _build_sextant_table() -> list[str]:
@@ -47,7 +47,8 @@ def _build_sextant_table() -> list[str]:
 SEXTANT = _build_sextant_table()
 
 from .sextblit import (  # noqa: E402, F401
-    blit_sextant,
+    blit_sextant_streched,
+    blit_sextant_compressed,
     clear_cache as _clear_cache,
 )
 
