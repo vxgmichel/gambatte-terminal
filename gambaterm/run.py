@@ -62,7 +62,7 @@ def run(
 
     # Prepare buffers with invalid data
     video = np.full((console.HEIGHT, console.WIDTH), 0, np.uint32)
-    audio = np.full((2 * console.TICKS_IN_FRAME, 2), -0x7FFF, np.int16)
+    audio = np.full((2 * console.TICKS_IN_FRAME, 2), 0, np.int16)
     last_frame = video.copy()
 
     # Print area (default to 24x80 if terminal reports zero)
@@ -83,10 +83,6 @@ def run(
     shown_frames: Deque[int] = deque(maxlen=average_over)
     data_length: Deque[int] = deque(maxlen=average_over)
     start = time.time()
-
-    # Create a 100 ms time shift to fill up audio buffer
-    if audio_out:
-        start -= 0.1
 
     # Prepare state
     new_frame = False

@@ -30,7 +30,7 @@ dependencies = [
     "numpy>=2.0.0,<3.0.0",
     "asyncssh>=2.9,<3.0.0",
     "blessed>=1.38.0,<2",
-    "sounddevice>=0.4,<1.0",
+    "miniaudio>=1.2",
     "samplerate>=0.1.0,<0.2.0",
     "python-xlib; sys_platform == 'linux'",
     "pynput; sys_platform != 'linux'",
@@ -67,7 +67,7 @@ show_error_codes = true
 module = [
     "pygame",
     "samplerate",
-    "sounddevice",
+    "miniaudio",
     "pynput",
     "Xlib.*",
     "telnetlib3",
@@ -93,6 +93,6 @@ test-requires = "pytest"
 test-command = "pytest {project}/tests -v -k 'test_gambaterm[non-interactive]'"
 
 [tool.cibuildwheel.linux]
-before-all = "yum install -y libsamplerate portaudio openssh-clients"
+before-all = "yum install -y openssh-clients"
 test-requires = "pytest"
 test-command = "pytest {project}/tests -v"
