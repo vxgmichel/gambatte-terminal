@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Iterator, TYPE_CHECKING
+from typing import Generator, Iterator, TYPE_CHECKING
 from queue import Queue, Empty, Full
 from contextlib import contextmanager
 
@@ -15,14 +15,13 @@ if TYPE_CHECKING:
 
 
 class AudioOut:
-    output_rate: float = 48000.0
-    buffer_size: int = int(output_rate // 60)
+    output_rate: float = 48000.0  # Hz
+    buffersize: float = 0.05  # seconds
 
     input_rate: float
     speed: float
     resampler: samplerate.Resampler
     queue: Queue[npt.NDArray[np.int16]]
-    buffer: npt.NDArray[np.int16]
     offset: int
 
     def __init__(
@@ -31,76 +30,104 @@ class AudioOut:
         self.input_rate = input_rate
         self.speed = speed
         self.resampler = resampler
-        self.queue = Queue(maxsize=6)  # 100 ms delay
-        self.buffer = np.full((self.buffer_size, 2), 0.0, np.int16)
+        self.queue = Queue(maxsize=100)
         self.offset = 0
 
     @property
     def ratio(self) -> float:
         return self.output_rate / self.input_rate / self.speed
 
+    @contextmanager
+    def run(self) -> Iterator[AudioOut]:
+        # Late import
+        import miniaudio
+
+        stream = self._audio_stream()
+        next(stream)
+        device = miniaudio.PlaybackDevice(
+            output_format=miniaudio.SampleFormat.SIGNED16,
+            nchannels=2,
+            sample_rate=int(self.output_rate),
+            buffersize_msec=int(round(self.buffersize * 1000)),
+        )
+        device.start(stream)
+        try:
+            yield self
+        finally:
+            device.stop()
+
     def send(self, audio: npt.NDArray[np.int16]) -> None:
         # Resample to output rate
         data = self.resampler.process(audio, self.ratio)
-        # Loop over data blocks
-        while True:
-            # Write the current buffer
-            stop = min(self.buffer_size, self.offset + len(data))
-            self.buffer[self.offset : stop] = data[: stop - self.offset]
-            # Current buffer is not complete
-            if stop != self.buffer_size:
-                self.offset = stop
-                return
-            # Current buffer is complete, decrease volume
-            self.buffer //= 4
-            # Send without blocking if possible
-            try:
-                self.queue.put_nowait(self.buffer)
-            # Synchronization issue, let it regulate itself
-            except Full:
-                pass
-            # Create new buffer
-            self.buffer = np.full((self.buffer_size, 2), 0.0, np.int16)
-            # Process remaining data
-            data = data[stop - self.offset :]
-            self.offset = 0
-
-    def stream_callback(self, output_buffer: npt.NDArray[np.int16], *_: object) -> None:
+        # Reshape
+        data = data.astype(np.int16).reshape(-1, 2)
+        # Reduce volume
+        data //= 4
+        # Send without blocking if possible
         try:
-            output_buffer[:] = self.queue.get_nowait()
-        except Empty:
-            output_buffer.fill(0)
+            self.queue.put_nowait(data)
+        # Synchronization issue, let it regulate itself
+        except Full:
+            pass
+
+    def _audio_stream(self) -> Generator[bytes, int, None]:
+        # Get first required frames
+        extra_frames_start = 0
+        buffer = np.empty((0, 2), dtype=np.int16)
+        required_frames = yield b""
+
+        # Loop over requested frames
+        while True:
+            # Initialize result buffer
+            result = np.zeros((required_frames, 2), dtype=np.int16)
+
+            # We have more frames than required, use them and update the buffer
+            if len(buffer) - extra_frames_start >= required_frames:
+                result[:] = buffer[
+                    extra_frames_start : extra_frames_start + required_frames
+                ]
+                extra_frames_start += required_frames
+
+            # We have less frames than required, use them and get more from the queue
+            else:
+                frames = len(buffer) - extra_frames_start
+                result[:frames] = buffer[extra_frames_start:]
+
+                # Get more frames until we have enough
+                while True:
+                    try:
+                        buffer = self.queue.get_nowait()
+                    except Empty:
+                        extra_frames_start = len(buffer)
+                        break
+
+                    if frames + len(buffer) >= required_frames:
+                        result[frames:required_frames] = buffer[
+                            : required_frames - frames
+                        ]
+                        extra_frames_start = required_frames - frames
+                        break
+                    else:
+                        result[frames : frames + len(buffer)] = buffer
+                        frames += len(buffer)
+
+            # Send the result and get the next required frames
+            required_frames = yield result.tobytes()
 
 
 @contextmanager
 def audio_player(console: Console, speed: float = 1.0) -> Iterator[AudioOut | None]:
-    # Perform late imports
-    import samplerate
+    # Don't play audio if speed is too low or too high
+    if not 0.5 <= speed <= 2.0:
+        yield None
+        return
 
-    # Especially for sounddevice, as it doesn't package the portaudio library in its manylinux wheels.
-    try:
-        import sounddevice
-    except OSError:
-        raise SystemExit(
-            """\
-Audio output is not available because the PortAudio library could not be found.
-Please make sure you have portaudio installed.
-For example, on Debian-based distributions, you can run:
-  $ sudo apt install libportaudio2
-Otherswise, you can use the --no-audio option to run without audio support."""
-        )
+    # Late import
+    import samplerate
 
     input_rate = console.FPS * console.TICKS_IN_FRAME
     resampler = samplerate.Resampler("linear", channels=2)
-    audio_out = AudioOut(input_rate, resampler, speed)
-    with sounddevice.OutputStream(
-        samplerate=audio_out.output_rate,
-        dtype="int16",
-        channels=2,
-        latency="low",
-        blocksize=audio_out.buffer_size,
-        callback=audio_out.stream_callback,
-    ):
+    with AudioOut(input_rate, resampler, speed).run() as audio_out:
         yield audio_out
 
 

@@ -262,7 +262,7 @@ Here is the list of the dependencies used in this project, all great open source
 - [Cython](https://cython.org/) - Binding to gambatte C++ API, and fast video frame conversion
 - [blessed](https://github.com/jquast/blessed) - Cross-platform terminal handling and kitty keyboard protocol support
 - [samplerate](https://github.com/tuxu/python-samplerate) - Resampling the audio stream
-- [sounddevice](https://github.com/spatialaudio/python-sounddevice) - Playing the audio stream
+- [miniaudio](https://github.com/irmen/pyminiaudio) - Playing the audio stream
 - [xlib](https://github.com/python-xlib/python-xlib)/[pynput](https://github.com/moses-palmer/pynput) - Getting keyboard inputs
 - [pygame](https://github.com/pygame/pygame) - Getting game controller inputs
 - [asyncssh](https://github.com/ronf/asyncssh) - Running the SSH server
