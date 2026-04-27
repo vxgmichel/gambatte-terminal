@@ -105,6 +105,7 @@ def main(
     parser_args: tuple[str, ...] | None = None,
     console_cls: type[Console] = GameboyColor,
 ) -> None:
+    # Create parser
     parser = argparse.ArgumentParser(
         prog="gambaterm", description="Gambatte terminal front-end"
     )
@@ -114,14 +115,22 @@ def main(
     parser.add_argument(
         "--disable-audio", "--da", action="store_true", help="Disable audio entirely"
     )
+
+    # Parse arguments
     namespace = parser.parse_args(parser_args)
     disable_audio: bool = namespace.__dict__.pop("disable_audio")
     console_callback = console_cls.pop_console_arguments(namespace)
-    console = console_callback()
     args = AppConfig(**vars(namespace))
 
+    # Check that the ROM file exists
+    if not args.romfile.exists():
+        raise SystemExit(f"ROM file `{args.romfile}` does not exist")
+
+    # Instantiate the console and terminal
+    console = console_callback()
     terminal = Terminal()
 
+    # Prepare input context
     input_context: ContextManager[BaseInputGetter]
     if args.input_file is not None:
         input_context = console_input_from_file_context(
