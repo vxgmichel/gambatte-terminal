@@ -11,6 +11,7 @@ from .console import Console
 
 # Late import of samplerate
 if TYPE_CHECKING:
+    import miniaudio
     import samplerate
 
 
@@ -25,20 +26,15 @@ class AudioOut:
     ema_alpha: float = 0.1
     correction_clamp: float = 0.004
 
-    input_rate: float
-    speed: float
-    resampler: samplerate.Resampler
-
     def __init__(
         self,
-        input_rate: float,
+        console: Console,
         resampler: samplerate.Resampler,
         speed: float = 1.0,
     ):
-        self.input_rate = input_rate
         self.resampler = resampler
-        self.speed = speed
-        self.nominal_sampling_ratio = self.output_rate / self.input_rate / self.speed
+        input_rate = console.FPS * console.TICKS_IN_FRAME
+        self.nominal_sampling_ratio = self.output_rate / input_rate / speed
 
         # Ring buffer state
         self.ring_size = int(self.output_rate * self.audio_delay * 2)
@@ -64,6 +60,26 @@ class AudioOut:
         self.last_buffer_levels = deque[float](maxlen=self.ma_length)
         self.moving_average = 0.5
         self.integral = 0.0
+        self.sampling_ratio = self.nominal_sampling_ratio
+
+    def start(self) -> miniaudio.PlaybackDevice:
+        # Late import
+        import miniaudio
+
+        stream = self._audio_stream()
+        next(stream)
+        device = miniaudio.PlaybackDevice(
+            output_format=miniaudio.SampleFormat.SIGNED16,
+            nchannels=2,
+            sample_rate=int(self.output_rate),
+            buffersize_msec=int(round(self.audio_delay / 2 * 1000)),
+        )
+        device.start(stream)
+        return device
+
+    def update_speed(self, console: Console, speed: float) -> None:
+        input_rate = console.FPS * console.TICKS_IN_FRAME
+        self.nominal_sampling_ratio = self.output_rate / input_rate / speed
         self.sampling_ratio = self.nominal_sampling_ratio
 
     def adapt_sample_rate(self) -> None:
@@ -93,23 +109,6 @@ class AudioOut:
 
         # Return the adjusted sample rate
         self.sampling_ratio = self.nominal_sampling_ratio * correction
-
-    @contextmanager
-    def run(self) -> Iterator[AudioOut]:
-        # Late import
-        import miniaudio
-
-        stream = self._audio_stream()
-        next(stream)
-        device = miniaudio.PlaybackDevice(
-            output_format=miniaudio.SampleFormat.SIGNED16,
-            nchannels=2,
-            sample_rate=int(self.output_rate),
-            buffersize_msec=int(round(self.audio_delay / 2 * 1000)),
-        )
-        device.start(stream)
-        with device:
-            yield self
 
     def send(self, audio: npt.NDArray[np.int16]) -> None:
         # Resample input audio to output rate with speed adjustment
@@ -208,22 +207,59 @@ class AudioOut:
             required_frames = yield result.tobytes()
 
 
+class MaybeAudioOut:
+    def __init__(self, disable_audio: bool = False):
+        self.disable_audio = disable_audio
+        self.audio_out: AudioOut | None = None
+        self.device: miniaudio.PlaybackDevice | None = None
+
+    def stop(self) -> None:
+        if self.device is not None:
+            self.device.stop()
+            self.device = None
+        self.audio_out = None
+
+    def update_speed(self, console: Console, speed: float) -> None:
+        # Ignore if audio is disabled
+        if self.disable_audio:
+            return
+
+        # Speed not supported, disable audio
+        if not (0.499 < speed < 2.001):
+            self.stop()
+            return
+
+        # Adjust speed if audio is enabled
+        if self.audio_out is not None:
+            self.audio_out.update_speed(console, speed)
+            return
+
+        # Late import
+        import samplerate
+
+        # Speed supported, enable audio
+        self.audio_out = AudioOut(
+            console,
+            resampler=samplerate.Resampler("linear", channels=2),
+            speed=speed,
+        )
+        self.device = self.audio_out.start()
+
+    def send(self, audio: npt.NDArray[np.int16]) -> None:
+        if self.audio_out is not None:
+            self.audio_out.send(audio)
+
+
 @contextmanager
-def audio_player(console: Console, speed: float = 1.0) -> Iterator[AudioOut | None]:
-    # Don't play audio if speed is too low or too high
-    if not 0.5 <= speed <= 2.0:
-        yield None
-        return
-
-    # Late import
-    import samplerate
-
-    input_rate = console.FPS * console.TICKS_IN_FRAME
-    resampler = samplerate.Resampler("linear", channels=2)
-    with AudioOut(input_rate, resampler, speed).run() as audio_out:
-        yield audio_out
+def audio_player(
+    console: Console, speed: float = 1.0, disable_audio: bool = False
+) -> Iterator[MaybeAudioOut]:
+    maybe_audio_out = MaybeAudioOut(disable_audio=disable_audio)
+    maybe_audio_out.update_speed(console, speed)
+    try:
+        yield maybe_audio_out
+    finally:
+        maybe_audio_out.stop()
 
 
-@contextmanager
-def no_audio(console: Console, speed: float = 1.0) -> Iterator[AudioOut | None]:
-    yield None
+DISABLED_AUDIO_OUT = MaybeAudioOut(disable_audio=True)

@@ -11,7 +11,7 @@ from blessed import Terminal
 
 from .run import run
 from .console import GameboyColor, Console
-from .audio import audio_player, no_audio
+from .audio import audio_player
 from .colors import detect_local_color_mode, ColorMode
 from .input_getter import BaseInputGetter
 from .keyboard_input import console_input_from_keyboard_context
@@ -168,8 +168,7 @@ def main(
 
             # Enter input and audio contexts
             with input_context as get_gb_input:
-                player = no_audio if disable_audio else audio_player
-                with player(console, args.speed) as audio_out:
+                with audio_player(console, args.speed, disable_audio) as audio_out:
                     # Run the emulator
                     run(
                         console,
