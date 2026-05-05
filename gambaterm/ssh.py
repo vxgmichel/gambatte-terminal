@@ -74,8 +74,8 @@ def detect_input_source(
 async def safe_ssh_process_handler(process: SSHServerProcess[str]) -> None:
     try:
         result = await ssh_process_handler(process)
-    except KeyboardInterrupt:
-        result = 1
+    except (KeyboardInterrupt, EOFError):
+        result = 0
     except SystemExit as e:
         if isinstance(e.code, int):
             result = e.code
@@ -233,11 +233,7 @@ sandbox. More information here: https://security.stackexchange.com/a/7496
                 speed=app_config.speed,
                 use_cpr_sync=app_config.cpr_sync,
             )
-
-    except (KeyboardInterrupt, OSError):
-        return 0
-    else:
-        return 0
+            return 0
     finally:
         # Wait for CPR
         time.sleep(0.1)

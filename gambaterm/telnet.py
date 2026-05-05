@@ -91,7 +91,7 @@ def thread_target(
                 break_after=app_config.break_after,
                 speed=app_config.speed,
             )
-    except (KeyboardInterrupt, OSError):
+    except (KeyboardInterrupt, EOFError):
         return 0
     else:
         return 0
