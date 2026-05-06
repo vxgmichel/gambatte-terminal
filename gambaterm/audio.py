@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 class AudioOut:
     output_rate: float = 48000.0  # Hz
     audio_delay: float = 0.100  # seconds
+    audio_volume: float = 0.25
 
     # Controller configuration
     kp: float = 0.1
@@ -110,10 +111,10 @@ class AudioOut:
         # Return the adjusted sample rate
         self.sampling_ratio = self.nominal_sampling_ratio * correction
 
-    def send(self, audio: npt.NDArray[np.int16]) -> None:
+    def send(self, console: Console, audio: npt.NDArray[np.int16]) -> None:
         # Resample input audio to output rate with speed adjustment
         resampled = self.resampler.process(
-            audio // 4,
+            audio * self.audio_volume - console.AUDIO_OFFSET * self.audio_volume,
             self.sampling_ratio,
         ).astype(np.int16)
 
@@ -245,9 +246,9 @@ class MaybeAudioOut:
         )
         self.device = self.audio_out.start()
 
-    def send(self, audio: npt.NDArray[np.int16]) -> None:
+    def send(self, console: Console, audio: npt.NDArray[np.int16]) -> None:
         if self.audio_out is not None:
-            self.audio_out.send(audio)
+            self.audio_out.send(console, audio)
 
 
 @contextmanager

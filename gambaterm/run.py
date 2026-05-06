@@ -111,7 +111,7 @@ def run(
 
         # Send audio
         with timing(audio_deltas):
-            audio_out.send(audio[:samples, :])
+            audio_out.send(console, audio[:samples, :])
 
         # Read keys for ctrl-c, ctrl-d, and CPR response.
         # If the kitty keyboard protocol is used, all inputs are sent as CSI sequences
