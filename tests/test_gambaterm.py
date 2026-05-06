@@ -71,18 +71,25 @@ def test_gambaterm_ssh(ssh_config: Path, gambaterm_config: Path) -> None:
         )
         assert server.stdout.readline() == "Running SSH server on 127.0.0.1:8022...\n"
         assert (gambaterm_config / "ssh_host_key").exists()
-        client = run(
-            f"ssh -tt -q localhost -p 8022 -X -i {ssh_config / 'id_rsa'} -o StrictHostKeyChecking=no",
+        client = Popen(
+            f"ssh -tt -q localhost -p 8022 -i {ssh_config / 'id_rsa'} -o StrictHostKeyChecking=no",
             shell=True,
-            check=True,
-            capture_output=True,
+            stdin=PIPE,
+            stdout=PIPE,
+            stderr=PIPE,
             text=True,
-            timeout=5,
+            env={**os.environ, "TERM": "xterm-256color"},
         )
-        assert client.stderr == ""
-        assert "| test_rom.gb |" in client.stdout
+        assert client.stdout is not None
+        assert client.stderr is not None
+        client.wait(timeout=5)
+        client_stdout = client.stdout.read()
+        client_stderr = client.stderr.read()
+        assert client.returncode == 0
+        assert client_stderr == ""
+        assert "| test_rom.gb |" in client_stdout
         if sys.platform == "linux":
-            assert "▀ ▄▄ ▀" in client.stdout
+            assert "▀ ▄▄ ▀" in client_stdout
     finally:
         server.terminate()
         server.wait()
