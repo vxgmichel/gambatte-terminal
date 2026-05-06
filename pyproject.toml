@@ -93,6 +93,5 @@ test-requires = "pytest"
 test-command = "pytest {project}/tests -v -k 'test_gambaterm[non-interactive]'"
 
 [tool.cibuildwheel.linux]
-before-all = "yum install -y openssh-clients"
 test-requires = "pytest"
 test-command = "pytest {project}/tests -v"

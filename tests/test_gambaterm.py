@@ -71,22 +71,24 @@ def test_gambaterm_ssh(ssh_config: Path, gambaterm_config: Path) -> None:
         )
         assert server.stdout.readline() == "Running SSH server on 127.0.0.1:8022...\n"
         assert (gambaterm_config / "ssh_host_key").exists()
-        client = Popen(
-            f"ssh -tt -q localhost -p 8022 -i {ssh_config / 'id_rsa'} -o StrictHostKeyChecking=no",
-            shell=True,
-            stdin=PIPE,
-            stdout=PIPE,
-            stderr=PIPE,
-            text=True,
-            env={**os.environ, "TERM": "xterm-256color"},
-        )
-        assert client.stdout is not None
-        assert client.stderr is not None
-        client.wait(timeout=5)
-        client_stdout = client.stdout.read()
-        client_stderr = client.stderr.read()
-        assert client.returncode == 0
-        assert client_stderr == ""
+
+        async def ssh_client() -> str:
+            async with asyncssh.connect(
+                host="127.0.0.1",
+                port=8022,
+                client_keys=[str(ssh_config / "id_rsa")],
+                known_hosts=None,
+                username=os.environ.get("USER", "user"),
+            ) as conn:
+                result = await conn.run(
+                    "",
+                    term_type="xterm-256color",
+                    term_size=(80, 24),
+                )
+                assert isinstance(result.stdout, str)
+                return result.stdout
+
+        client_stdout = asyncio.run(ssh_client())
         assert "| test_rom.gb |" in client_stdout
         if sys.platform == "linux":
             assert "▀ ▄▄ ▀" in client_stdout
