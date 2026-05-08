@@ -13,7 +13,7 @@ import numpy as np
 from blessed import Terminal
 
 from .termblit import blit
-from .audio import AudioOut
+from .audio import MaybeAudioOut, DISABLED_AUDIO_OUT
 from .console import Console
 from .input_getter import BaseInputGetter
 from .colors import ColorMode
@@ -51,7 +51,7 @@ def run(
     console: Console,
     input_getter: BaseInputGetter,
     term: Terminal,
-    audio_out: AudioOut | None = None,
+    audio_out: MaybeAudioOut = DISABLED_AUDIO_OUT,
     frame_advance: int = 1,
     color_mode: ColorMode = ColorMode.HAS_24_BIT_COLOR,
     break_after: int | None = None,
@@ -62,7 +62,7 @@ def run(
 
     # Prepare buffers with invalid data
     video = np.full((console.HEIGHT, console.WIDTH), 0, np.uint32)
-    audio = np.full((2 * console.TICKS_IN_FRAME, 2), -0x7FFF, np.int16)
+    audio = np.full((2 * console.TICKS_IN_FRAME, 2), 0, np.int16)
     last_frame = video.copy()
 
     # Print area (default to 24x80 if terminal reports zero)
@@ -83,10 +83,6 @@ def run(
     shown_frames: Deque[int] = deque(maxlen=average_over)
     data_length: Deque[int] = deque(maxlen=average_over)
     start = time.time()
-
-    # Create a 100 ms time shift to fill up audio buffer
-    if audio_out:
-        start -= 0.1
 
     # Prepare state
     new_frame = False
@@ -115,8 +111,7 @@ def run(
 
         # Send audio
         with timing(audio_deltas):
-            if audio_out:
-                audio_out.send(audio[:samples, :])
+            audio_out.send(console, audio[:samples, :])
 
         # Read keys for ctrl-c, ctrl-d, and CPR response.
         # If the kitty keyboard protocol is used, all inputs are sent as CSI sequences
@@ -131,6 +126,11 @@ def run(
                 raise EOFError
             if key.key_name == "KEY_TAB":
                 new_color_mode = color_mode.cycle()
+            if key.key_name in ("KEY_PGUP", "KEY_PGDOWN"):
+                speed += 0.1 if key.key_name == "KEY_PGUP" else -0.1
+                fps = console.FPS * speed
+                average_over = int(round(fps))  # frames
+                audio_out.update_speed(console, speed)
             if _CPR_RE.match(str(key)):
                 screen_ready = True
 
@@ -219,7 +219,9 @@ def run(
             data_rate = sum(data_length) / len(data_length) * total_fps / 1000
             title = f"Gambaterm - {total_fps:.0f} FPS | "
             title += f"{os.path.basename(console.romfile)} | "
-            title += f"Emu: {emu_fps:.0f} FPS - {emu_percent:.0f}% CPU | "
+            title += (
+                f"Emu: {speed:.2f}x - {emu_fps:.0f} FPS - {emu_percent:.0f}% CPU | "
+            )
             title += f"Video: {video_fps:.0f} FPS - {video_percent:.0f}% CPU - "
             title += f"{data_rate:.0f} KB/s | "
             title += f"Audio: {audio_percent:.0f}% CPU | "

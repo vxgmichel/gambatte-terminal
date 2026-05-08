@@ -26,7 +26,7 @@ def get_extensions() -> list[Extension]:
     # Add zlib library for ZIP support
     libraries = []
     if platform.system() == "Windows":
-        libraries += ["zlib"]
+        libraries += ["zs"]
     else:
         libraries += ["z"]
 

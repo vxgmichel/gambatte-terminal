@@ -17,6 +17,7 @@ class Console:
     HEIGHT: int = NotImplemented
     FPS: float = NotImplemented
     TICKS_IN_FRAME: int = NotImplemented
+    AUDIO_OFFSET: int = 0
 
     class Input(IntEnum):
         A = 0x01
@@ -101,6 +102,7 @@ class GameboyColor(Console):
     HEIGHT: int = 144
     FPS: float = 59.727500569606
     TICKS_IN_FRAME: int = 35112
+    AUDIO_OFFSET: int = -0x1E00
 
     gb: GB
     force_gameboy: bool
