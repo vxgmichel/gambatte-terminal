@@ -37,11 +37,6 @@ dependencies = [
     "telnetlib3>=4.0.1,<5",
 ]
 
-[dependency-groups]
-dev = [
-    "pytest>=9.0.2",
-]
-
 [project.optional-dependencies]
 controller-support = ["pygame>=1.9.5,<2.0.0"]
 
@@ -53,6 +48,11 @@ gambaterm = "gambaterm.main:main"
 gambaterm-ssh = "gambaterm.ssh:main"
 gambaterm-telnet = "gambaterm.telnet:main"
 
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]
+
 [tool.setuptools]
 packages = ["gambaterm"]
 
@@ -61,7 +61,6 @@ gambaterm = ["py.typed", "*.pyi"]
 
 [tool.mypy]
 strict = true
-show_error_codes = true
 
 [[tool.mypy.overrides]]
 module = [
