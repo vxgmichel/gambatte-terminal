@@ -17,8 +17,15 @@ if TYPE_CHECKING:
 
 class AudioOut:
     output_rate: float = 48000.0  # Hz
-    audio_delay: float = 0.100  # seconds
     audio_volume: float = 0.25
+
+    # Delay configuration   | In frames  | At 0.5 speed | At 1x speed | At 2x speed |
+    # ----------------------|------------|--------------|-------------|-------------|
+    # Emulator push         | 1 frame    | 33 ms        | 17 ms       | 8 ms        |
+    # Miniaudio poll        | 1.5 frames | 50 ms        | 25 ms       | 12 ms       |
+    # Expected audio delay  | 3 frames   | 100 ms       | 50 ms       | 25 ms       |
+    # Ring buffer size      | 6 frames   | 200 ms       | 100 ms      | 50 ms       |
+    audio_delay_in_frames: int = 3
 
     # Controller configuration
     kp: float = 0.1
@@ -36,6 +43,7 @@ class AudioOut:
         self.resampler = resampler
         input_rate = console.FPS * console.TICKS_IN_FRAME
         self.nominal_sampling_ratio = self.output_rate / input_rate / speed
+        self.audio_delay = self.audio_delay_in_frames / console.FPS / speed
 
         # Ring buffer state
         self.ring_size = int(self.output_rate * self.audio_delay * 2)
@@ -77,11 +85,6 @@ class AudioOut:
         )
         device.start(stream)
         return device
-
-    def update_speed(self, console: Console, speed: float) -> None:
-        input_rate = console.FPS * console.TICKS_IN_FRAME
-        self.nominal_sampling_ratio = self.output_rate / input_rate / speed
-        self.sampling_ratio = self.nominal_sampling_ratio
 
     def adapt_sample_rate(self) -> None:
         # First perform a short moving average of the last 5 measurements
@@ -216,7 +219,7 @@ class MaybeAudioOut:
 
     def stop(self) -> None:
         if self.device is not None:
-            self.device.stop()
+            self.device.close()
             self.device = None
         self.audio_out = None
 
@@ -225,14 +228,11 @@ class MaybeAudioOut:
         if self.disable_audio:
             return
 
+        # Stop the current device if any
+        self.stop()
+
         # Speed not supported, disable audio
         if not (0.499 < speed < 2.001):
-            self.stop()
-            return
-
-        # Adjust speed if audio is enabled
-        if self.audio_out is not None:
-            self.audio_out.update_speed(console, speed)
             return
 
         # Late import
