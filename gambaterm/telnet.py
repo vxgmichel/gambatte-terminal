@@ -216,7 +216,7 @@ async def _log_connection_stats(
                     f"kicking idle client after {_fmt_idle(idle_duration)}"
                 )
                 # Send an EOF to the emulator thread to trigger a graceful shutdown.
-                reader.feed_data(b"\x04")
+                reader.feed_eof()
                 return
 
             prev_time = now

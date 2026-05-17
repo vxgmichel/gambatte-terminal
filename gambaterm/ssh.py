@@ -425,7 +425,7 @@ async def run_server(
         # server.close_clients()
         for transport in server._clients:
             for channel in transport._protocol._channels.values():
-                channel._session._writers[None].write("\x04")
+                channel._session._writers[None].write_eof()
         await server.wait_closed()
 
 
