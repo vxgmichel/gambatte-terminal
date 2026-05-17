@@ -24,7 +24,12 @@ if TYPE_CHECKING:
 from .run import run
 from .colors import ColorMode
 from .file_input import console_input_from_file_context
-from .main import add_base_arguments, add_optional_arguments, AppConfig
+from .main import (
+    add_base_arguments,
+    add_input_file_arguments,
+    add_tuning_arguments,
+    AppConfig,
+)
 from .console import Console, GameboyColor
 from .input_getter import BaseInputGetter
 from .keyboard_input import (
@@ -372,7 +377,8 @@ def main(
         description="Gambatte terminal front-end over telnet"
     )
     add_base_arguments(parser)
-    add_optional_arguments(parser)
+    add_input_file_arguments(parser)
+    add_tuning_arguments(parser)
     console_cls.add_console_arguments(parser)
     parser.add_argument(
         "--bind",

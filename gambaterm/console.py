@@ -115,13 +115,6 @@ class GameboyColor(Console):
             action="store_true",
             help="Force the emulator to treat the rom as a GB file",
         )
-        parser.add_argument(
-            "--save-directory",
-            "--sd",
-            type=Path,
-            default=None,
-            help="Path to the save directory",
-        )
 
     @classmethod
     def pop_console_arguments(

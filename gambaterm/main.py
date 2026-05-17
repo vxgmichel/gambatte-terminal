@@ -29,6 +29,10 @@ class AppConfig:
     speed: float
     skip_inputs: int
     cpr_sync: bool
+
+
+@dataclass
+class LocalAppConfig(AppConfig):
     enable_controller: bool
     write_input: Path | None
 
@@ -36,11 +40,29 @@ class AppConfig:
 def add_base_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("romfile", metavar="ROM", type=Path, help="Path to a rom file")
     parser.add_argument(
-        "--input-file", "-i", type=Path, default=None, help="Path to a bizhawk BK2 file"
+        "--save-directory",
+        "--sd",
+        type=Path,
+        default=None,
+        help="Path to the save directory (default to the ROM directory)",
     )
 
 
-def add_optional_arguments(parser: argparse.ArgumentParser) -> None:
+def add_input_file_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--input-file", "-i", type=Path, default=None, help="Path to a bizhawk BK2 file"
+    )
+    parser.add_argument(
+        "--skip-inputs",
+        "--si",
+        type=int,
+        default=188,
+        help="Number of frame inputs to skip in order to compensate "
+        "for the lack of BIOS (default is 188)",
+    )
+
+
+def add_tuning_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--color-mode",
         "-c",
@@ -74,18 +96,16 @@ def add_optional_arguments(parser: argparse.ArgumentParser) -> None:
         help="Control the execution speed (default is 1.0)",
     )
     parser.add_argument(
-        "--skip-inputs",
-        "--si",
-        type=int,
-        default=188,
-        help="Number of frame inputs to skip in order to compensate "
-        "for the lack of BIOS (default is 188)",
-    )
-    parser.add_argument(
         "--cpr-sync",
         "--cs",
         action="store_true",
         help="Use CPR synchronization to prevent video buffering",
+    )
+
+
+def add_local_only_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--disable-audio", "--da", action="store_true", help="Disable audio entirely"
     )
     parser.add_argument(
         "--enable-controller",
@@ -110,17 +130,16 @@ def main(
         prog="gambaterm", description="Gambatte terminal front-end"
     )
     add_base_arguments(parser)
-    add_optional_arguments(parser)
+    add_input_file_arguments(parser)
+    add_tuning_arguments(parser)
+    add_local_only_arguments(parser)
     console_cls.add_console_arguments(parser)
-    parser.add_argument(
-        "--disable-audio", "--da", action="store_true", help="Disable audio entirely"
-    )
 
     # Parse arguments
     namespace = parser.parse_args(parser_args)
     disable_audio: bool = namespace.__dict__.pop("disable_audio")
     console_callback = console_cls.pop_console_arguments(namespace)
-    args = AppConfig(**vars(namespace))
+    args = LocalAppConfig(**vars(namespace))
 
     # Check that the ROM file exists
     if not args.romfile.exists():

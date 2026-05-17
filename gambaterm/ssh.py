@@ -9,7 +9,7 @@ import argparse
 import traceback
 from pathlib import Path
 from dataclasses import dataclass
-from typing import IO, Callable, TypeAlias, cast, ContextManager
+from typing import Callable, TypeAlias, ContextManager
 from enum import Enum, auto
 from concurrent.futures import ThreadPoolExecutor, CancelledError
 
@@ -27,11 +27,22 @@ from .keyboard_input import (
     MESSAGE_SUGGESTING_KITTY_SUPPORT,
     is_kitty_keyboard_protocol_supported,
 )
-from .main import add_base_arguments, add_optional_arguments, AppConfig
+from .main import (
+    add_base_arguments,
+    add_input_file_arguments,
+    add_tuning_arguments,
+    AppConfig,
+)
 from .console import Console, GameboyColor
 
 from .remote_terminal import RemoteTerminal
 from .ssh_app_session import process_to_terminal
+
+
+Writer: TypeAlias = Callable[[str], None]
+CommandParser: TypeAlias = Callable[
+    [str, argparse.Namespace, Writer], argparse.Namespace
+]
 
 
 def is_x11_display_functional(
@@ -92,6 +103,7 @@ async def safe_ssh_process_handler(process: SSHServerProcess[str]) -> None:
 async def ssh_process_handler(process: SSHServerProcess[str]) -> int:
     console_cls: type[Console] = process.get_extra_info("console_cls")
     namespace: argparse.Namespace = process.get_extra_info("namespace")
+    command_parser: CommandParser = process.get_extra_info("command_parser")
     executor: ThreadPoolExecutor = process.get_extra_info("executor")
     display = process.channel.get_x11_display()
     command = process.channel.get_command()
@@ -106,13 +118,11 @@ async def ssh_process_handler(process: SSHServerProcess[str]) -> int:
 
     # Check command
     if command is not None:
-        parser = argparse.ArgumentParser()
-        parser._print_message = lambda message, file=None: type(parser)._print_message(  # type: ignore[method-assign]
-            parser, message, file=cast(IO[str], process.stdout)
+        namespace = command_parser(
+            command,
+            namespace,
+            lambda data: print(data.replace("\n", "\r\n"), end="", file=process.stdout),
         )
-        add_optional_arguments(parser)
-        console_cls.add_console_arguments(parser)
-        namespace = parser.parse_args(command.split(), namespace)
 
     # Manage save directory — hash username to prevent path traversal
     if "save_directory" in namespace.__dict__:
@@ -280,10 +290,12 @@ class SSHServer(asyncssh.SSHServer):
         authentication: AuthenticationMethod,
         console_cls: type[Console],
         namespace: argparse.Namespace,
+        command_parser: CommandParser,
         executor: ThreadPoolExecutor,
     ):
         self._gambaterm_console_cls = console_cls
         self._gambaterm_namespace = namespace
+        self._gambaterm_command_parser = command_parser
         self._gambaterm_executor = executor
         self._gambaterm_authentication = authentication
 
@@ -291,6 +303,7 @@ class SSHServer(asyncssh.SSHServer):
         conn.set_extra_info(console_cls=self._gambaterm_console_cls)
         conn.set_extra_info(executor=self._gambaterm_executor)
         conn.set_extra_info(namespace=self._gambaterm_namespace)
+        conn.set_extra_info(command_parser=self._gambaterm_command_parser)
 
     def begin_auth(self, username: str) -> bool:
         return not isinstance(self._gambaterm_authentication, NoAuthentication)
@@ -318,6 +331,7 @@ async def run_server(
     authentication: AuthenticationMethod,
     console_cls: type[Console],
     namespace: argparse.Namespace,
+    command_parser: CommandParser,
     executor: ThreadPoolExecutor,
 ) -> None:
     # Gambaterm configuration
@@ -372,7 +386,9 @@ async def run_server(
     ]
 
     server = await asyncssh.create_server(
-        lambda: SSHServer(authentication, console_cls, namespace, executor),
+        lambda: SSHServer(
+            authentication, console_cls, namespace, command_parser, executor
+        ),
         bind,
         port,
         server_host_keys=server_host_keys,
@@ -409,7 +425,8 @@ def main(
 ) -> None:
     parser = argparse.ArgumentParser(description="Gambatte terminal front-end over ssh")
     add_base_arguments(parser)
-    add_optional_arguments(parser)
+    add_input_file_arguments(parser)
+    add_tuning_arguments(parser)
     console_cls.add_console_arguments(parser)
     parser.add_argument(
         "--bind",
@@ -463,12 +480,30 @@ def main(
     if not rom_path.exists():
         raise SystemExit(f"ROM file `{rom_path}` does not exist")
 
+    # Define a command parser for SSH clients
+    def command_parser(
+        command: str, namespace: argparse.Namespace, write: Writer
+    ) -> argparse.Namespace:
+        parser = argparse.ArgumentParser()
+        parser._print_message = lambda message, file=None: write(message)  # type: ignore[method-assign]
+        add_tuning_arguments(parser)
+        console_cls.add_console_arguments(parser)
+        return parser.parse_args(command.split(), namespace)
+
     # Run an executor with no limit on the number of threads
     try:
         with ThreadPoolExecutor(max_workers=32) as executor:
             # Run the server in asyncio
             asyncio.run(
-                run_server(bind, port, authentication, console_cls, namespace, executor)
+                run_server(
+                    bind,
+                    port,
+                    authentication,
+                    console_cls,
+                    namespace,
+                    command_parser,
+                    executor,
+                )
             )
     except KeyboardInterrupt:
         pass
