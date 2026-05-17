@@ -327,7 +327,7 @@ class SSHServer(asyncssh.SSHServer):
 
 
 @asynccontextmanager
-async def run_server(
+async def run_ssh_server(
     bind: str,
     port: int,
     authentication: AuthenticationMethod,
@@ -505,7 +505,7 @@ def main(
         with ThreadPoolExecutor(max_workers=32) as executor:
             # Run the server in asyncio
             async def async_main() -> None:
-                async with run_server(
+                async with run_ssh_server(
                     bind,
                     port,
                     authentication,

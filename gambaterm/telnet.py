@@ -5,6 +5,7 @@ import hashlib
 import asyncio
 import argparse
 import traceback
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
@@ -14,10 +15,12 @@ from typing import (
     ContextManager,
     Type,
     TypeAlias,
+    AsyncIterator,
 )
 from concurrent.futures import ThreadPoolExecutor
 
 if TYPE_CHECKING:
+    import telnetlib3
     from telnetlib3.stream_reader import TelnetReader
     from telnetlib3.stream_writer import TelnetWriter
 
@@ -308,7 +311,8 @@ async def _telnet_shell(
                 pass
 
 
-async def run_server(
+@asynccontextmanager
+async def run_telnet_server(
     bind: str,
     port: int,
     robot_check: bool,
@@ -317,7 +321,7 @@ async def run_server(
     console_cls: type[Console],
     namespace: argparse.Namespace,
     executor: ThreadPoolExecutor,
-) -> None:
+) -> AsyncIterator[telnetlib3.Server]:
     import telnetlib3
 
     shell = make_telnet_shell(namespace, console_cls, idle_timeout, executor)
@@ -366,7 +370,15 @@ async def run_server(
     assert sockets is not None
     actual_bind, actual_port = sockets[0].getsockname()[:2]
     print(f"Running telnet server on {actual_bind}:{actual_port}...", flush=True)
-    await asyncio.Future()
+    try:
+        yield server
+    finally:
+        assert server._server is not None
+        server._server.close()
+        for client in server.clients:
+            if client.reader is not None:
+                client.reader.feed_eof()
+        await server.wait_closed()
 
 
 def main(
@@ -425,8 +437,9 @@ def main(
 
     try:
         with ThreadPoolExecutor(max_workers=32) as executor:
-            asyncio.run(
-                run_server(
+
+            async def async_main() -> None:
+                async with run_telnet_server(
                     bind,
                     port,
                     robot_check,
@@ -435,8 +448,10 @@ def main(
                     console_cls,
                     namespace,
                     executor,
-                )
-            )
+                ):
+                    await asyncio.Future()
+
+            asyncio.run(async_main())
     except KeyboardInterrupt:
         pass
 
