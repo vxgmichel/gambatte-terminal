@@ -9,12 +9,13 @@ import argparse
 import traceback
 from pathlib import Path
 from dataclasses import dataclass
-from typing import Callable, TypeAlias, ContextManager
+from contextlib import asynccontextmanager
+from typing import Callable, TypeAlias, ContextManager, AsyncIterator
 from enum import Enum, auto
 from concurrent.futures import ThreadPoolExecutor, CancelledError
 
 import asyncssh
-from asyncssh import SSHServerProcess
+from asyncssh import SSHServerProcess, SSHAcceptor
 from blessed import Terminal
 
 from .run import run
@@ -325,6 +326,7 @@ class SSHServer(asyncssh.SSHServer):
         return hmac.compare_digest(password, self._gambaterm_authentication.password)
 
 
+@asynccontextmanager
 async def run_server(
     bind: str,
     port: int,
@@ -333,7 +335,7 @@ async def run_server(
     namespace: argparse.Namespace,
     command_parser: CommandParser,
     executor: ThreadPoolExecutor,
-) -> None:
+) -> AsyncIterator[SSHAcceptor]:
     # Gambaterm configuration
     gambaterm_config_dir = Path(
         os.environ.get("GAMBATERM_CONFIG_DIR", "~/.config/gambaterm")
@@ -414,9 +416,17 @@ async def run_server(
     bind, port = server.sockets[0].getsockname()
     print(f"Running SSH server on {bind}:{port}...", flush=True)
 
-    async with server:
-        # Sleep forever
-        await asyncio.Future()
+    try:
+        yield server
+    finally:
+        # Stop listening
+        server.close()
+
+        # server.close_clients()
+        for transport in server._clients:
+            for channel in transport._protocol._channels.values():
+                channel._session._writers[None].write("\x04")
+        await server.wait_closed()
 
 
 def main(
@@ -494,8 +504,8 @@ def main(
     try:
         with ThreadPoolExecutor(max_workers=32) as executor:
             # Run the server in asyncio
-            asyncio.run(
-                run_server(
+            async def async_main() -> None:
+                async with run_server(
                     bind,
                     port,
                     authentication,
@@ -503,8 +513,11 @@ def main(
                     namespace,
                     command_parser,
                     executor,
-                )
-            )
+                ):
+                    await asyncio.Future()
+
+            asyncio.run(async_main())
+
     except KeyboardInterrupt:
         pass
 
