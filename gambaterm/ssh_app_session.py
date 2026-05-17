@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import os
 import asyncio
-import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager, contextmanager
 from typing import AsyncIterator, Iterator, TypeVar, Callable
@@ -32,8 +31,7 @@ async def _output_pipe_from_process(
     try:
         yield write_fd
     finally:
-        await process.redirect_stdout(subprocess.PIPE)
-        await asyncio.sleep(0)
+        os.close(write_fd)
 
 
 @asynccontextmanager
@@ -50,8 +48,7 @@ async def _input_pipe_from_process(
     try:
         yield read_fd
     finally:
-        await process.redirect_stdin(subprocess.PIPE)
-        await asyncio.sleep(0)
+        os.close(read_fd)
 
 
 @contextmanager
@@ -96,7 +93,7 @@ async def process_to_terminal(
         width, height = 80, 24
 
     def _target() -> T:
-        with open(write_fd, "w", newline="\r\n") as stream:
+        with os.fdopen(write_fd, "w", newline="\r\n", closefd=False) as stream:
             ssh_term = RemoteTerminal(
                 stream=stream,
                 keyboard_fd=keyboard_fd,
