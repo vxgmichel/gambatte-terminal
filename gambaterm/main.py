@@ -29,6 +29,7 @@ class AppConfig:
     speed: float
     skip_inputs: int
     cpr_sync: bool
+    save_directory: Path | None
 
 
 @dataclass
@@ -39,13 +40,6 @@ class LocalAppConfig(AppConfig):
 
 def add_base_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("romfile", metavar="ROM", type=Path, help="Path to a rom file")
-    parser.add_argument(
-        "--save-directory",
-        "--sd",
-        type=Path,
-        default=None,
-        help="Path to the save directory (default to the ROM directory)",
-    )
 
 
 def add_input_file_arguments(parser: argparse.ArgumentParser) -> None:
@@ -118,6 +112,13 @@ def add_local_only_arguments(parser: argparse.ArgumentParser) -> None:
         "--wi",
         type=Path,
         help="Record inputs into a file",
+    )
+    parser.add_argument(
+        "--save-directory",
+        "--sd",
+        type=Path,
+        default=None,
+        help="Path to the save directory (default to the ROM directory)",
     )
 
 

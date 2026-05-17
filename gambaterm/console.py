@@ -122,8 +122,8 @@ class GameboyColor(Console):
     ) -> Callable[[], Console]:
         romfile: Path = namespace.romfile
         input_file: Path | None = namespace.input_file
+        save_directory: Path | None = namespace.save_directory
         force_gameboy: bool = namespace.__dict__.pop("force_gameboy")
-        save_directory: Path | None = namespace.__dict__.pop("save_directory")
         # Save directory defaults to the rom file directory (unless we read the input from a file)
         if input_file is None and save_directory is None:
             save_directory = romfile.parent

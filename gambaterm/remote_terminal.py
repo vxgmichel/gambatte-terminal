@@ -5,6 +5,7 @@ Provide a blessed Terminal subclass for remote (SSH/telnet) streams.
 from __future__ import annotations
 
 import codecs
+import hashlib
 import contextlib
 from typing import IO, Generator
 
@@ -84,3 +85,14 @@ class RemoteTerminal(BlessedTerminal):
     def update_size(self, rows: int, columns: int) -> None:
         self._rows = rows
         self._columns = columns
+
+
+def user_directory_name(username: str | None) -> str:
+    """Hash the username into a safe directory name.
+
+    :param username: telnet/ssh-negotiated username, or ``None``
+    :returns: hex digest suitable for use as a directory name
+    """
+    if username is None:
+        return "_anonymous"
+    return hashlib.sha256(username.encode("utf-8")).hexdigest()[:16]

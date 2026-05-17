@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import time
-import hashlib
 import asyncio
 import argparse
 import traceback
@@ -40,19 +39,10 @@ from .keyboard_input import (
     console_input_from_keyboard_protocol_context,
     is_kitty_keyboard_protocol_supported,
 )
-from .remote_terminal import RemoteTerminal
-from .telnet_app_session import telnet_to_terminal
-
-
-def _save_dir_name(username: str | None) -> str:
-    """Hash the username into a safe directory name.
-
-    :param username: telnet-negotiated username, or ``None``
-    :returns: hex digest suitable for use as a directory name
-    """
-    if username is None:
-        return "_anonymous"
-    return hashlib.sha256(username.encode("utf-8")).hexdigest()[:16]
+from .remote_terminal import RemoteTerminal, user_directory_name
+from .telnet_app_session import (
+    telnet_to_terminal,
+)
 
 
 def thread_target(
@@ -129,6 +119,7 @@ def make_telnet_shell(
     app_config: argparse.Namespace,
     console_cls: Type[Console],
     idle_timeout: float | None,
+    users_directory: Path,
     executor: ThreadPoolExecutor,
 ) -> ShellCallback:
     """Create a telnet shell callback with app_config and executor bound."""
@@ -136,7 +127,13 @@ def make_telnet_shell(
     async def telnet_shell(reader: TelnetReader, writer: TelnetWriter) -> None:
         try:
             await _telnet_shell(
-                reader, writer, app_config, console_cls, idle_timeout, executor
+                reader,
+                writer,
+                app_config,
+                console_cls,
+                idle_timeout,
+                users_directory,
+                executor,
             )
         except (KeyboardInterrupt, EOFError):
             pass
@@ -243,6 +240,7 @@ async def _telnet_shell(
     app_config: argparse.Namespace,
     console_cls: type[Console],
     idle_timeout: float | None,
+    users_directory: Path,
     executor: ThreadPoolExecutor,
 ) -> int:
     peername = writer.get_extra_info("peername")
@@ -277,12 +275,12 @@ async def _telnet_shell(
     print(f"[Terminal Info] {peer_host}: ttype={terminal_type}, {cols}x{rows}")
 
     try:
-        # Copy namespace and set telnet-specific save directory
+        # Copy namespace and set save directory
         namespace = argparse.Namespace(**vars(app_config))
         save_directory = (
             None
             if getattr(namespace, "input_file", None)
-            else Path("telnet_save") / _save_dir_name(username)
+            else users_directory / user_directory_name(username)
         )
         namespace.save_directory = save_directory
         if save_directory is not None:
@@ -320,11 +318,18 @@ async def run_telnet_server(
     idle_timeout: float | None,
     console_cls: type[Console],
     namespace: argparse.Namespace,
+    users_directory: Path,
     executor: ThreadPoolExecutor,
 ) -> AsyncIterator[telnetlib3.Server]:
     import telnetlib3
 
-    shell = make_telnet_shell(namespace, console_cls, idle_timeout, executor)
+    shell = make_telnet_shell(
+        namespace,
+        console_cls,
+        idle_timeout,
+        users_directory,
+        executor,
+    )
 
     if robot_check or max_players > 0:
         from telnetlib3.guard_shells import ConnectionCounter, busy_shell
@@ -427,6 +432,12 @@ def main(
         default=None,
         help="Idle timeout in seconds (default is disabled)",
     )
+    parser.add_argument(
+        "--users-directory",
+        type=Path,
+        default=Path("users_save"),
+        help="Directory containing one save directory per user (default is ./users_save)",
+    )
 
     namespace = parser.parse_args(parser_args)
     bind: str = namespace.__dict__.pop("bind")
@@ -434,6 +445,7 @@ def main(
     robot_check: bool = namespace.__dict__.pop("robot_check")
     max_players: int = namespace.__dict__.pop("max_players")
     idle_timeout: float | None = namespace.__dict__.pop("idle_timeout")
+    users_directory: Path = namespace.__dict__.pop("users_directory")
 
     try:
         with ThreadPoolExecutor(max_workers=32) as executor:
@@ -447,6 +459,7 @@ def main(
                     idle_timeout,
                     console_cls,
                     namespace,
+                    users_directory,
                     executor,
                 ):
                     await asyncio.Future()

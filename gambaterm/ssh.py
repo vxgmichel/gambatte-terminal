@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 import time
 import hmac
-import hashlib
 import asyncio
 import argparse
 import traceback
@@ -36,7 +35,7 @@ from .main import (
 )
 from .console import Console, GameboyColor
 
-from .remote_terminal import RemoteTerminal
+from .remote_terminal import RemoteTerminal, user_directory_name
 from .ssh_app_session import process_to_terminal
 
 
@@ -105,6 +104,7 @@ async def ssh_process_handler(process: SSHServerProcess[str]) -> int:
     console_cls: type[Console] = process.get_extra_info("console_cls")
     namespace: argparse.Namespace = process.get_extra_info("namespace")
     command_parser: CommandParser = process.get_extra_info("command_parser")
+    users_directory: Path = process.get_extra_info("users_directory")
     executor: ThreadPoolExecutor = process.get_extra_info("executor")
     display = process.channel.get_x11_display()
     command = process.channel.get_command()
@@ -126,15 +126,15 @@ async def ssh_process_handler(process: SSHServerProcess[str]) -> int:
         )
 
     # Manage save directory — hash username to prevent path traversal
-    if "save_directory" in namespace.__dict__:
-        if getattr(namespace, "input_file", False):
-            setattr(namespace, "save_directory", None)
-        else:
-            safe_name = hashlib.sha256(username.encode("utf-8")).hexdigest()[:16]
-            save_directory = Path("ssh_save") / safe_name
-            save_directory.mkdir(parents=True, exist_ok=True)
-            (save_directory / "username").write_text(username)
-            setattr(namespace, "save_directory", save_directory)
+    namespace.save_directory = (
+        None
+        if getattr(namespace, "input_file", None)
+        else users_directory / user_directory_name(username)
+    )
+
+    if namespace.save_directory is not None:
+        namespace.save_directory.mkdir(parents=True, exist_ok=True)
+        (namespace.save_directory / "username").write_text(username)
 
     # Pop console arguments and extract configuration
     console_callback = console_cls.pop_console_arguments(namespace)
@@ -292,11 +292,13 @@ class SSHServer(asyncssh.SSHServer):
         console_cls: type[Console],
         namespace: argparse.Namespace,
         command_parser: CommandParser,
+        users_directory: Path,
         executor: ThreadPoolExecutor,
     ):
         self._gambaterm_console_cls = console_cls
         self._gambaterm_namespace = namespace
         self._gambaterm_command_parser = command_parser
+        self._gambaterm_users_directory = users_directory
         self._gambaterm_executor = executor
         self._gambaterm_authentication = authentication
 
@@ -305,6 +307,7 @@ class SSHServer(asyncssh.SSHServer):
         conn.set_extra_info(executor=self._gambaterm_executor)
         conn.set_extra_info(namespace=self._gambaterm_namespace)
         conn.set_extra_info(command_parser=self._gambaterm_command_parser)
+        conn.set_extra_info(users_directory=self._gambaterm_users_directory)
 
     def begin_auth(self, username: str) -> bool:
         return not isinstance(self._gambaterm_authentication, NoAuthentication)
@@ -334,6 +337,7 @@ async def run_ssh_server(
     console_cls: type[Console],
     namespace: argparse.Namespace,
     command_parser: CommandParser,
+    users_directory: Path,
     executor: ThreadPoolExecutor,
 ) -> AsyncIterator[SSHAcceptor]:
     # Gambaterm configuration
@@ -389,7 +393,12 @@ async def run_ssh_server(
 
     server = await asyncssh.create_server(
         lambda: SSHServer(
-            authentication, console_cls, namespace, command_parser, executor
+            authentication,
+            console_cls,
+            namespace,
+            command_parser,
+            users_directory,
+            executor,
         ),
         bind,
         port,
@@ -465,6 +474,12 @@ def main(
         action="store_true",
         help="Disable authentication altogether (no password nor public key required)",
     )
+    parser.add_argument(
+        "--users-directory",
+        type=Path,
+        default=Path("users_save"),
+        help="Directory containing one save directory per user (default is ./users_save)",
+    )
 
     # Parse arguments
     namespace = parser.parse_args(parser_args)
@@ -472,6 +487,7 @@ def main(
     port: int = namespace.__dict__.pop("port")
     password: str = namespace.__dict__.pop("password")
     no_auth: bool = namespace.__dict__.pop("no_auth")
+    users_directory: Path = namespace.__dict__.pop("users_directory")
 
     # Determine authentication method
     if no_auth and password is None:
@@ -512,6 +528,7 @@ def main(
                     console_cls,
                     namespace,
                     command_parser,
+                    users_directory,
                     executor,
                 ):
                     await asyncio.Future()
