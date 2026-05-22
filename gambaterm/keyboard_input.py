@@ -152,9 +152,6 @@ def is_kitty_keyboard_protocol_supported(
         return False
     with term.enable_kitty_keyboard(report_events=True, timeout=timeout):
         active = term.get_kitty_keyboard_state(timeout=timeout)
-    if active is not None:
-        if active.report_events:
-            return True
     return active is not None and active.report_events
 
 

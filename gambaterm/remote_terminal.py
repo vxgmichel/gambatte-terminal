@@ -45,14 +45,23 @@ class RemoteTerminal(BlessedTerminal):
         self._keyboard_decoder = codecs.getincrementaldecoder("UTF-8")()
 
     def probe_xtgettcap(self, timeout: float = 1.0) -> None:
-        """Probe terminal capabilities via XTGETTCAP and apply results.
+        """
+        Probe terminal capabilities via XTGETTCAP and apply results.
 
-        Must be called after the remote connection is established and after kitty keyboard detection
-        to prevent interference.  Uses ``force=True`` because blessed thought we were not a terminal
-        when first initialized.
+        This allows to improved 'number_of_colors' detection, and, to "overlay" capabilities not
+        found in jinxed terminfo database but detected by XTGETTCAP: 'blink', 'sitm', 'ritm',
+        'cvvis', 'Smulx', 'Setulc', 'Ms', the same way that blessed.Terminal() would have but we
+        is_a_tty was detected False when we initialized it.
+
+        This method is not called or used by gambaterm-ssh or gambaterm-telnet, because the above
+        capabilities are not used and kitty keyboard support pretty reliably suggests 24-bit color
+        support. It is just here as a suggestion, and can be safely deleted.
         """
         self._xtgettcap_cache = self._Terminal__init__xtgettcap()  # type: ignore[assignment]
         self.number_of_colors = self._Terminal__init__color_capabilities()  # type: ignore[assignment]
+        if self._xtgettcap_cache.supported and self.does_styling:
+            self._jinxed_term.overlay_capabilities(
+                **self._xtgettcap_cache.make_jinxed_capabilities())
 
     @contextlib.contextmanager
     def raw(self) -> Generator[None, None, None]:

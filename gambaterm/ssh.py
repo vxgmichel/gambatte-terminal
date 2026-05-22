@@ -208,12 +208,13 @@ sandbox. More information here: https://security.stackexchange.com/a/7496
     else:
         assert False
 
-    # Probe XTGETTCAP which helps correct terminal.number_of_colors using 'RGB' and 'colors'
-    terminal.probe_xtgettcap(timeout=1.0)
+    # It is possible, here, to probe XTGETTCAP which helps correct terminal.number_of_colors using
+    # 'RGB' and 'colors', and some special attributes like blink, underline et al., but since they
+    # are not used by gambaterm, it is not called unless we find better reason otherwise.
+    #terminal.probe_xtgettcap(timeout=1.0)
 
-    color_mode = app_config.color_mode or detect_local_color_mode(terminal)
-    if color_mode == ColorMode.COULD_NOT_DETECT:
-        color_mode = ColorMode.HAS_8_BIT_COLOR
+    # In practice kitty keyboard protocol pretty well implies 24-bit color support already,
+    color_mode = app_config.color_mode or ColorMode.HAS_24_BIT_COLOR
 
     print(
         f"[Terminal Info] {username}: {terminal_type}, {input_source}, {terminal.width}x{terminal.height}"
