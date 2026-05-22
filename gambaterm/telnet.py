@@ -258,6 +258,9 @@ async def _telnet_shell(
         + (f" user={username}" if username else "")
     )
 
+    # Kitty keyboard protocol implies 24-bit color support
+    color_mode = app_config.color_mode or ColorMode.HAS_24_BIT_COLOR
+
     if idle_timeout is not None:
         stats_task = asyncio.create_task(
             _log_connection_stats(reader, writer, peer_host, peer_port, idle_timeout)
