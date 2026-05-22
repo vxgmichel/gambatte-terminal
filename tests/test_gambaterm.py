@@ -58,8 +58,7 @@ def test_gambaterm(interactive: bool, color_arg: str) -> None:
     assert result.stderr == ""
     if interactive:
         assert "| test_rom.gb |" in result.stdout
-    if sys.platform == "linux":
-        assert "▀ ▄▄ ▀" in result.stdout
+    assert "▀ ▄▄ ▀" in result.stdout
 
 
 @pytest.mark.parametrize("color_arg", COLOR_ARG_VARIANTS)
