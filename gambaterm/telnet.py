@@ -33,9 +33,7 @@ from .keyboard_input import (
     is_kitty_keyboard_protocol_supported,
 )
 from .remote_terminal import RemoteTerminal
-from .telnet_app_session import (
-    telnet_to_terminal,
-)
+from .telnet_app_session import telnet_to_terminal
 
 
 def _save_dir_name(username: str | None) -> str:
@@ -270,9 +268,7 @@ async def _telnet_shell(
 
     cols = writer.get_extra_info("cols") or 80
     rows = writer.get_extra_info("rows") or 24
-    print(
-        f"[Terminal Info] {peer_host}: {terminal_type or 'unknown'}, " f"{cols}x{rows}"
-    )
+    print(f"[Terminal Info] {peer_host}: ttype={terminal_type}, {cols}x{rows}")
 
     try:
         # Copy namespace and set telnet-specific save directory

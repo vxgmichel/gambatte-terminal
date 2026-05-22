@@ -217,7 +217,7 @@ sandbox. More information here: https://security.stackexchange.com/a/7496
     color_mode = app_config.color_mode or ColorMode.HAS_24_BIT_COLOR
 
     print(
-        f"[Terminal Info] {username}: {terminal_type}, {input_source}, {terminal.width}x{terminal.height}"
+        f"[Terminal Info] {username}: term={terminal_type}, {input_source}, {terminal.width}x{terminal.height}"
     )
 
     try:
