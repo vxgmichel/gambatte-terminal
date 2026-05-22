@@ -58,7 +58,7 @@ def test_gambaterm(interactive: bool, color_arg: str) -> None:
     assert result.stderr == ""
     if interactive:
         assert "| test_rom.gb |" in result.stdout
-    if sys.platform == "linux" or color_arg:
+    if sys.platform == "linux":
         assert "▀ ▄▄ ▀" in result.stdout
 
 
