@@ -107,13 +107,13 @@ async def telnet_to_terminal(
 ) -> T:
     """Create a RemoteTerminal and run *target* in a thread executor.
 
-    Sets up a pipe for output forwarding with paced delivery at 60 pps.
+    Sets up a pipe for i/o forwarding
 
     :param writer: telnetlib3 writer
     :param executor: ThreadPoolExecutor for running the game thread
     :param target: callable receiving the RemoteTerminal, run in executor
     :param input_read_fd: read end of the input pipe (keyboard_fd for blessed)
-    :param terminal_type: negotiated terminal type from telnet TTYPE
+    :param terminal_type: negotiated terminal type from telnet TTYPE or NEW-ENVIRON TERM
     :returns: return value of *target*
     """
     cols = writer.get_extra_info("cols") or 80
@@ -130,11 +130,9 @@ async def telnet_to_terminal(
 
     def _target() -> T:
         try:
-            # The output stream is created so that the remote terminal can be instanciated.
-            # However, it's not used in practice since the `run` function writes bytes directly
-            # to the file decriptor.
-            # Still, this context manager is responsible for closing the `output_write_fd` file
-            # descriptor.
+            # The output stream is created so that the remote terminal can be instantiated.
+            # However, it's not used in practice since the `run` function writes bytes directly to the file descriptor.
+            # Still, this context manager is responsible for closing the `output_write_fd` file descriptor.
             with open(output_write_fd, "w", newline="\r\n") as stream:
                 telnet_term = RemoteTerminal(
                     stream=stream,

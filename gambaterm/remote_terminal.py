@@ -15,15 +15,13 @@ from blessed.terminal import WINSZ
 class RemoteTerminal(BlessedTerminal):
     """A blessed Terminal subclass for remote streams (SSH, telnet).
 
-    Overrides ``__init__streams`` to wire the remote pipe fds before
-    the XTGETTCAP probe runs during ``super().__init__``, so blessed's
-    native initialization handles terminal capability discovery
-    (TN, RGB, colors, etc.) automatically.
-
     Stubs raw/cbreak mode (the remote connection is already raw) and
-    overrides size detection to use values provided by the server.
-    """
+    overrides size detection to use server protocol-negotiated values.
 
+    Callers should invoke ``get_xtgettcap()`` after initialization
+    to probe the terminal's true capabilities once the connection
+    is fully established.
+    """
     def __init__(
         self,
         stream: IO[str],
@@ -41,26 +39,20 @@ class RemoteTerminal(BlessedTerminal):
             force_styling=True,
             kind_fallback="xterm-256color",
         )
-
-    def __init__streams(self) -> None:
-        """Set up stream fds for a remote pipe connection.
-
-        Called by ``blessed.Terminal.__init__`` before the XTGETTCAP
-        probe.  We set ``_keyboard_fd`` to the remote input pipe so
-        blessed can probe the terminal's actual capabilities.
-        """
-        # Only UTF-8 encoding is supported. Our blitter writes raw
-        # UTF-8 bytes directly to the fd, and modern terminals are
-        # universally UTF-8.  Non-UTF-8 terminals (legacy Windows
-        # console, legacy X11 with ISO 8859-1, real hardware terminals)
-        # are not supported.
-        assert self._stream is not None
-        stream_fd = self._stream.fileno()
-        self._init_descriptor = stream_fd  # type: ignore[assignment]
-        self._is_a_tty = True
+        # wire `_keyboard_fd` and enable `_is_a_tty` *after* class initialization.
         self._keyboard_fd = self._remote_keyboard_fd  # type: ignore[assignment]
-        self._encoding = "UTF-8"
-        self._keyboard_decoder = codecs.getincrementaldecoder(self._encoding)()
+        self._is_a_tty = True
+        self._keyboard_decoder = codecs.getincrementaldecoder("UTF-8")()
+
+    def probe_xtgettcap(self, timeout: float = 1.0) -> None:
+        """Probe terminal capabilities via XTGETTCAP and apply results.
+
+        Must be called after the remote connection is established and after kitty keyboard detection
+        to prevent interference.  Uses ``force=True`` because blessed thought we were not a terminal
+        when first initialized.
+        """
+        self._xtgettcap_cache = self._Terminal__init__xtgettcap()  # type: ignore[assignment]
+        self.number_of_colors = self._Terminal__init__color_capabilities()  # type: ignore[assignment]
 
     @contextlib.contextmanager
     def raw(self) -> Generator[None, None, None]:

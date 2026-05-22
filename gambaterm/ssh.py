@@ -208,8 +208,9 @@ sandbox. More information here: https://security.stackexchange.com/a/7496
     else:
         assert False
 
-    # Detect terminal color capabilities via XTGETTCAP probe
-    # (performed during RemoteTerminal.__init__ via blessed's native init)
+    # Probe XTGETTCAP which helps correct terminal.number_of_colors using 'RGB' and 'colors'
+    terminal.probe_xtgettcap(timeout=1.0)
+
     color_mode = app_config.color_mode or detect_local_color_mode(terminal)
     if color_mode == ColorMode.COULD_NOT_DETECT:
         color_mode = ColorMode.HAS_8_BIT_COLOR

@@ -58,12 +58,6 @@ def thread_target(
     """Run the emulator in a thread with the given RemoteTerminal."""
     console: Console = console_callback()
 
-    # Detect terminal color capabilities via XTGETTCAP probe
-    # (performed during RemoteTerminal.__init__ via blessed's native init)
-    color_mode = app_config.color_mode or detect_local_color_mode(terminal)
-    if color_mode == ColorMode.COULD_NOT_DETECT:
-        color_mode = ColorMode.HAS_8_BIT_COLOR
-
     console_input_context: ContextManager[BaseInputGetter]
     if app_config.input_file is not None:
         console_input_context = console_input_from_file_context(
@@ -80,6 +74,17 @@ def thread_target(
         terminal.stream.flush()
         print(f"< User `{username}` did not support keyboard protocol")
         return 1
+
+    # Probe XTGETTCAP which helps correct terminal.number_of_colors using 'RGB' and 'colors', though
+    # gnu and bsd telnet clients are pretty good about forwarding TERM and COLORTERM, this provides
+    # some small forward compatibility when they decide to withdraw forward of either of them as ssh
+    # does, gnu telnet dangerously forwards **any** environment variable requested by server (!)
+    terminal.probe_xtgettcap(timeout=1.0)
+
+    # Detect terminal color capabilities (augmented by XTGETTCAP probe)
+    color_mode = app_config.color_mode or detect_local_color_mode(terminal)
+    if color_mode == ColorMode.COULD_NOT_DETECT:
+        color_mode = ColorMode.HAS_8_BIT_COLOR
 
     try:
         terminal.stream.write(
@@ -249,16 +254,12 @@ async def _telnet_shell(
     except (asyncio.TimeoutError, KeyError):
         pass
 
-    terminal_type = writer.get_extra_info("TERM") or "unknown"
+    terminal_type = writer.get_extra_info("TERM") or None
     username = writer.get_extra_info("USER") or None
     print(
-        f"> Telnet client connected ({peer_host}:{peer_port})"
+        f"> Telnet client connected ({peer_host}:{peer_port} term={terminal_type})"
         + (f" user={username}" if username else "")
     )
-
-    if terminal_type == "unknown":
-        print("Warning: terminal type not negotiated, using fallback.")
-        terminal_type = None
 
     if idle_timeout is not None:
         stats_task = asyncio.create_task(
