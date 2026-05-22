@@ -179,9 +179,9 @@ def test_gambaterm_telnet(color_arg: str) -> None:
 def test_gambaterm_telnet_unknown_term() -> None:
     """Telnet client connects with an unknown terminal type.
 
-    Exercises the ``kind=None`` fallback path in RemoteTerminal,
-    where blessed's ``__init_termcap_kind`` resolves the terminal
-    type through XTGETTCAP, $TERM, and finally ``kind_fallback``.
+    Exercises the ``kind=None`` fallback path in RemoteTerminal, where blessed's
+    ``__init_termcap_kind`` resolves the terminal type through protocol-negotiated TERM and
+    fallsback to ``kind_fallback='xterm-256color'``.
     """
     assert TEST_ROM.exists()
     command = (
