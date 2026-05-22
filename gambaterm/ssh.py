@@ -18,7 +18,7 @@ from asyncssh import SSHServerProcess
 from blessed import Terminal
 
 from .run import run
-from .colors import ColorMode, detect_local_color_mode
+from .colors import ColorMode
 from .file_input import console_input_from_file_context
 from .input_getter import BaseInputGetter
 from .keyboard_input import (
@@ -211,7 +211,7 @@ sandbox. More information here: https://security.stackexchange.com/a/7496
     # It is possible, here, to probe XTGETTCAP which helps correct terminal.number_of_colors using
     # 'RGB' and 'colors', and some special attributes like blink, underline et al., but since they
     # are not used by gambaterm, it is not called unless we find better reason otherwise.
-    #terminal.probe_xtgettcap(timeout=1.0)
+    # terminal.probe_xtgettcap(timeout=1.0)
 
     # In practice kitty keyboard protocol pretty well implies 24-bit color support already,
     color_mode = app_config.color_mode or ColorMode.HAS_24_BIT_COLOR

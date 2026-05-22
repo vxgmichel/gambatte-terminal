@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from telnetlib3.stream_writer import TelnetWriter
 
 from .run import run
-from .colors import ColorMode, detect_local_color_mode
+from .colors import ColorMode
 from .file_input import console_input_from_file_context
 from .main import add_base_arguments, add_optional_arguments, AppConfig
 from .console import Console, GameboyColor
@@ -78,7 +78,7 @@ def thread_target(
     # It is possible, here, to probe XTGETTCAP which helps correct terminal.number_of_colors using
     # 'RGB' and 'colors', and some special attributes like blink, underline et al., but since they
     # are not used by gambaterm, it is not called unless we find better reason otherwise.
-    #terminal.probe_xtgettcap(timeout=1.0)
+    # terminal.probe_xtgettcap(timeout=1.0)
 
     # In practice kitty keyboard protocol pretty well implies 24-bit color support already,
     color_mode = app_config.color_mode or ColorMode.HAS_24_BIT_COLOR
@@ -268,8 +268,7 @@ async def _telnet_shell(
     cols = writer.get_extra_info("cols") or 80
     rows = writer.get_extra_info("rows") or 24
     print(
-        f"[Terminal Info] {peer_host}: {terminal_type or 'unknown'}, "
-        f"{cols}x{rows}"
+        f"[Terminal Info] {peer_host}: {terminal_type or 'unknown'}, " f"{cols}x{rows}"
     )
 
     try:

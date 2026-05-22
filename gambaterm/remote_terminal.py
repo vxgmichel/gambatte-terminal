@@ -22,6 +22,7 @@ class RemoteTerminal(BlessedTerminal):
     to probe the terminal's true capabilities once the connection
     is fully established.
     """
+
     def __init__(
         self,
         stream: IO[str],
@@ -61,7 +62,8 @@ class RemoteTerminal(BlessedTerminal):
         self.number_of_colors = self._Terminal__init__color_capabilities()  # type: ignore[assignment]
         if self._xtgettcap_cache.supported and self.does_styling:
             self._jinxed_term.overlay_capabilities(
-                **self._xtgettcap_cache.make_jinxed_capabilities())
+                **self._xtgettcap_cache.make_jinxed_capabilities()
+            )
 
     @contextlib.contextmanager
     def raw(self) -> Generator[None, None, None]:
