@@ -42,6 +42,7 @@ class ColorMode(IntEnum):
             return 1 << 24
         assert False
 
+
 def detect_local_color_mode(term: Terminal) -> ColorMode:
     """Detect the color mode of the local terminal using blessed."""
     n = term.number_of_colors
