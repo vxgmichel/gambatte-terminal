@@ -95,6 +95,7 @@ def thread_target(
                 color_mode=color_mode,
                 break_after=app_config.break_after,
                 speed=app_config.speed,
+                use_cpr_sync=app_config.cpr_sync,
             )
     except (KeyboardInterrupt, EOFError):
         return 0
@@ -255,9 +256,6 @@ async def _telnet_shell(
         f"> Telnet client connected ({peer_host}:{peer_port} term={terminal_type})"
         + (f" user={username}" if username else "")
     )
-
-    # Kitty keyboard protocol implies 24-bit color support
-    color_mode = app_config.color_mode or ColorMode.HAS_24_BIT_COLOR
 
     if idle_timeout is not None:
         stats_task = asyncio.create_task(
