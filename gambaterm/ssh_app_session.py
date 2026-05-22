@@ -77,6 +77,7 @@ async def process_to_terminal(
     process: SSHServerProcess[str],
     executor: ThreadPoolExecutor,
     target: Callable[[RemoteTerminal], T],
+    terminal_type: str | None = None,
 ) -> T:
     """Create a blessed RemoteTerminal from an SSH process.
 
@@ -94,6 +95,7 @@ async def process_to_terminal(
                 keyboard_fd=keyboard_fd,
                 rows=height,
                 columns=width,
+                kind=terminal_type,
             )
             with _bind_resize(process, ssh_term):
                 return target(ssh_term)

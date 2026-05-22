@@ -18,7 +18,7 @@ from asyncssh import SSHServerProcess
 from blessed import Terminal
 
 from .run import run
-from .colors import ColorMode
+from .colors import ColorMode, detect_local_color_mode
 from .file_input import console_input_from_file_context
 from .input_getter import BaseInputGetter
 from .keyboard_input import (
@@ -152,6 +152,7 @@ async def ssh_process_handler(process: SSHServerProcess[str]) -> int:
             terminal_type,
             executor,
         ),
+        terminal_type=terminal_type,
     )
 
 
@@ -207,8 +208,11 @@ sandbox. More information here: https://security.stackexchange.com/a/7496
     else:
         assert False
 
-    # Kitty keyboard protocol implies 24-bit color support
-    color_mode = app_config.color_mode or ColorMode.HAS_24_BIT_COLOR
+    # Detect terminal color capabilities via XTGETTCAP probe
+    # (performed during RemoteTerminal.__init__ via blessed's native init)
+    color_mode = app_config.color_mode or detect_local_color_mode(terminal)
+    if color_mode == ColorMode.COULD_NOT_DETECT:
+        color_mode = ColorMode.HAS_8_BIT_COLOR
 
     print(
         f"[Terminal Info] {username}: {terminal_type}, {input_source}, {terminal.width}x{terminal.height}"

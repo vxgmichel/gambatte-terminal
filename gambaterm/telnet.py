@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from telnetlib3.stream_writer import TelnetWriter
 
 from .run import run
-from .colors import ColorMode
+from .colors import ColorMode, detect_local_color_mode
 from .file_input import console_input_from_file_context
 from .main import add_base_arguments, add_optional_arguments, AppConfig
 from .console import Console, GameboyColor
@@ -53,11 +53,16 @@ def thread_target(
     terminal: RemoteTerminal,
     console_callback: Callable[[], Console],
     app_config: AppConfig,
-    color_mode: ColorMode,
     username: str | None,
 ) -> int:
     """Run the emulator in a thread with the given RemoteTerminal."""
     console: Console = console_callback()
+
+    # Detect terminal color capabilities via XTGETTCAP probe
+    # (performed during RemoteTerminal.__init__ via blessed's native init)
+    color_mode = app_config.color_mode or detect_local_color_mode(terminal)
+    if color_mode == ColorMode.COULD_NOT_DETECT:
+        color_mode = ColorMode.HAS_8_BIT_COLOR
 
     console_input_context: ContextManager[BaseInputGetter]
     if app_config.input_file is not None:
@@ -252,11 +257,8 @@ async def _telnet_shell(
     )
 
     if terminal_type == "unknown":
-        print("Warning: terminal type not negotiated, assuming xterm-256color.")
-        terminal_type = "xterm-256color"
-
-    # Kitty keyboard protocol implies 24-bit color support
-    color_mode = app_config.color_mode or ColorMode.HAS_24_BIT_COLOR
+        print("Warning: terminal type not negotiated, using fallback.")
+        terminal_type = None
 
     if idle_timeout is not None:
         stats_task = asyncio.create_task(
@@ -268,8 +270,8 @@ async def _telnet_shell(
     cols = writer.get_extra_info("cols") or 80
     rows = writer.get_extra_info("rows") or 24
     print(
-        f"[Terminal Info] {peer_host}: {terminal_type}, "
-        f"{color_mode.name}, {cols}x{rows}"
+        f"[Terminal Info] {peer_host}: {terminal_type or 'unknown'}, "
+        f"{cols}x{rows}"
     )
 
     try:
@@ -289,13 +291,14 @@ async def _telnet_shell(
         config = AppConfig(**vars(namespace))
 
         def target(term: RemoteTerminal) -> int:
-            return thread_target(term, console_callback, config, color_mode, username)
+            return thread_target(term, console_callback, config, username)
 
         return await telnet_to_terminal(
             reader,
             writer,
             executor,
             target,
+            terminal_type=terminal_type,
         )
     finally:
         if stats_task is not None:

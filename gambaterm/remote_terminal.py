@@ -11,19 +11,14 @@ from typing import IO, Generator
 from blessed import Terminal as BlessedTerminal
 from blessed.terminal import WINSZ
 
-# Python's curses.setupterm() can only be called once per process — subsequent
-# calls with a different terminal type are silently ignored. Since the SSH
-# server handles multiple concurrent connections in threads, all RemoteTerminal
-# instances share whatever terminal type was initialized first by the local
-# Terminal(). We hardcode 'xterm-256color' as the kind since:
-#   1. It's universally compatible with modern terminals
-#   2. We use standard VT100/ANSI escape codes directly, not terminfo caps
-#   3. It avoids issues where the first client's TERM value differs from subsequent
-REMOTE_TERMINAL_TYPE = "xterm-256color"
-
 
 class RemoteTerminal(BlessedTerminal):
     """A blessed Terminal subclass for remote streams (SSH, telnet).
+
+    Overrides ``__init__streams`` to wire the remote pipe fds before
+    the XTGETTCAP probe runs during ``super().__init__``, so blessed's
+    native initialization handles terminal capability discovery
+    (TN, RGB, colors, etc.) automatically.
 
     Stubs raw/cbreak mode (the remote connection is already raw) and
     overrides size detection to use values provided by the server.
@@ -35,18 +30,37 @@ class RemoteTerminal(BlessedTerminal):
         keyboard_fd: int,
         rows: int,
         columns: int,
+        kind: str | None = None,
     ) -> None:
         self._rows = rows
         self._columns = columns
-        super().__init__(kind=REMOTE_TERMINAL_TYPE, stream=stream, force_styling=True)
-        # Blessed only sets _keyboard_fd when stream is sys.__stdout__, so
-        # for remote pipes we must set it and initialize the decoder manually
-        self._keyboard_fd = keyboard_fd  # type: ignore[assignment]
-        self._keyboard_decoder = codecs.getincrementaldecoder("UTF-8")()
+        self._remote_keyboard_fd = keyboard_fd
+        super().__init__(
+            kind=kind,
+            stream=stream,
+            force_styling=True,
+            kind_fallback="xterm-256color",
+        )
 
-    @property
-    def is_a_tty(self) -> bool:
-        return True
+    def __init__streams(self) -> None:
+        """Set up stream fds for a remote pipe connection.
+
+        Called by ``blessed.Terminal.__init__`` before the XTGETTCAP
+        probe.  We set ``_keyboard_fd`` to the remote input pipe so
+        blessed can probe the terminal's actual capabilities.
+        """
+        # Only UTF-8 encoding is supported. Our blitter writes raw
+        # UTF-8 bytes directly to the fd, and modern terminals are
+        # universally UTF-8.  Non-UTF-8 terminals (legacy Windows
+        # console, legacy X11 with ISO 8859-1, real hardware terminals)
+        # are not supported.
+        assert self._stream is not None
+        stream_fd = self._stream.fileno()
+        self._init_descriptor = stream_fd  # type: ignore[assignment]
+        self._is_a_tty = True
+        self._keyboard_fd = self._remote_keyboard_fd  # type: ignore[assignment]
+        self._encoding = "UTF-8"
+        self._keyboard_decoder = codecs.getincrementaldecoder(self._encoding)()
 
     @contextlib.contextmanager
     def raw(self) -> Generator[None, None, None]:
