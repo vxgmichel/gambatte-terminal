@@ -30,15 +30,15 @@ wheels = [
 
 [[package]]
 name = "blessed"
-version = "1.42.0"
+version = "1.43.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "jinxed" },
     { name = "wcwidth" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ef/48/27ed9ee1a574c96453a20f2024d385ec4c33ffeef180faab744c666e7dcd/blessed-1.42.0.tar.gz", hash = "sha256:34b460b77562ed21f807cfd7c527b983b0cc300c98810c8076f283b7bcd45ba7", size = 14025805, upload-time = "2026-05-20T16:03:18.293Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/2f/b0/7add3e9172d2f9f9ccf05d3bdc3868037e48d07101fce1970188d08b28c9/blessed-1.43.0.tar.gz", hash = "sha256:acf55b31a10bb53dac0f7b42899233814bc4c726e8a1550df684cd7e558eb09f", size = 14030733, upload-time = "2026-05-23T08:25:11.002Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d2/46/c41f906f2488e14ab65ac77101f9511779fb28c653484bd79ac13f2f21ee/blessed-1.42.0-py3-none-any.whl", hash = "sha256:f96c4a6dc664b48e0b832fa732acc16df67abd30f0ec35babf99025982f21852", size = 129863, upload-time = "2026-05-20T16:03:15.622Z" },
+    { url = "https://files.pythonhosted.org/packages/cc/2a/a6acd38161c28f7606e9c8e90e0f3dcb8f0523ab1ea41d05282869cac7da/blessed-1.43.0-py3-none-any.whl", hash = "sha256:2b4bff47c6d08a5e5b7684f419ab6e5a00235e7c87d08d65242eb796af85153a", size = 129978, upload-time = "2026-05-23T08:25:08.554Z" },
 ]
 
 [[package]]
@@ -239,7 +239,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "asyncssh", specifier = ">=2.9,<3.0.0" },
-    { name = "blessed", specifier = ">=1.42.0,<2" },
+    { name = "blessed", specifier = ">=1.43.0,<2" },
     { name = "miniaudio", specifier = ">=1.2" },
     { name = "numpy", specifier = ">=2.0.0,<3.0.0" },
     { name = "pygame", marker = "extra == 'controller-support'", specifier = ">=1.9.5,<2.0.0" },
