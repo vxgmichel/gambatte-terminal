@@ -1,3 +1,6 @@
 [submodule "gambatte-core"]
 	path = gambatte-core
 	url = https://github.com/pokemon-speedrunning/gambatte-core
+[submodule "libsixel"]
+	path = libsixel
+	url = https://github.com/saitoha/libsixel.git
