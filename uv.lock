@@ -246,7 +246,7 @@ requires-dist = [
     { name = "pynput", marker = "sys_platform != 'linux'" },
     { name = "python-xlib", marker = "sys_platform == 'linux'" },
     { name = "samplerate", specifier = ">=0.1.0,<0.2.0" },
-    { name = "telnetlib3", specifier = ">=4.0.3,<5" },
+    { name = "telnetlib3", specifier = ">=4.0.4,<5" },
 ]
 provides-extras = ["controller-support"]
 
@@ -670,15 +670,15 @@ wheels = [
 
 [[package]]
 name = "telnetlib3"
-version = "4.0.2"
+version = "4.0.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "blessed", marker = "sys_platform == 'win32'" },
     { name = "wcwidth" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/2c/1f/a5de9f0f86976d299a439619417019a9674fa8662377659734dd6e067235/telnetlib3-4.0.2.tar.gz", hash = "sha256:76726d7a7a34163b5dbef461e9cbf8fb4bda8f4fe7fcb225f56cbb4dcf5fd16e", size = 355495, upload-time = "2026-04-10T19:16:46.939Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/9e/a6/87fae7b6e1e602d4ff0f239a96d7b58b9a6b4a0ae59546790f99830673e3/telnetlib3-4.0.4.tar.gz", hash = "sha256:6ab9ce0b9e8663b002d7e10513deb0c17bddb982d520681e0788511d99695a7a", size = 352646, upload-time = "2026-05-23T20:24:37.614Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ba/0c/7f710109880afddcb407ce2dc21354a01c3332bc7f4494fd56214f067f9b/telnetlib3-4.0.2-py3-none-any.whl", hash = "sha256:7dfc9cf86a6ace90655689d4828aeda41c4c278ec8da1597756b4fd6df15d5d1", size = 361970, upload-time = "2026-04-10T19:16:45.302Z" },
+    { url = "https://files.pythonhosted.org/packages/f9/99/b3352fc3708d101c77948df010d942be2770cdf7e5918f87ac0c1a4eca0d/telnetlib3-4.0.4-py3-none-any.whl", hash = "sha256:41fc6860faeba0f4b02a839f6c0e1a7cfb5ca5be17f2dda2be2f4377d1999aba", size = 359378, upload-time = "2026-05-23T20:24:36.233Z" },
 ]
 
 [[package]]
