@@ -246,7 +246,7 @@ requires-dist = [
     { name = "pynput", marker = "sys_platform != 'linux'" },
     { name = "python-xlib", marker = "sys_platform == 'linux'" },
     { name = "samplerate", specifier = ">=0.1.0,<0.2.0" },
-    { name = "telnetlib3", specifier = ">=4.0.1,<5" },
+    { name = "telnetlib3", specifier = ">=4.0.3,<5" },
 ]
 provides-extras = ["controller-support"]
 
