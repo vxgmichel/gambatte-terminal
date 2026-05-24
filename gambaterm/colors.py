@@ -28,6 +28,7 @@ class ColorMode(IntEnum):
             return "True color"
         return f"{self.number_of_colors} colors"
 
+    @property
     def number_of_colors(self) -> int:
         """Return a human-readable report of the color mode."""
         if self == ColorMode.COULD_NOT_DETECT:
