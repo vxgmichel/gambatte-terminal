@@ -56,7 +56,7 @@ class RemoteTerminal(BlessedTerminal):
 
         This method is not called or used by gambaterm-ssh or gambaterm-telnet, because the above
         capabilities are not used and kitty keyboard support pretty reliably suggests 24-bit color
-        support. It is just here as a suggestion, and can be safely deleted.
+        support.
         """
         self._xtgettcap_cache = self._Terminal__init__xtgettcap()  # type: ignore[assignment]
         self.number_of_colors = self._Terminal__init__color_capabilities()  # type: ignore[assignment]
