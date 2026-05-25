@@ -125,9 +125,7 @@ class KittyKeyboardInputGetter(KeyboardInputGetter):
         self._pop_keystrokes = pop_keystrokes
 
     def pop_keystrokes(self) -> list[Keystroke]:
-        if self._pop_keystrokes is not None:
-            return self._pop_keystrokes()
-        return super().pop_keystrokes()
+        return self._pop_keystrokes()
 
 
 def is_kitty_keyboard_protocol_supported(

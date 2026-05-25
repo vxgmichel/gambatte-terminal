@@ -50,6 +50,7 @@ gambaterm-telnet = "gambaterm.telnet:main"
 
 [dependency-groups]
 dev = [
+    "pdbpp>=0.12.1",
     "pytest>=9.0.2",
 ]
 
