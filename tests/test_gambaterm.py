@@ -1,4 +1,5 @@
 import os
+import signal
 import sys
 import asyncio
 import pytest
@@ -110,12 +111,13 @@ def test_gambaterm_ssh(
         assert "| test_rom.gb |" in client_stdout
         assert "▀ ▄▄ ▀" in client_stdout
     finally:
-        server.terminate()
+        server.send_signal(signal.SIGINT)
         server.wait()
         print(server.stdout.read(), end="", file=sys.stdout)
         print(server.stderr.read(), end="", file=sys.stderr)
         server.stdout.close()
         server.stderr.close()
+        assert server.returncode == 0
 
 
 @pytest.mark.parametrize("color_arg", COLOR_ARG_VARIANTS)
@@ -168,12 +170,13 @@ def test_gambaterm_telnet(color_arg: str) -> None:
         assert "| test_rom.gb |" in result
         assert "\u2580" in result or "\u2584" in result
     finally:
-        server.terminate()
+        server.send_signal(signal.SIGINT)
         server.wait()
         print(server.stdout.read(), end="", file=sys.stdout)
         print(server.stderr.read(), end="", file=sys.stderr)
         server.stdout.close()
         server.stderr.close()
+        assert server.returncode == 0
 
 
 def test_gambaterm_telnet_unknown_term() -> None:
@@ -231,9 +234,10 @@ def test_gambaterm_telnet_unknown_term() -> None:
         assert "| test_rom.gb |" in result
         assert "\u2580" in result or "\u2584" in result
     finally:
-        server.terminate()
+        server.send_signal(signal.SIGINT)
         server.wait()
         print(server.stdout.read(), end="", file=sys.stdout)
         print(server.stderr.read(), end="", file=sys.stderr)
         server.stdout.close()
         server.stderr.close()
+        assert server.returncode == 0
