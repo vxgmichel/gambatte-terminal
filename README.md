@@ -182,30 +182,30 @@ The table below sums up my findings when I tried the most common terminal emulat
 | Ghostty          | Excellent  | 24-bit colors | Good                   | Yes                     | 60 FPS      |                                                             |
 | Kitty            | Excellent  | 24-bit colors | Good                   | Yes                     | 60 FPS      |                                                             |
 | foot             | Excellent  | 24-bit colors | Good                   | Yes                     | 60 FPS      |                                                             |
-| Alacritty        | Excellent  | 24-bit colors | Good                   | Yes                     | 60 FPS      |                                                             |
 | Rio              | Excellent  | 24-bit colors | Good                   | Yes                     | 60 FPS      |                                                             |
+| Contour          | Excellent  | 24-bit colors | Good                   | Yes                     | 60 FPS      | [Download latest for kitty support](https://github.com/contour-terminal/contour/releases) |
+| Alacritty        | Good       | 24-bit colors | Good                   | No*                     | 60 FPS      | *Fails kitty detection [due to reported bug](https://github.com/alacritty/alacritty/pull/8953) |
 | Konsole          | Good       | 24-bit colors | Good                   | No                      | 60 FPS      |                                                             |
 | Gnome terminal   | Good       | 24-bit colors | Good                   | No                      | 60 FPS      |                                                             |
 | Terminator       | Good       | 24-bit colors | Good                   | No                      | 60 FPS      |                                                             |
-| XTerm            | Good       | 24-bit colors | Good                   | No                      | 60 FPS      | No resize shortcuts, launch as ``xterm -tn xterm-256color`` |
+| XTerm            | Good       | 24-bit colors | Good                   | No                      | 60 FPS      | Ctrl+Right click to resize, "Unreadable" locks up XTerm     |
 | Rxvt             | Good       | 24-bit colors | Good                   | No                      | 60 FPS      | No resize shortcuts                                         |
+| Terminology      | Good       | 24-bit colors | Light misalignments    | No                      | 60 FPS      | Font sizes under ~9pt create horizontal line artifacts      |
 | Termit           | Ok         | 24-bit colors | Good                   | No                      | 60 FPS      | No window title                                             |
 | Mlterm           | Ok         | 24-bit colors | Light misalignments    | No                      | 60 FPS      | No resize shortcuts                                         |
-| Terminology      | Ok         | 24-bit colors | Possible misalignments | No                      | 30 FPS      | Weird colors                                                |
-| Contour          | Bad        | 24-bit colors | Good                   | Broken                  | 60 FPS      | [Bug (no release event!)](https://github.com/contour-terminal/contour/pull/1924) |
 
 About MacOS:
 
 | MacOS            | Status     | Colors        | Unicode rendering         | Kitty keyboard protocol | Performance | Comments                 |
 |------------------|------------|---------------|---------------------------|-------------------------|-------------|--------------------------|
 | iTerm2           | Excellent  | 24-bit colors | Good                      | Yes                     | 60 FPS      |                          |
-| Terminal         | Bad        | 24-bit colors | Bad--adjust font spacing! | No                      | 30 FPS      | A bit jittery            |
+| Terminal.app     | Bad        | 24-bit colors | Bad--adjust font spacing! | No                      | 30 FPS      | A bit jittery            |
 
 About Windows:
 
 | Windows            | Status     | Colors        | Unicode rendering      | Kitty keyboard protocol | Performance | Comments                 |
 |--------------------|------------|---------------|------------------------|-------------------------|-------------|--------------------------|
-| Windows terminal   | Good       | 24-bit colors | Good                   | Coming Soon             | 60 FPS      | [Download Preview for kitty support)](https://github.com/microsoft/terminal/releases) |
+| Windows terminal   | Excellent  | 24-bit colors | Good                   | Yes                     | 60 FPS      | [Download latest for kitty support)](https://github.com/microsoft/terminal/releases) |
 | Cmder              | Unplayable | 24-bit colors | Good                   | Yes                     | 2 FPS       | No window title          |
 | Terminus           | Unplayable | 24-bit colors | Misalignments          | No                      | 10 FPS      |                          |
 | Command prompt     | Bad        | 24-bit colors | Good                   | No                      | 1 FPS       | Slow/Unresponsive        |

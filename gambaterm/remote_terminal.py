@@ -11,22 +11,16 @@ from typing import IO, Generator
 from blessed import Terminal as BlessedTerminal
 from blessed.terminal import WINSZ
 
-# Python's curses.setupterm() can only be called once per process — subsequent
-# calls with a different terminal type are silently ignored. Since the SSH
-# server handles multiple concurrent connections in threads, all RemoteTerminal
-# instances share whatever terminal type was initialized first by the local
-# Terminal(). We hardcode 'xterm-256color' as the kind since:
-#   1. It's universally compatible with modern terminals
-#   2. We use standard VT100/ANSI escape codes directly, not terminfo caps
-#   3. It avoids issues where the first client's TERM value differs from subsequent
-REMOTE_TERMINAL_TYPE = "xterm-256color"
-
 
 class RemoteTerminal(BlessedTerminal):
     """A blessed Terminal subclass for remote streams (SSH, telnet).
 
     Stubs raw/cbreak mode (the remote connection is already raw) and
-    overrides size detection to use values provided by the server.
+    overrides size detection to use server protocol-negotiated values.
+
+    Callers should invoke ``get_xtgettcap()`` after initialization
+    to probe the terminal's true capabilities once the connection
+    is fully established.
     """
 
     def __init__(
@@ -35,18 +29,41 @@ class RemoteTerminal(BlessedTerminal):
         keyboard_fd: int,
         rows: int,
         columns: int,
+        kind: str | None = None,
     ) -> None:
         self._rows = rows
         self._columns = columns
-        super().__init__(kind=REMOTE_TERMINAL_TYPE, stream=stream, force_styling=True)
-        # Blessed only sets _keyboard_fd when stream is sys.__stdout__, so
-        # for remote pipes we must set it and initialize the decoder manually
-        self._keyboard_fd = keyboard_fd  # type: ignore[assignment]
+        self._remote_keyboard_fd = keyboard_fd
+        super().__init__(
+            kind=kind,
+            stream=stream,
+            force_styling=True,
+            kind_fallback="xterm-256color",
+        )
+        # wire `_keyboard_fd` and enable `_is_a_tty` *after* class initialization.
+        self._keyboard_fd = self._remote_keyboard_fd  # type: ignore[assignment]
+        self._is_a_tty = True
         self._keyboard_decoder = codecs.getincrementaldecoder("UTF-8")()
 
-    @property
-    def is_a_tty(self) -> bool:
-        return True
+    def probe_xtgettcap(self, timeout: float = 1.0) -> None:
+        """
+        Probe terminal capabilities via XTGETTCAP and apply results.
+
+        This allows to improved 'number_of_colors' detection, and, to "overlay" capabilities not
+        found in jinxed terminfo database but detected by XTGETTCAP: 'blink', 'sitm', 'ritm',
+        'cvvis', 'Smulx', 'Setulc', 'Ms', the same way that blessed.Terminal() would have but we
+        is_a_tty was detected False when we initialized it.
+
+        This method is not called or used by gambaterm-ssh or gambaterm-telnet, because the above
+        capabilities are not used and kitty keyboard support pretty reliably suggests 24-bit color
+        support.
+        """
+        self._xtgettcap_cache = self._Terminal__init__xtgettcap()  # type: ignore[assignment]
+        self.number_of_colors = self._Terminal__init__color_capabilities()  # type: ignore[assignment]
+        if self._xtgettcap_cache.supported and self.does_styling:
+            self._jinxed_term.overlay_capabilities(
+                **self._xtgettcap_cache.make_jinxed_capabilities()
+            )
 
     @contextlib.contextmanager
     def raw(self) -> Generator[None, None, None]:

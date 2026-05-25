@@ -22,7 +22,6 @@ Your terminal does not support the kitty keyboard protocol
 Here is a list of terminals known to support this protocol:
 
 - kitty https://sw.kovidgoyal.net/kitty/
-- alacritty https://alacritty.org/
 - ghostty https://ghostty.org/
 - foot https://codeberg.org/dnkl/foot
 - iTerm2 https://iterm2.com/
@@ -134,11 +133,20 @@ class KittyKeyboardInputGetter(KeyboardInputGetter):
 def is_kitty_keyboard_protocol_supported(
     term: Terminal, timeout: float | None = None
 ) -> bool:
-    """Check if the terminal supports the kitty keyboard protocol.
-
-    Some terminals (e.g. last release of Contour) responds to the kitty keyboard query but ignore
-    the flags we set, so we verify that report_events is actually enabled after requesting it.
-    """
+    """Check if the terminal supports the kitty keyboard protocol."""
+    # Some terminals (eg. last release of Contour) responds to the kitty keyboard query but ignores
+    # the modes that we set, it is not fully implementing them. And so we verify that report_events
+    # is actually enabled after requesting it.
+    #
+    # Other terminals (eg. last release of Alacritty), *do* support the kitty keyboard protocol
+    # flags that set, but fail to accurately report their state!
+    # https://github.com/alacritty/alacritty/pull/8953 -- it's too bad alacritty also doesn't
+    # support XTVERSION either, or we could conditionally return True for a version range!
+    #
+    # In a sense, we tradeoff: "ensure contour is not wrongly detected" (report_events not
+    # implemented) for Alacritty is wrongly detected as missing support for kitty (report_events not
+    # reported due to bug). I hope that Alacritty will accept the reported bug and next release will
+    # be OK.
     state = term.get_kitty_keyboard_state(timeout=timeout)
     if state is None:
         return False

@@ -77,11 +77,19 @@ async def process_to_terminal(
     process: SSHServerProcess[str],
     executor: ThreadPoolExecutor,
     target: Callable[[RemoteTerminal], T],
+    terminal_type: str | None = None,
 ) -> T:
     """Create a blessed RemoteTerminal from an SSH process.
 
     Once the redirections are set up, I/O become synchronous,
     so we run the target function in a thread executor to avoid blocking the event loop
+
+    :param process: SSHServerProcess string
+    :param executor: ThreadPoolExecutor for running the game thread
+    :param target: callable receiving the RemoteTerminal, run in executor
+    :param terminal_type: terminal type from SSH SendEnv/AcceptEnv, `TERM` value
+    :returns: return value of *target*
+
     """
     width, height, _, _ = process.get_terminal_size()
     if width == height == 0:
@@ -94,6 +102,7 @@ async def process_to_terminal(
                 keyboard_fd=keyboard_fd,
                 rows=height,
                 columns=width,
+                kind=terminal_type,
             )
             with _bind_resize(process, ssh_term):
                 return target(ssh_term)

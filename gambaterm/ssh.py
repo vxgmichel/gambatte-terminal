@@ -152,6 +152,7 @@ async def ssh_process_handler(process: SSHServerProcess[str]) -> int:
             terminal_type,
             executor,
         ),
+        terminal_type=terminal_type,
     )
 
 
@@ -207,11 +208,16 @@ sandbox. More information here: https://security.stackexchange.com/a/7496
     else:
         assert False
 
-    # Kitty keyboard protocol implies 24-bit color support
+    # It is possible, here, to probe XTGETTCAP which helps correct terminal.number_of_colors using
+    # 'RGB' and 'colors', and some special attributes like blink, underline et al., but since they
+    # are not used by gambaterm, it is not called unless we find better reason otherwise.
+    # terminal.probe_xtgettcap(timeout=1.0)
+
+    # In practice kitty keyboard protocol pretty well implies 24-bit color support already,
     color_mode = app_config.color_mode or ColorMode.HAS_24_BIT_COLOR
 
     print(
-        f"[Terminal Info] {username}: {terminal_type}, {input_source}, {terminal.width}x{terminal.height}"
+        f"[Terminal Info] {username}: term={terminal_type}, {input_source}, {terminal.width}x{terminal.height}"
     )
 
     try:

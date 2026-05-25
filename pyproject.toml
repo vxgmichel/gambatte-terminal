@@ -29,12 +29,12 @@ classifiers = [
 dependencies = [
     "numpy>=2.0.0,<3.0.0",
     "asyncssh>=2.9,<3.0.0",
-    "blessed>=1.38.0,<2",
+    "blessed>=1.43.0,<2",
     "miniaudio>=1.2",
     "samplerate>=0.1.0,<0.2.0",
     "python-xlib; sys_platform == 'linux'",
     "pynput; sys_platform != 'linux'",
-    "telnetlib3>=4.0.1,<5",
+    "telnetlib3>=4.0.4,<5",
 ]
 
 [project.optional-dependencies]
@@ -89,7 +89,7 @@ test-command = "gambaterm --help"
 
 [tool.cibuildwheel.macos]
 test-requires = "pytest"
-test-command = "pytest {project}/tests -v -k 'test_gambaterm[non-interactive]'"
+test-command = "pytest {project}/tests -v -k 'non-interactive'"
 
 [tool.cibuildwheel.linux]
 test-requires = "pytest"

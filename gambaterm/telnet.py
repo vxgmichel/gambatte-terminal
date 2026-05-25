@@ -33,9 +33,7 @@ from .keyboard_input import (
     is_kitty_keyboard_protocol_supported,
 )
 from .remote_terminal import RemoteTerminal
-from .telnet_app_session import (
-    telnet_to_terminal,
-)
+from .telnet_app_session import telnet_to_terminal
 
 
 def _save_dir_name(username: str | None) -> str:
@@ -53,7 +51,6 @@ def thread_target(
     terminal: RemoteTerminal,
     console_callback: Callable[[], Console],
     app_config: AppConfig,
-    color_mode: ColorMode,
     username: str | None,
 ) -> int:
     """Run the emulator in a thread with the given RemoteTerminal."""
@@ -76,6 +73,14 @@ def thread_target(
         print(f"< User `{username}` did not support keyboard protocol")
         return 1
 
+    # It is possible, here, to probe XTGETTCAP which helps correct terminal.number_of_colors using
+    # 'RGB' and 'colors', and some special attributes like blink, underline et al., but since they
+    # are not used by gambaterm, it is not called unless we find better reason otherwise.
+    # terminal.probe_xtgettcap(timeout=1.0)
+
+    # In practice kitty keyboard protocol pretty well implies 24-bit color support already,
+    color_mode = app_config.color_mode or ColorMode.HAS_24_BIT_COLOR
+
     try:
         terminal.stream.write(
             terminal.enter_fullscreen + terminal.clear + terminal.hide_cursor
@@ -90,6 +95,7 @@ def thread_target(
                 color_mode=color_mode,
                 break_after=app_config.break_after,
                 speed=app_config.speed,
+                use_cpr_sync=app_config.cpr_sync,
             )
     except (KeyboardInterrupt, EOFError):
         return 0
@@ -244,19 +250,12 @@ async def _telnet_shell(
     except (asyncio.TimeoutError, KeyError):
         pass
 
-    terminal_type = writer.get_extra_info("TERM") or "unknown"
+    terminal_type = writer.get_extra_info("TERM") or None
     username = writer.get_extra_info("USER") or None
     print(
-        f"> Telnet client connected ({peer_host}:{peer_port})"
+        f"> Telnet client connected ({peer_host}:{peer_port} term={terminal_type})"
         + (f" user={username}" if username else "")
     )
-
-    if terminal_type == "unknown":
-        print("Warning: terminal type not negotiated, assuming xterm-256color.")
-        terminal_type = "xterm-256color"
-
-    # Kitty keyboard protocol implies 24-bit color support
-    color_mode = app_config.color_mode or ColorMode.HAS_24_BIT_COLOR
 
     if idle_timeout is not None:
         stats_task = asyncio.create_task(
@@ -267,10 +266,7 @@ async def _telnet_shell(
 
     cols = writer.get_extra_info("cols") or 80
     rows = writer.get_extra_info("rows") or 24
-    print(
-        f"[Terminal Info] {peer_host}: {terminal_type}, "
-        f"{color_mode.name}, {cols}x{rows}"
-    )
+    print(f"[Terminal Info] {peer_host}: ttype={terminal_type}, {cols}x{rows}")
 
     try:
         # Copy namespace and set telnet-specific save directory
@@ -289,13 +285,14 @@ async def _telnet_shell(
         config = AppConfig(**vars(namespace))
 
         def target(term: RemoteTerminal) -> int:
-            return thread_target(term, console_callback, config, color_mode, username)
+            return thread_target(term, console_callback, config, username)
 
         return await telnet_to_terminal(
             reader,
             writer,
             executor,
             target,
+            terminal_type=terminal_type,
         )
     finally:
         if stats_task is not None:
