@@ -9,12 +9,20 @@ import traceback
 from pathlib import Path
 from dataclasses import dataclass
 from contextlib import asynccontextmanager
-from typing import Callable, TypeAlias, ContextManager, AsyncIterator
+from typing import AnyStr, Callable, TypeAlias, ContextManager, AsyncIterator
 from enum import Enum, auto
 from concurrent.futures import ThreadPoolExecutor, CancelledError
 
 import asyncssh
-from asyncssh import SSHServerProcess, SSHAcceptor
+from asyncssh import (
+    SFTPServerFactory,
+    SSHServerConnection,
+    SSHServerProcess,
+    SSHAcceptor,
+    SSHServer,
+    SSHServerProcessFactory,
+)
+from asyncssh.channel import SSHChannel
 from blessed import Terminal
 
 from .run import run
@@ -176,7 +184,7 @@ def ssh_terminal_handler(
     terminal_type: str,
     executor: ThreadPoolExecutor,
 ) -> int:
-    # Now is a good time to instanciate the console
+    # Now is a good time to instantiate the console
     # (it might fail if the ROM does not exist for instance)
     console = console_callback()
 
@@ -285,7 +293,28 @@ AuthenticationMethod: TypeAlias = (
 )
 
 
-class SSHServer(asyncssh.SSHServer):
+class GambatermSSHServerProcess(SSHServerProcess[str]):
+    def __init__(
+        self,
+        process_factory: SSHServerProcessFactory[str],
+        sftp_factory: SFTPServerFactory | None,
+        sftp_version: int,
+        allow_scp: bool,
+        active_sessions: set[GambatermSSHServerProcess],
+    ):
+        super().__init__(process_factory, sftp_factory, sftp_version, allow_scp)
+        self._gambaterm_active_sessions = active_sessions
+
+    def connection_made(self, chan: SSHChannel[AnyStr]) -> None:
+        self._gambaterm_active_sessions.add(self)
+        return super().connection_made(chan)
+
+    def connection_lost(self, exc: Exception | None) -> None:
+        self._gambaterm_active_sessions.discard(self)
+        return super().connection_lost(exc)
+
+
+class GambatermSSHServer(SSHServer):
     def __init__(
         self,
         authentication: AuthenticationMethod,
@@ -294,6 +323,7 @@ class SSHServer(asyncssh.SSHServer):
         command_parser: CommandParser,
         users_directory: Path,
         executor: ThreadPoolExecutor,
+        active_connections: dict[GambatermSSHServer, SSHServerConnection],
     ):
         self._gambaterm_console_cls = console_cls
         self._gambaterm_namespace = namespace
@@ -301,20 +331,30 @@ class SSHServer(asyncssh.SSHServer):
         self._gambaterm_users_directory = users_directory
         self._gambaterm_executor = executor
         self._gambaterm_authentication = authentication
+        self._gambaterm_active_connections = active_connections
+        self._gambaterm_active_sessions: set[GambatermSSHServerProcess] = set()
 
-    def connection_made(self, conn: asyncssh.SSHServerConnection) -> None:
+    def connection_made(self, conn: SSHServerConnection) -> None:
         conn.set_extra_info(console_cls=self._gambaterm_console_cls)
         conn.set_extra_info(executor=self._gambaterm_executor)
         conn.set_extra_info(namespace=self._gambaterm_namespace)
         conn.set_extra_info(command_parser=self._gambaterm_command_parser)
         conn.set_extra_info(users_directory=self._gambaterm_users_directory)
+        self._gambaterm_active_connections[self] = conn
+
+    def connection_lost(self, exc: Exception | None) -> None:
+        self._gambaterm_active_connections.pop(self)
 
     def begin_auth(self, username: str) -> bool:
         return not isinstance(self._gambaterm_authentication, NoAuthentication)
 
     def session_requested(self) -> SSHServerProcess[str]:
-        return asyncssh.SSHServerProcess(
-            safe_ssh_process_handler, sftp_factory=None, sftp_version=3, allow_scp=False
+        return GambatermSSHServerProcess(
+            safe_ssh_process_handler,
+            sftp_factory=None,
+            sftp_version=3,
+            allow_scp=False,
+            active_sessions=self._gambaterm_active_sessions,
         )
 
     def password_auth_supported(self) -> bool:
@@ -391,14 +431,16 @@ async def run_ssh_server(
         "aes128-ctr",
     ]
 
+    active_connections: dict[GambatermSSHServer, SSHServerConnection] = {}
     server = await asyncssh.create_server(
-        lambda: SSHServer(
+        lambda: GambatermSSHServer(
             authentication,
             console_cls,
             namespace,
             command_parser,
             users_directory,
             executor,
+            active_connections,
         ),
         bind,
         port,
@@ -428,13 +470,23 @@ async def run_ssh_server(
     try:
         yield server
     finally:
-        # Stop listening
+        # Stop listening for new connections
         server.close()
 
-        # server.close_clients()
-        for transport in server._clients:
-            for channel in transport._protocol._channels.values():
-                channel._session._writers[None].write_eof()
+        # Freeze active connections
+        for ssh_server, connection in list(active_connections.items()):
+            # Freeze active sessions
+            for session in list(ssh_server._gambaterm_active_sessions):
+                # Graceful teardown
+                # This is important to make sure the client receives the cleanup data
+                session.eof_received()
+                await session.wait_closed()
+
+            # Close the connection
+            # This is important for clients stuck in authentication phase for instance
+            connection.close()
+
+        # Now nothing should keep the server from closing
         await server.wait_closed()
 
 
@@ -452,7 +504,7 @@ def main(
         "-b",
         type=str,
         default="127.0.0.1",
-        help="Bind adress of the SSH server, "
+        help="Bind address of the SSH server, "
         "use `0.0.0.0` for all interfaces (default is localhost)",
     )
     parser.add_argument(
@@ -467,7 +519,7 @@ def main(
         "--pw",
         type=str,
         default=None,
-        help="Enable password authentification with the given global password",
+        help="Enable password authentication with the given global password",
     )
     parser.add_argument(
         "--no-auth",
