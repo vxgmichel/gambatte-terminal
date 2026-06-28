@@ -135,20 +135,8 @@ async def ssh_process_handler(process: SSHServerProcess[str]) -> int:
             lambda data: print(data.replace("\n", "\r\n"), end="", file=process.stdout),
         )
 
-    # Manage save directory — hash username to prevent path traversal
-    namespace.save_directory = (
-        None
-        if getattr(namespace, "input_file", None)
-        else users_directory / user_directory_name(username)
-    )
-
-    if namespace.save_directory is not None:
-        namespace.save_directory.mkdir(parents=True, exist_ok=True)
-        (namespace.save_directory / "username").write_text(username)
-
-    # Pop console arguments and extract configuration
-    console_callback = console_cls.pop_console_arguments(namespace)
-    app_config = AppConfig(**vars(namespace))
+    # Convert namespace to AppConfig
+    app_config = AppConfig.from_namespace(namespace)
 
     # Check terminal
     if terminal_type is None:
@@ -166,14 +154,14 @@ async def ssh_process_handler(process: SSHServerProcess[str]) -> int:
         executor,
         lambda terminal: ssh_terminal_handler(
             terminal,
-            console_callback,
+            console_cls,
             app_config,
             display,
             username,
             terminal_type,
             executor,
+            users_directory,
             frontend=frontend,
-            users_directory=users_directory,
         ),
         terminal_type=terminal_type,
     )
@@ -181,14 +169,14 @@ async def ssh_process_handler(process: SSHServerProcess[str]) -> int:
 
 def ssh_terminal_handler(
     terminal: RemoteTerminal,
-    console_callback: Callable[[], Console],
+    console_cls: type[Console],
     app_config: AppConfig,
     display: str | None,
     username: str,
     terminal_type: str,
     executor: ThreadPoolExecutor,
+    users_directory: Path,
     frontend: Callable[[RemoteTerminal, AppConfig, bool], AppConfig] | None = None,
-    users_directory: Path | None = None,
 ) -> int:
     keyboard_supported = is_kitty_keyboard_protocol_supported(
         terminal, timeout=1.0
@@ -200,16 +188,20 @@ def ssh_terminal_handler(
         except (KeyboardInterrupt, EOFError):
             return 0
 
+    # Manage save directory — hash username to prevent path traversal
+    app_config.save_directory = (
+        None
+        if app_config.input_file is not None
+        else users_directory / user_directory_name(username)
+    )
+
+    if app_config.save_directory is not None:
+        app_config.save_directory.mkdir(parents=True, exist_ok=True)
+        (app_config.save_directory / "username").write_text(username)
+
     # Now is a good time to instantiate the console
     # (it might fail if the ROM does not exist for instance)
-    console = console_callback()
-
-    if app_config.input_file is None and users_directory is not None:
-        user_save_dir = users_directory / user_directory_name(username)
-        user_save_dir.mkdir(parents=True, exist_ok=True)
-        gb = getattr(console, "gb", None)
-        if gb is not None:
-            gb.set_save_directory(str(user_save_dir.resolve()))
+    console = console_cls.from_app_config(app_config)
 
     input_source = detect_input_source(app_config, display, executor, terminal)
     console_input_context: ContextManager[BaseInputGetter]

@@ -4,7 +4,10 @@ import argparse
 from pathlib import Path
 import tempfile
 from enum import IntEnum
-from typing import Callable
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .main import AppConfig
 
 import numpy as np
 import numpy.typing as npt
@@ -53,11 +56,8 @@ class Console:
         pass
 
     @classmethod
-    def pop_console_arguments(
-        cls, namespace: argparse.Namespace
-    ) -> Callable[[], Console]:
-        romfile: Path = namespace.romfile
-        return lambda: cls(romfile)
+    def from_app_config(cls, app_config: AppConfig) -> Console:
+        return cls(app_config.romfile)
 
     def __init__(self, romfile: Path):
         self.romfile = str(romfile.resolve())
@@ -117,17 +117,17 @@ class GameboyColor(Console):
         )
 
     @classmethod
-    def pop_console_arguments(
-        cls, namespace: argparse.Namespace
-    ) -> Callable[[], Console]:
-        romfile: Path = namespace.romfile
-        input_file: Path | None = namespace.input_file
-        save_directory: Path | None = namespace.save_directory
-        force_gameboy: bool = namespace.__dict__.pop("force_gameboy")
+    def from_app_config(cls, app_config: AppConfig) -> GameboyColor:
+        romfile: Path = app_config.romfile
+        input_file: Path | None = app_config.input_file
+        save_directory: Path | None = app_config.save_directory
+        force_gameboy: bool = getattr(
+            app_config.console_namespace, "force_gameboy", False
+        )
         # Save directory defaults to the rom file directory (unless we read the input from a file)
         if input_file is None and save_directory is None:
             save_directory = romfile.parent
-        return lambda: cls(romfile, save_directory, force_gameboy)
+        return cls(romfile, save_directory, force_gameboy)
 
     def __init__(
         self,

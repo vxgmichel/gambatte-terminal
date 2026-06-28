@@ -4,8 +4,9 @@ from __future__ import annotations
 import time
 import argparse
 from pathlib import Path
-from typing import ContextManager
-from dataclasses import dataclass
+from typing import ContextManager, Self
+import dataclasses
+from dataclasses import dataclass, field
 
 from blessed import Terminal
 
@@ -29,13 +30,26 @@ class AppConfig:
     speed: float
     skip_inputs: int
     cpr_sync: bool
-    save_directory: Path | None
+    save_directory: Path | None = None
+    console_namespace: argparse.Namespace = field(default_factory=argparse.Namespace)
+
+    @classmethod
+    def from_namespace(cls, namespace: argparse.Namespace) -> Self:
+        allowed_keys = {
+            f.name for f in dataclasses.fields(cls) if f.name != "console_namespace"
+        }
+        kwargs = {k: v for k, v in vars(namespace).items() if k in allowed_keys}
+        console_keys = {
+            k: v for k, v in vars(namespace).items() if k not in allowed_keys
+        }
+        kwargs["console_namespace"] = argparse.Namespace(**console_keys)
+        return cls(**kwargs)
 
 
 @dataclass
 class LocalAppConfig(AppConfig):
-    enable_controller: bool
-    write_input: Path | None
+    enable_controller: bool = False
+    write_input: Path | None = None
 
 
 def add_base_arguments(parser: argparse.ArgumentParser) -> None:
@@ -138,16 +152,15 @@ def main(
 
     # Parse arguments
     namespace = parser.parse_args(parser_args)
-    disable_audio: bool = namespace.__dict__.pop("disable_audio")
-    console_callback = console_cls.pop_console_arguments(namespace)
-    args = LocalAppConfig(**vars(namespace))
+    disable_audio = getattr(namespace, "disable_audio", False)
+    args = LocalAppConfig.from_namespace(namespace)
 
     # Check that the ROM file exists
     if not args.romfile.exists():
         raise SystemExit(f"ROM file `{args.romfile}` does not exist")
 
     # Instantiate the console and terminal
-    console = console_callback()
+    console = console_cls.from_app_config(args)
     terminal = Terminal()
 
     # Prepare input context

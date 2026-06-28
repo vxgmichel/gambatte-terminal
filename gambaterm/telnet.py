@@ -47,11 +47,11 @@ from .telnet_app_session import (
 
 def thread_target(
     terminal: RemoteTerminal,
-    console_callback: Callable[[], Console],
+    console_cls: type[Console],
     app_config: AppConfig,
     username: str | None,
+    users_directory: Path,
     frontend: Callable[[RemoteTerminal, AppConfig, bool], AppConfig] | None = None,
-    users_directory: Path | None = None,
 ) -> int:
     """Run the emulator in a thread with the given RemoteTerminal."""
     keyboard_supported = is_kitty_keyboard_protocol_supported(terminal, timeout=1.0)
@@ -61,14 +61,16 @@ def thread_target(
         except (KeyboardInterrupt, EOFError):
             return 0
 
-    console: Console = console_callback()
+    # Manage save directory
+    app_config.save_directory = (
+        None
+        if app_config.input_file is not None
+        else users_directory / user_directory_name(username)
+    )
+    if app_config.save_directory is not None:
+        app_config.save_directory.mkdir(parents=True, exist_ok=True)
 
-    if app_config.input_file is None and users_directory is not None:
-        user_save_dir = users_directory / user_directory_name(username)
-        user_save_dir.mkdir(parents=True, exist_ok=True)
-        gb = getattr(console, "gb", None)
-        if gb is not None:
-            gb.set_save_directory(str(user_save_dir.resolve()))
+    console = console_cls.from_app_config(app_config)
 
     console_input_context: ContextManager[BaseInputGetter]
     if app_config.input_file is not None:
@@ -294,29 +296,17 @@ async def _telnet_shell(
     print(f"[Terminal Info] {peer_host}: ttype={terminal_type}, {cols}x{rows}")
 
     try:
-        # Copy namespace and set save directory
-        namespace = argparse.Namespace(**vars(app_config))
-        save_directory = (
-            None
-            if getattr(namespace, "input_file", None)
-            else users_directory / user_directory_name(username)
-        )
-        namespace.save_directory = save_directory
-        if save_directory is not None:
-            save_directory.mkdir(parents=True, exist_ok=True)
-
-        # Pop console-specific args and build console factory + AppConfig
-        console_callback = console_cls.pop_console_arguments(namespace)
-        config = AppConfig(**vars(namespace))
+        # Convert namespace to AppConfig
+        config = AppConfig.from_namespace(app_config)
 
         def target(term: RemoteTerminal) -> int:
             return thread_target(
                 term,
-                console_callback,
+                console_cls,
                 config,
                 username,
+                users_directory,
                 frontend=frontend,
-                users_directory=users_directory,
             )
 
         return await telnet_to_terminal(
