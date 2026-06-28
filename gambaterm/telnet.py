@@ -50,9 +50,25 @@ def thread_target(
     console_callback: Callable[[], Console],
     app_config: AppConfig,
     username: str | None,
+    frontend: Callable[[RemoteTerminal, AppConfig, bool], AppConfig] | None = None,
+    users_directory: Path | None = None,
 ) -> int:
     """Run the emulator in a thread with the given RemoteTerminal."""
+    keyboard_supported = is_kitty_keyboard_protocol_supported(terminal, timeout=1.0)
+    if frontend is not None:
+        try:
+            app_config = frontend(terminal, app_config, keyboard_supported)
+        except (KeyboardInterrupt, EOFError):
+            return 0
+
     console: Console = console_callback()
+
+    if app_config.input_file is None and users_directory is not None:
+        user_save_dir = users_directory / user_directory_name(username)
+        user_save_dir.mkdir(parents=True, exist_ok=True)
+        gb = getattr(console, "gb", None)
+        if gb is not None:
+            gb.set_save_directory(str(user_save_dir.resolve()))
 
     console_input_context: ContextManager[BaseInputGetter]
     if app_config.input_file is not None:
@@ -121,6 +137,7 @@ def make_telnet_shell(
     idle_timeout: float | None,
     users_directory: Path,
     executor: ThreadPoolExecutor,
+    frontend: Callable[[RemoteTerminal, AppConfig, bool], AppConfig] | None = None,
 ) -> ShellCallback:
     """Create a telnet shell callback with app_config and executor bound."""
 
@@ -134,6 +151,7 @@ def make_telnet_shell(
                 idle_timeout,
                 users_directory,
                 executor,
+                frontend=frontend,
             )
         except (KeyboardInterrupt, EOFError):
             pass
@@ -242,6 +260,7 @@ async def _telnet_shell(
     idle_timeout: float | None,
     users_directory: Path,
     executor: ThreadPoolExecutor,
+    frontend: Callable[[RemoteTerminal, AppConfig, bool], AppConfig] | None = None,
 ) -> int:
     peername = writer.get_extra_info("peername")
     peer_host = peername[0] if peername else "unknown"
@@ -291,7 +310,14 @@ async def _telnet_shell(
         config = AppConfig(**vars(namespace))
 
         def target(term: RemoteTerminal) -> int:
-            return thread_target(term, console_callback, config, username)
+            return thread_target(
+                term,
+                console_callback,
+                config,
+                username,
+                frontend=frontend,
+                users_directory=users_directory,
+            )
 
         return await telnet_to_terminal(
             reader,
@@ -320,6 +346,7 @@ async def run_telnet_server(
     namespace: argparse.Namespace,
     users_directory: Path,
     executor: ThreadPoolExecutor,
+    frontend: Callable[[RemoteTerminal, AppConfig, bool], AppConfig] | None = None,
 ) -> AsyncIterator[telnetlib3.Server]:
     import telnetlib3
 
@@ -329,6 +356,7 @@ async def run_telnet_server(
         idle_timeout,
         users_directory,
         executor,
+        frontend=frontend,
     )
 
     if robot_check or max_players > 0:

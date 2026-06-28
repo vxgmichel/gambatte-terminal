@@ -122,6 +122,8 @@ async def ssh_process_handler(process: SSHServerProcess[str]) -> int:
     peername, port = connection.get_extra_info("peername")
     print(f"> User `{username}` is connected ({peername}:{port})")
 
+    frontend = connection.get_extra_info("frontend")
+
     # Copy namespace before mutating
     namespace = argparse.Namespace(**vars(namespace))
 
@@ -170,6 +172,8 @@ async def ssh_process_handler(process: SSHServerProcess[str]) -> int:
             username,
             terminal_type,
             executor,
+            frontend=frontend,
+            users_directory=users_directory,
         ),
         terminal_type=terminal_type,
     )
@@ -183,10 +187,29 @@ def ssh_terminal_handler(
     username: str,
     terminal_type: str,
     executor: ThreadPoolExecutor,
+    frontend: Callable[[RemoteTerminal, AppConfig, bool], AppConfig] | None = None,
+    users_directory: Path | None = None,
 ) -> int:
+    keyboard_supported = is_kitty_keyboard_protocol_supported(
+        terminal, timeout=1.0
+    ) or bool(display and is_x11_display_functional(display, executor, timeout=1.0))
+
+    if frontend is not None:
+        try:
+            app_config = frontend(terminal, app_config, keyboard_supported)
+        except (KeyboardInterrupt, EOFError):
+            return 0
+
     # Now is a good time to instantiate the console
     # (it might fail if the ROM does not exist for instance)
     console = console_callback()
+
+    if app_config.input_file is None and users_directory is not None:
+        user_save_dir = users_directory / user_directory_name(username)
+        user_save_dir.mkdir(parents=True, exist_ok=True)
+        gb = getattr(console, "gb", None)
+        if gb is not None:
+            gb.set_save_directory(str(user_save_dir.resolve()))
 
     input_source = detect_input_source(app_config, display, executor, terminal)
     console_input_context: ContextManager[BaseInputGetter]
@@ -324,6 +347,7 @@ class GambatermSSHServer(SSHServer):
         users_directory: Path,
         executor: ThreadPoolExecutor,
         active_connections: dict[GambatermSSHServer, SSHServerConnection],
+        frontend: Callable[[RemoteTerminal, AppConfig, bool], AppConfig] | None = None,
     ):
         self._gambaterm_console_cls = console_cls
         self._gambaterm_namespace = namespace
@@ -333,6 +357,7 @@ class GambatermSSHServer(SSHServer):
         self._gambaterm_authentication = authentication
         self._gambaterm_active_connections = active_connections
         self._gambaterm_active_sessions: set[GambatermSSHServerProcess] = set()
+        self._gambaterm_frontend = frontend
 
     def connection_made(self, conn: SSHServerConnection) -> None:
         conn.set_extra_info(console_cls=self._gambaterm_console_cls)
@@ -340,6 +365,7 @@ class GambatermSSHServer(SSHServer):
         conn.set_extra_info(namespace=self._gambaterm_namespace)
         conn.set_extra_info(command_parser=self._gambaterm_command_parser)
         conn.set_extra_info(users_directory=self._gambaterm_users_directory)
+        conn.set_extra_info(frontend=self._gambaterm_frontend)
         self._gambaterm_active_connections[self] = conn
 
     def connection_lost(self, exc: Exception | None) -> None:
@@ -379,6 +405,7 @@ async def run_ssh_server(
     command_parser: CommandParser,
     users_directory: Path,
     executor: ThreadPoolExecutor,
+    frontend: Callable[[RemoteTerminal, AppConfig, bool], AppConfig] | None = None,
 ) -> AsyncIterator[SSHAcceptor]:
     # Gambaterm configuration
     gambaterm_config_dir = Path(
@@ -441,6 +468,7 @@ async def run_ssh_server(
             users_directory,
             executor,
             active_connections,
+            frontend,
         ),
         bind,
         port,
