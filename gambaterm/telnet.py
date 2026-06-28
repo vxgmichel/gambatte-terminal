@@ -18,6 +18,8 @@ from typing import (
 )
 from concurrent.futures import ThreadPoolExecutor
 
+import structlog
+
 if TYPE_CHECKING:
     import telnetlib3
     from telnetlib3.stream_reader import TelnetReader
@@ -44,6 +46,8 @@ from .telnet_app_session import (
     telnet_to_terminal,
 )
 
+logger = structlog.get_logger()
+
 
 def thread_target(
     terminal: RemoteTerminal,
@@ -51,6 +55,7 @@ def thread_target(
     app_config: AppConfig,
     username: str | None,
     users_directory: Path,
+    session_logger: structlog.BoundLogger,
     frontend: Callable[[RemoteTerminal, AppConfig, bool], AppConfig] | None = None,
 ) -> int:
     """Run the emulator in a thread with the given RemoteTerminal."""
@@ -86,7 +91,7 @@ def thread_target(
         message = MESSAGE_SUGGESTING_KITTY_SUPPORT
         terminal.stream.write(message)
         terminal.stream.flush()
-        print(f"< User `{username}` did not support keyboard protocol")
+        session_logger.warning("User did not support keyboard protocol")
         return 1
 
     # It is possible, here, to probe XTGETTCAP which helps correct terminal.number_of_colors using
@@ -181,8 +186,10 @@ async def _log_connection_stats(
     peer_port: int,
     idle_timeout: float,
     interval: float = 10.0,
+    logger: structlog.BoundLogger = logger,
 ) -> None:
     """Periodically log tx stats and idle time. Kick idle clients."""
+    conn_logger = logger
     protocol = writer.protocol
     if protocol is None:
         return
@@ -219,21 +226,19 @@ async def _log_connection_stats(
                 else f"{minutes}m{secs:02d}s"
             )
 
-            idle_str = (
-                f" (idle {_fmt_idle(idle_duration)})" if idle_duration >= 1.0 else ""
-            )
-
-            print(
-                f"[Stats {peer_host}:{peer_port}] "
-                f"up {uptime}, "
-                f"tx {tx:,}B ({tx_mbps:.3f}/{avg_tx_mbps:.3f} Mbit/s)"
-                f"{idle_str}"
+            conn_logger.info(
+                "Connection stats",
+                uptime=uptime,
+                tx_bytes=tx,
+                tx_rate_mbps=tx_mbps,
+                avg_tx_rate_mbps=avg_tx_mbps,
+                idle=idle_duration,
             )
 
             if idle_duration >= idle_timeout:
-                print(
-                    f"[Stats {peer_host}:{peer_port}] "
-                    f"kicking idle client after {_fmt_idle(idle_duration)}"
+                conn_logger.warning(
+                    "Kicking idle client",
+                    idle=idle_duration,
                 )
                 # Send an EOF to the emulator thread to trigger a graceful shutdown.
                 reader.feed_eof()
@@ -247,10 +252,11 @@ async def _log_connection_stats(
         elapsed = now - start_time
         tx = getattr(protocol, "tx_bytes", 0)
         avg_tx_mbps = tx * 8 / elapsed / 1_000_000 if elapsed > 0 else 0.0
-        print(
-            f"[Stats {peer_host}:{peer_port}] "
-            f"disconnected after {elapsed:.1f}s, "
-            f"total tx {tx:,}B (avg {avg_tx_mbps:.3f} Mbit/s)"
+        conn_logger.info(
+            "Client disconnected",
+            duration=elapsed,
+            total_tx_bytes=tx,
+            avg_tx_rate_mbps=avg_tx_mbps,
         )
 
 
@@ -279,21 +285,34 @@ async def _telnet_shell(
 
     terminal_type = writer.get_extra_info("TERM") or None
     username = writer.get_extra_info("USER") or None
-    print(
-        f"> Telnet client connected ({peer_host}:{peer_port} term={terminal_type})"
-        + (f" user={username}" if username else "")
+    session_logger = logger.bind(
+        peer=f"{peer_host}:{peer_port}",
+        term=terminal_type,
+        username=username,
     )
+    session_logger.info("Telnet client connected")
 
     if idle_timeout is not None:
         stats_task = asyncio.create_task(
-            _log_connection_stats(reader, writer, peer_host, peer_port, idle_timeout)
+            _log_connection_stats(
+                reader,
+                writer,
+                peer_host,
+                peer_port,
+                idle_timeout,
+                logger=session_logger,
+            )
         )
     else:
         stats_task = None
 
     cols = writer.get_extra_info("cols") or 80
     rows = writer.get_extra_info("rows") or 24
-    print(f"[Terminal Info] {peer_host}: ttype={terminal_type}, {cols}x{rows}")
+    session_logger.info(
+        "Terminal info",
+        cols=cols,
+        rows=rows,
+    )
 
     try:
         # Convert namespace to AppConfig
@@ -306,6 +325,7 @@ async def _telnet_shell(
                 config,
                 username,
                 users_directory,
+                session_logger,
                 frontend=frontend,
             )
 
@@ -369,6 +389,11 @@ async def run_telnet_server(
                 if robot_check:
                     passed = await do_robot_check(reader, writer)
                     if not passed:
+                        peername = writer.get_extra_info("peername")
+                        logger.warning(
+                            "Rejected telnet client which failed robot check",
+                            peer=f"{peername[0]}:{peername[1]}" if peername else None,
+                        )
                         await robot_shell(reader, writer)
                         if not writer.is_closing():
                             writer.close()
@@ -392,7 +417,7 @@ async def run_telnet_server(
     sockets = server.sockets
     assert sockets is not None
     actual_bind, actual_port = sockets[0].getsockname()[:2]
-    print(f"Running telnet server on {actual_bind}:{actual_port}...", flush=True)
+    logger.info("Running telnet server", bind=actual_bind, port=actual_port)
     try:
         yield server
     finally:

@@ -79,16 +79,19 @@ def test_gambaterm_ssh(
     assert server.stdout is not None
     assert server.stderr is not None
     try:
-        assert (
-            server.stdout.readline()
-            == f"Generating SSH host key at {gambaterm_config / 'ssh_host_key'}...\n"
-        )
-        assert server.stdout.readline() == "Authentication methods:\n"
-        assert (
-            server.stdout.readline()
-            == f"- Public keys from: {ssh_config / 'id_rsa.pub'}\n"
-        )
-        assert server.stdout.readline() == "Running SSH server on 127.0.0.1:8022...\n"
+        line1 = server.stdout.readline()
+        assert "Generating SSH host key" in line1
+        assert str(gambaterm_config / "ssh_host_key") in line1
+
+        line2 = server.stdout.readline()
+        assert "Authentication methods configured" in line2
+        assert "password=False" in line2
+        assert str(ssh_config / "id_rsa.pub") in line2
+
+        line3 = server.stdout.readline()
+        assert "Running SSH server" in line3
+        assert "bind=127.0.0.1" in line3
+        assert "port=8022" in line3
         assert (gambaterm_config / "ssh_host_key").exists()
 
         async def ssh_client() -> str:
@@ -135,9 +138,10 @@ def test_gambaterm_telnet(color_arg: str) -> None:
     assert server.stdout is not None
     assert server.stderr is not None
     try:
-        assert (
-            server.stdout.readline() == "Running telnet server on 127.0.0.1:8023...\n"
-        )
+        line1 = server.stdout.readline()
+        assert "Running telnet server" in line1
+        assert "bind=127.0.0.1" in line1
+        assert "port=8023" in line1
 
         async def telnet_client() -> str:
             import telnetlib3
@@ -199,9 +203,10 @@ def test_gambaterm_telnet_unknown_term() -> None:
     assert server.stdout is not None
     assert server.stderr is not None
     try:
-        assert (
-            server.stdout.readline() == "Running telnet server on 127.0.0.1:8023...\n"
-        )
+        line1 = server.stdout.readline()
+        assert "Running telnet server" in line1
+        assert "bind=127.0.0.1" in line1
+        assert "port=8023" in line1
 
         async def telnet_client() -> str:
             import telnetlib3
@@ -310,15 +315,17 @@ def test_gambaterm_ssh_frontend(ssh_config: Path, gambaterm_config: Path) -> Non
     assert server.stdout is not None
     assert server.stderr is not None
     try:
-        assert (
-            server.stdout.readline()
-            == f"Generating SSH host key at {gambaterm_config / 'ssh_host_key'}...\n"
-        )
-        assert (
-            server.stdout.readline()
-            == "Authentication disabled (no password nor public key required)\n"
-        )
-        assert server.stdout.readline() == "Running SSH server on 127.0.0.1:8022...\n"
+        line1 = server.stdout.readline()
+        assert "Generating SSH host key" in line1
+        assert str(gambaterm_config / "ssh_host_key") in line1
+
+        line2 = server.stdout.readline()
+        assert "Authentication disabled (no password nor public key required)" in line2
+
+        line3 = server.stdout.readline()
+        assert "Running SSH server" in line3
+        assert "bind=127.0.0.1" in line3
+        assert "port=8022" in line3
 
         async def ssh_client() -> str:
             async with asyncssh.connect(

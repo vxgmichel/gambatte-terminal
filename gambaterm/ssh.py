@@ -14,6 +14,7 @@ from enum import Enum, auto
 from concurrent.futures import ThreadPoolExecutor, CancelledError
 
 import asyncssh
+import structlog
 from asyncssh import (
     SFTPServerFactory,
     SSHServerConnection,
@@ -45,6 +46,8 @@ from .console import Console, GameboyColor
 
 from .remote_terminal import RemoteTerminal, user_directory_name
 from .ssh_app_session import process_to_terminal
+
+logger = structlog.get_logger()
 
 
 Writer: TypeAlias = Callable[[str], None]
@@ -120,7 +123,8 @@ async def ssh_process_handler(process: SSHServerProcess[str]) -> int:
     connection = process.get_extra_info("connection")
     username = process.get_extra_info("username")
     peername, port = connection.get_extra_info("peername")
-    print(f"> User `{username}` is connected ({peername}:{port})")
+    session_logger = logger.bind(username=username, peer=f"{peername}:{port}")
+    session_logger.info("User connected")
 
     frontend = connection.get_extra_info("frontend")
 
@@ -146,7 +150,7 @@ async def ssh_process_handler(process: SSHServerProcess[str]) -> int:
             sep="\r\n",
             file=process.stdout,
         )
-        print(f"< User `{username}` did not use an interactive terminal")
+        session_logger.warning("User did not use an interactive terminal")
         return 1
 
     return await process_to_terminal(
@@ -161,6 +165,7 @@ async def ssh_process_handler(process: SSHServerProcess[str]) -> int:
             terminal_type,
             executor,
             users_directory,
+            session_logger,
             frontend=frontend,
         ),
         terminal_type=terminal_type,
@@ -176,6 +181,7 @@ def ssh_terminal_handler(
     terminal_type: str,
     executor: ThreadPoolExecutor,
     users_directory: Path,
+    session_logger: structlog.BoundLogger,
     frontend: Callable[[RemoteTerminal, AppConfig, bool], AppConfig] | None = None,
 ) -> int:
     keyboard_supported = is_kitty_keyboard_protocol_supported(
@@ -221,8 +227,8 @@ sandbox. More information here: https://security.stackexchange.com/a/7496
         )
         terminal.stream.write(message)
         terminal.stream.flush()
-        print(
-            f"< User `{username}` did not support keyboard protocol nor enable X11 forwarding"
+        session_logger.warning(
+            "User did not support keyboard protocol nor enable X11 forwarding"
         )
         return 1
     elif input_source == InputSource.INPUT_FILE:
@@ -250,8 +256,12 @@ sandbox. More information here: https://security.stackexchange.com/a/7496
     # In practice kitty keyboard protocol pretty well implies 24-bit color support already,
     color_mode = app_config.color_mode or ColorMode.HAS_24_BIT_COLOR
 
-    print(
-        f"[Terminal Info] {username}: term={terminal_type}, {input_source}, {terminal.width}x{terminal.height}"
+    session_logger.info(
+        "Terminal info",
+        term=terminal_type,
+        input_source=str(input_source),
+        cols=terminal.width,
+        rows=terminal.height,
     )
 
     try:
@@ -352,6 +362,7 @@ class GambatermSSHServer(SSHServer):
         self._gambaterm_frontend = frontend
 
     def connection_made(self, conn: SSHServerConnection) -> None:
+        self._conn = conn
         conn.set_extra_info(console_cls=self._gambaterm_console_cls)
         conn.set_extra_info(executor=self._gambaterm_executor)
         conn.set_extra_info(namespace=self._gambaterm_namespace)
@@ -384,7 +395,19 @@ class GambatermSSHServer(SSHServer):
         assert isinstance(
             self._gambaterm_authentication, PasswordAndPublicKeyAuthentication
         )
-        return hmac.compare_digest(password, self._gambaterm_authentication.password)
+        is_valid = hmac.compare_digest(
+            password, self._gambaterm_authentication.password
+        )
+        if not is_valid:
+            conn = getattr(self, "_conn", None)
+            peername = conn.get_extra_info("peername") if conn else None
+            logger.warning(
+                "Failed password authentication",
+                username=username,
+                password=password,
+                peer=f"{peername[0]}:{peername[1]}" if peername else None,
+            )
+        return is_valid
 
 
 @asynccontextmanager
@@ -412,7 +435,7 @@ async def run_ssh_server(
 
     # Generate host key if it does not exist
     if not server_host_key.exists():
-        print(f"Generating SSH host key at {server_host_key}...")
+        logger.info("Generating SSH host key", path=str(server_host_key))
         server_host_key.parent.mkdir(parents=True, exist_ok=True)
         key = asyncssh.generate_private_key("ssh-ed25519")
         server_host_key.write_bytes(key.export_private_key())
@@ -474,18 +497,21 @@ async def run_ssh_server(
 
     match authentication:
         case NoAuthentication():
-            print("Authentication disabled (no password nor public key required)")
+            logger.info("Authentication disabled (no password nor public key required)")
         case PasswordAndPublicKeyAuthentication():
-            print("Authentication methods:")
-            print("- Global password")
-            for key_path in authorized_client_keys:
-                print(f"- Public keys from: {key_path}")
+            logger.info(
+                "Authentication methods configured",
+                password=True,
+                keys=[str(kp) for kp in authorized_client_keys],
+            )
         case PublicKeyAuthentication():
-            print("Authentication methods:")
-            for key_path in authorized_client_keys:
-                print(f"- Public keys from: {key_path}")
+            logger.info(
+                "Authentication methods configured",
+                password=False,
+                keys=[str(kp) for kp in authorized_client_keys],
+            )
     bind, port = server.sockets[0].getsockname()
-    print(f"Running SSH server on {bind}:{port}...", flush=True)
+    logger.info("Running SSH server", bind=bind, port=port)
 
     try:
         yield server
