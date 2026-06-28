@@ -248,66 +248,12 @@ def test_gambaterm_telnet_unknown_term() -> None:
         assert server.returncode == 0
 
 
-def run_frontend_ssh_server(rom_path_str: str, input_file_str: str) -> None:
-    import argparse
-    from concurrent.futures import ThreadPoolExecutor
-    import gambaterm.ssh as gambaterm_ssh
-    from gambaterm.console import GameboyColor
-    from gambaterm.main import AppConfig
-    from gambaterm.remote_terminal import RemoteTerminal, KeyboardSupportDetection
-
-    rom = Path(rom_path_str)
-
-    def test_frontend(
-        terminal: RemoteTerminal,
-        app_config: AppConfig,
-        keyboard_support_detection: KeyboardSupportDetection,
-    ) -> AppConfig:
-        terminal.stream.write("TEST_FRONTEND_ACTIVE\n")
-        terminal.stream.flush()
-        return app_config
-
-    namespace = argparse.Namespace(
-        romfile=rom,
-        input_file=Path(input_file_str),
-        skip_inputs=188,
-        color_mode=None,
-        frame_advance=1,
-        break_after=10,
-        speed=1.0,
-        cpr_sync=False,
-        save_directory=None,
-        force_gameboy=False,
-    )
-
-    async def main() -> None:
-        with ThreadPoolExecutor(max_workers=4) as executor:
-            async with gambaterm_ssh.run_ssh_server(
-                bind="127.0.0.1",
-                port=8022,
-                authentication=gambaterm_ssh.NoAuthentication(),
-                console_cls=GameboyColor,
-                namespace=namespace,
-                command_parser=lambda cmd, ns, write: ns,
-                users_directory=Path("."),
-                executor=executor,
-                frontend=test_frontend,
-            ):
-                await asyncio.Future()
-
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        pass
-
-
 def test_gambaterm_ssh_frontend(ssh_config: Path, gambaterm_config: Path) -> None:
     assert TEST_ROM.exists()
 
     command = [
         sys.executable,
-        "-c",
-        "import sys; from tests.test_gambaterm import run_frontend_ssh_server; run_frontend_ssh_server(sys.argv[1], sys.argv[2])",
+        str(Path(__file__).parent / "_frontend_ssh_server.py"),
         str(TEST_ROM),
         "/dev/null",
     ]
@@ -336,12 +282,13 @@ def test_gambaterm_ssh_frontend(ssh_config: Path, gambaterm_config: Path) -> Non
                 known_hosts=None,
                 username="user",
             ) as conn:
-                async with conn.create_process(
-                    term_type="xterm-256color", term_size=(80, 24)
-                ) as proc:
-                    stdout: str
-                    stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10.0)
-                    return stdout
+                result = await conn.run(
+                    "",
+                    term_type="xterm-256color",
+                    term_size=(80, 24),
+                )
+                assert isinstance(result.stdout, str)
+                return result.stdout
 
         client_stdout = asyncio.run(ssh_client())
         assert "TEST_FRONTEND_ACTIVE" in client_stdout
@@ -358,67 +305,12 @@ def test_gambaterm_ssh_frontend(ssh_config: Path, gambaterm_config: Path) -> Non
         assert server.returncode == 0
 
 
-def run_frontend_telnet_server(rom_path_str: str, input_file_str: str) -> None:
-    import argparse
-    from concurrent.futures import ThreadPoolExecutor
-    import gambaterm.telnet as gambaterm_telnet
-    from gambaterm.console import GameboyColor
-    from gambaterm.main import AppConfig
-    from gambaterm.remote_terminal import RemoteTerminal, KeyboardSupportDetection
-
-    rom = Path(rom_path_str)
-
-    def test_frontend(
-        terminal: RemoteTerminal,
-        app_config: AppConfig,
-        keyboard_support_detection: KeyboardSupportDetection,
-    ) -> AppConfig:
-        terminal.stream.write("TEST_FRONTEND_ACTIVE\n")
-        terminal.stream.flush()
-        return app_config
-
-    namespace = argparse.Namespace(
-        romfile=rom,
-        input_file=Path(input_file_str),
-        skip_inputs=188,
-        color_mode=None,
-        frame_advance=1,
-        break_after=10,
-        speed=1.0,
-        cpr_sync=False,
-        save_directory=None,
-        force_gameboy=False,
-    )
-
-    async def main() -> None:
-        with ThreadPoolExecutor(max_workers=4) as executor:
-            async with gambaterm_telnet.run_telnet_server(
-                bind="127.0.0.1",
-                port=8023,
-                robot_check=False,
-                max_players=0,
-                idle_timeout=None,
-                console_cls=GameboyColor,
-                namespace=namespace,
-                users_directory=Path("."),
-                executor=executor,
-                frontend=test_frontend,
-            ):
-                await asyncio.Future()
-
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        pass
-
-
 def test_gambaterm_telnet_frontend(gambaterm_config: Path) -> None:
     assert TEST_ROM.exists()
 
     command = [
         sys.executable,
-        "-c",
-        "import sys; from tests.test_gambaterm import run_frontend_telnet_server; run_frontend_telnet_server(sys.argv[1], sys.argv[2])",
+        str(Path(__file__).parent / "_frontend_telnet_server.py"),
         str(TEST_ROM),
         "/dev/null",
     ]

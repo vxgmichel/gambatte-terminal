@@ -4,7 +4,7 @@ from __future__ import annotations
 import time
 import argparse
 from pathlib import Path
-from typing import ContextManager, Self
+from typing import ContextManager, TYPE_CHECKING
 import dataclasses
 from dataclasses import dataclass, field
 
@@ -18,6 +18,10 @@ from .input_getter import BaseInputGetter
 from .keyboard_input import console_input_from_keyboard_context
 from .controller_input import combine_console_input_from_controller_context
 from .file_input import console_input_from_file_context, write_input_context
+
+# `typing.Self` is not available in python 3.10
+if TYPE_CHECKING:
+    from typing import Self
 
 
 @dataclass
