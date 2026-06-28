@@ -79,16 +79,19 @@ def test_gambaterm_ssh(
     assert server.stdout is not None
     assert server.stderr is not None
     try:
-        assert (
-            server.stdout.readline()
-            == f"Generating SSH host key at {gambaterm_config / 'ssh_host_key'}...\n"
-        )
-        assert server.stdout.readline() == "Authentication methods:\n"
-        assert (
-            server.stdout.readline()
-            == f"- Public keys from: {ssh_config / 'id_rsa.pub'}\n"
-        )
-        assert server.stdout.readline() == "Running SSH server on 127.0.0.1:8022...\n"
+        line1 = server.stdout.readline()
+        assert "Generating SSH host key" in line1
+        assert str(gambaterm_config / "ssh_host_key") in line1
+
+        line2 = server.stdout.readline()
+        assert "Authentication methods configured" in line2
+        assert "password=False" in line2
+        assert str(ssh_config / "id_rsa.pub") in line2
+
+        line3 = server.stdout.readline()
+        assert "Running SSH server" in line3
+        assert "bind=127.0.0.1" in line3
+        assert "port=8022" in line3
         assert (gambaterm_config / "ssh_host_key").exists()
 
         async def ssh_client() -> str:
@@ -135,9 +138,10 @@ def test_gambaterm_telnet(color_arg: str) -> None:
     assert server.stdout is not None
     assert server.stderr is not None
     try:
-        assert (
-            server.stdout.readline() == "Running telnet server on 127.0.0.1:8023...\n"
-        )
+        line1 = server.stdout.readline()
+        assert "Running telnet server" in line1
+        assert "bind=127.0.0.1" in line1
+        assert "port=8023" in line1
 
         async def telnet_client() -> str:
             import telnetlib3
@@ -199,9 +203,10 @@ def test_gambaterm_telnet_unknown_term() -> None:
     assert server.stdout is not None
     assert server.stderr is not None
     try:
-        assert (
-            server.stdout.readline() == "Running telnet server on 127.0.0.1:8023...\n"
-        )
+        line1 = server.stdout.readline()
+        assert "Running telnet server" in line1
+        assert "bind=127.0.0.1" in line1
+        assert "port=8023" in line1
 
         async def telnet_client() -> str:
             import telnetlib3
@@ -238,6 +243,125 @@ def test_gambaterm_telnet_unknown_term() -> None:
         server.wait()
         print(server.stdout.read(), end="", file=sys.stdout)
         print(server.stderr.read(), end="", file=sys.stderr)
+        server.stdout.close()
+        server.stderr.close()
+        assert server.returncode == 0
+
+
+def test_gambaterm_ssh_frontend(ssh_config: Path, gambaterm_config: Path) -> None:
+    assert TEST_ROM.exists()
+
+    command = [
+        sys.executable,
+        str(Path(__file__).parent / "_frontend_ssh_server.py"),
+        str(TEST_ROM),
+        "/dev/null",
+    ]
+    env = os.environ.copy()
+    env["PYTHONUNBUFFERED"] = "1"
+    server = Popen(command, stdout=PIPE, stderr=PIPE, bufsize=0, text=True, env=env)
+    assert server.stdout is not None
+    assert server.stderr is not None
+    try:
+        line1 = server.stdout.readline()
+        assert "Generating SSH host key" in line1
+        assert str(gambaterm_config / "ssh_host_key") in line1
+
+        line2 = server.stdout.readline()
+        assert "Authentication disabled (no password nor public key required)" in line2
+
+        line3 = server.stdout.readline()
+        assert "Running SSH server" in line3
+        assert "bind=127.0.0.1" in line3
+        assert "port=8022" in line3
+
+        async def ssh_client() -> str:
+            async with asyncssh.connect(
+                host="127.0.0.1",
+                port=8022,
+                known_hosts=None,
+                username="user",
+            ) as conn:
+                result = await conn.run(
+                    "",
+                    term_type="xterm-256color",
+                    term_size=(80, 24),
+                )
+                assert isinstance(result.stdout, str)
+                return result.stdout
+
+        client_stdout = asyncio.run(ssh_client())
+        assert "TEST_FRONTEND_ACTIVE" in client_stdout
+        assert "test_rom.gb" in client_stdout
+    finally:
+        server.send_signal(signal.SIGINT)
+        server.wait()
+        print("--- SERVER STDOUT ---")
+        print(server.stdout.read())
+        print("--- SERVER STDERR ---")
+        print(server.stderr.read())
+        server.stdout.close()
+        server.stderr.close()
+        assert server.returncode == 0
+
+
+def test_gambaterm_telnet_frontend(gambaterm_config: Path) -> None:
+    assert TEST_ROM.exists()
+
+    command = [
+        sys.executable,
+        str(Path(__file__).parent / "_frontend_telnet_server.py"),
+        str(TEST_ROM),
+        "/dev/null",
+    ]
+    env = os.environ.copy()
+    env["PYTHONUNBUFFERED"] = "1"
+    server = Popen(command, stdout=PIPE, stderr=PIPE, bufsize=0, text=True, env=env)
+    assert server.stdout is not None
+    assert server.stderr is not None
+    try:
+        line1 = server.stdout.readline()
+        assert "Running telnet server" in line1
+        assert "bind=127.0.0.1" in line1
+        assert "port=8023" in line1
+
+        async def telnet_client() -> str:
+            import telnetlib3
+
+            reader, writer = await telnetlib3.open_connection(
+                host="127.0.0.1",
+                port=8023,
+                encoding=False,
+                force_binary=True,
+                term="xterm-256color",
+                cols=80,
+                rows=24,
+            )
+            output = b""
+            try:
+                while True:
+                    chunk = await asyncio.wait_for(reader.read(65536), timeout=5)
+                    if not chunk:
+                        break
+                    if isinstance(chunk, bytes):
+                        output += chunk
+            except (asyncio.TimeoutError, EOFError):
+                pass
+            finally:
+                if not writer.is_closing():
+                    writer.close()
+            return output.decode("utf-8", errors="replace")
+
+        result = asyncio.run(telnet_client())
+        assert "TEST_FRONTEND_ACTIVE" in result
+        assert "test_rom.gb" in result
+    finally:
+        server.send_signal(signal.SIGINT)
+        server.wait()
+        print("--- SERVER STDOUT ---")
+        print(server.stdout.read())
+        print("--- SERVER STDERR ---")
+        print(server.stderr.read())
         server.stdout.close()
         server.stderr.close()
         assert server.returncode == 0
