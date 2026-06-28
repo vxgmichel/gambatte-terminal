@@ -1,16 +1,21 @@
 """
-Provide a blessed Terminal subclass for remote (SSH/telnet) streams.
+Provide common resources for both Telnet and SSH terminals.
 """
 
 from __future__ import annotations
 
 import codecs
+from concurrent.futures import ThreadPoolExecutor, CancelledError
+from enum import Enum
 import hashlib
 import contextlib
-from typing import IO, Generator
+from typing import IO, Callable, Generator, TypeAlias, TYPE_CHECKING
 
 from blessed import Terminal as BlessedTerminal
 from blessed.terminal import WINSZ
+
+if TYPE_CHECKING:
+    from .main import AppConfig
 
 
 class RemoteTerminal(BlessedTerminal):
@@ -85,6 +90,55 @@ class RemoteTerminal(BlessedTerminal):
     def update_size(self, rows: int, columns: int) -> None:
         self._rows = rows
         self._columns = columns
+
+
+class KeyboardSupport(Enum):
+    BASIC = "basic"
+    KEYBOARD_PROTOCOL = "keyboard_protocol"
+    X11 = "x11"
+
+
+class KeyboardSupportDetection:
+    def __init__(
+        self,
+        terminal: RemoteTerminal,
+        display: str | None = None,
+        executor: ThreadPoolExecutor | None = None,
+    ) -> None:
+        self.terminal = terminal
+        self.display = display
+        self.executor = executor
+        self._cache: KeyboardSupport | None = None
+
+    def get(self, timeout: float = 3.0) -> KeyboardSupport:
+        if self._cache is not None:
+            return self._cache
+        self._cache = self._detect(timeout)
+        return self._cache
+
+    def _detect(self, timeout: float = 3.0) -> KeyboardSupport:
+        from .keyboard_input import is_kitty_keyboard_protocol_supported
+
+        if is_kitty_keyboard_protocol_supported(self.terminal, timeout=timeout):
+            return KeyboardSupport.KEYBOARD_PROTOCOL
+
+        elif self.display and self.executor:
+            from .x11_keyboard_input import is_x11_display_functional
+
+            try:
+                if self.executor.submit(is_x11_display_functional, self.display).result(
+                    timeout=timeout
+                ):
+                    return KeyboardSupport.X11
+            except CancelledError:
+                pass
+
+        return KeyboardSupport.BASIC
+
+
+FrontendCallback: TypeAlias = Callable[
+    [RemoteTerminal, "AppConfig", KeyboardSupportDetection], "AppConfig"
+]
 
 
 def user_directory_name(username: str | None) -> str:

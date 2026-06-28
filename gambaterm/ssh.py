@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from contextlib import asynccontextmanager
 from typing import AnyStr, Callable, TypeAlias, ContextManager, AsyncIterator
 from enum import Enum, auto
-from concurrent.futures import ThreadPoolExecutor, CancelledError
+from concurrent.futures import ThreadPoolExecutor
 
 import asyncssh
 import structlog
@@ -24,7 +24,6 @@ from asyncssh import (
     SSHServerProcessFactory,
 )
 from asyncssh.channel import SSHChannel
-from blessed import Terminal
 
 from .run import run
 from .colors import ColorMode
@@ -34,7 +33,6 @@ from .keyboard_input import (
     console_input_from_x11_keyboard_context,
     console_input_from_keyboard_protocol_context,
     MESSAGE_SUGGESTING_KITTY_SUPPORT,
-    is_kitty_keyboard_protocol_supported,
 )
 from .main import (
     add_base_arguments,
@@ -44,7 +42,13 @@ from .main import (
 )
 from .console import Console, GameboyColor
 
-from .remote_terminal import RemoteTerminal, user_directory_name
+from .remote_terminal import (
+    KeyboardSupport,
+    RemoteTerminal,
+    user_directory_name,
+    KeyboardSupportDetection,
+    FrontendCallback,
+)
 from .ssh_app_session import process_to_terminal
 
 logger = structlog.get_logger()
@@ -56,21 +60,6 @@ CommandParser: TypeAlias = Callable[
 ]
 
 
-def is_x11_display_functional(
-    display: str,
-    executor: ThreadPoolExecutor,
-    timeout: float = 3.0,
-) -> bool:
-    from .x11_keyboard_input import is_x11_display_functional
-
-    try:
-        return executor.submit(is_x11_display_functional, display).result(
-            timeout=timeout
-        )
-    except CancelledError:
-        return False
-
-
 class InputSource(Enum):
     INPUT_FILE = auto()
     KEYBOARD_PROTOCOL = auto()
@@ -79,16 +68,15 @@ class InputSource(Enum):
 
 def detect_input_source(
     app_config: AppConfig,
-    display: str | None,
-    executor: ThreadPoolExecutor,
-    term: Terminal,
+    keyboard_support_detection: KeyboardSupportDetection,
     timeout: float = 3.0,
 ) -> InputSource | None:
     if app_config.input_file is not None:
         return InputSource.INPUT_FILE
-    if is_kitty_keyboard_protocol_supported(term, timeout=timeout):
+    keyboard_support = keyboard_support_detection.get(timeout)
+    if keyboard_support == KeyboardSupport.KEYBOARD_PROTOCOL:
         return InputSource.KEYBOARD_PROTOCOL
-    if display and is_x11_display_functional(display, executor, timeout=timeout):
+    if keyboard_support == KeyboardSupport.X11:
         return InputSource.X11
     return None
 
@@ -182,15 +170,13 @@ def ssh_terminal_handler(
     executor: ThreadPoolExecutor,
     users_directory: Path,
     session_logger: structlog.BoundLogger,
-    frontend: Callable[[RemoteTerminal, AppConfig, bool], AppConfig] | None = None,
+    frontend: FrontendCallback | None = None,
 ) -> int:
-    keyboard_supported = is_kitty_keyboard_protocol_supported(
-        terminal, timeout=1.0
-    ) or bool(display and is_x11_display_functional(display, executor, timeout=1.0))
+    keyboard_support_detection = KeyboardSupportDetection(terminal, display, executor)
 
     if frontend is not None:
         try:
-            app_config = frontend(terminal, app_config, keyboard_supported)
+            app_config = frontend(terminal, app_config, keyboard_support_detection)
         except (KeyboardInterrupt, EOFError):
             return 0
 
@@ -209,7 +195,7 @@ def ssh_terminal_handler(
     # (it might fail if the ROM does not exist for instance)
     console = console_cls.from_app_config(app_config)
 
-    input_source = detect_input_source(app_config, display, executor, terminal)
+    input_source = detect_input_source(app_config, keyboard_support_detection)
     console_input_context: ContextManager[BaseInputGetter]
     if input_source is None:
         message = (
@@ -349,7 +335,10 @@ class GambatermSSHServer(SSHServer):
         users_directory: Path,
         executor: ThreadPoolExecutor,
         active_connections: dict[GambatermSSHServer, SSHServerConnection],
-        frontend: Callable[[RemoteTerminal, AppConfig, bool], AppConfig] | None = None,
+        frontend: Callable[
+            [RemoteTerminal, AppConfig, KeyboardSupportDetection], AppConfig
+        ]
+        | None = None,
     ):
         self._gambaterm_console_cls = console_cls
         self._gambaterm_namespace = namespace
@@ -420,7 +409,7 @@ async def run_ssh_server(
     command_parser: CommandParser,
     users_directory: Path,
     executor: ThreadPoolExecutor,
-    frontend: Callable[[RemoteTerminal, AppConfig, bool], AppConfig] | None = None,
+    frontend: FrontendCallback | None = None,
 ) -> AsyncIterator[SSHAcceptor]:
     # Gambaterm configuration
     gambaterm_config_dir = Path(

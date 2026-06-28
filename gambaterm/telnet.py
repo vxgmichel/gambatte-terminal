@@ -39,9 +39,14 @@ from .input_getter import BaseInputGetter
 from .keyboard_input import (
     MESSAGE_SUGGESTING_KITTY_SUPPORT,
     console_input_from_keyboard_protocol_context,
-    is_kitty_keyboard_protocol_supported,
 )
-from .remote_terminal import RemoteTerminal, user_directory_name
+from .remote_terminal import (
+    KeyboardSupport,
+    KeyboardSupportDetection,
+    RemoteTerminal,
+    user_directory_name,
+    FrontendCallback,
+)
 from .telnet_app_session import (
     telnet_to_terminal,
 )
@@ -56,13 +61,13 @@ def thread_target(
     username: str | None,
     users_directory: Path,
     session_logger: structlog.BoundLogger,
-    frontend: Callable[[RemoteTerminal, AppConfig, bool], AppConfig] | None = None,
+    frontend: FrontendCallback | None = None,
 ) -> int:
     """Run the emulator in a thread with the given RemoteTerminal."""
-    keyboard_supported = is_kitty_keyboard_protocol_supported(terminal, timeout=1.0)
+    keyboard_support_detection = KeyboardSupportDetection(terminal)
     if frontend is not None:
         try:
-            app_config = frontend(terminal, app_config, keyboard_supported)
+            app_config = frontend(terminal, app_config, keyboard_support_detection)
         except (KeyboardInterrupt, EOFError):
             return 0
 
@@ -82,7 +87,7 @@ def thread_target(
         console_input_context = console_input_from_file_context(
             console, terminal, app_config.input_file, app_config.skip_inputs
         )
-    elif is_kitty_keyboard_protocol_supported(terminal, timeout=3):
+    elif keyboard_support_detection.get() == KeyboardSupport.KEYBOARD_PROTOCOL:
         console_input_context = console_input_from_keyboard_protocol_context(
             console,
             terminal,
@@ -144,7 +149,7 @@ def make_telnet_shell(
     idle_timeout: float | None,
     users_directory: Path,
     executor: ThreadPoolExecutor,
-    frontend: Callable[[RemoteTerminal, AppConfig, bool], AppConfig] | None = None,
+    frontend: FrontendCallback | None = None,
 ) -> ShellCallback:
     """Create a telnet shell callback with app_config and executor bound."""
 
@@ -268,7 +273,7 @@ async def _telnet_shell(
     idle_timeout: float | None,
     users_directory: Path,
     executor: ThreadPoolExecutor,
-    frontend: Callable[[RemoteTerminal, AppConfig, bool], AppConfig] | None = None,
+    frontend: FrontendCallback | None = None,
 ) -> int:
     peername = writer.get_extra_info("peername")
     peer_host = peername[0] if peername else "unknown"
@@ -356,7 +361,7 @@ async def run_telnet_server(
     namespace: argparse.Namespace,
     users_directory: Path,
     executor: ThreadPoolExecutor,
-    frontend: Callable[[RemoteTerminal, AppConfig, bool], AppConfig] | None = None,
+    frontend: FrontendCallback | None = None,
 ) -> AsyncIterator[telnetlib3.Server]:
     import telnetlib3
 

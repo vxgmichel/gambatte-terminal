@@ -254,12 +254,14 @@ def run_frontend_ssh_server(rom_path_str: str, input_file_str: str) -> None:
     import gambaterm.ssh as gambaterm_ssh
     from gambaterm.console import GameboyColor
     from gambaterm.main import AppConfig
-    from gambaterm.remote_terminal import RemoteTerminal
+    from gambaterm.remote_terminal import RemoteTerminal, KeyboardSupportDetection
 
     rom = Path(rom_path_str)
 
     def test_frontend(
-        terminal: RemoteTerminal, app_config: AppConfig, keyboard_supported: bool
+        terminal: RemoteTerminal,
+        app_config: AppConfig,
+        keyboard_support_detection: KeyboardSupportDetection,
     ) -> AppConfig:
         terminal.stream.write("TEST_FRONTEND_ACTIVE\n")
         terminal.stream.flush()
