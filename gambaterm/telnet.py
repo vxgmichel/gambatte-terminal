@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import time
-import hashlib
 import asyncio
 import argparse
 import traceback
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
@@ -14,57 +14,80 @@ from typing import (
     ContextManager,
     Type,
     TypeAlias,
+    AsyncIterator,
 )
 from concurrent.futures import ThreadPoolExecutor
 
+import structlog
+
 if TYPE_CHECKING:
+    import telnetlib3
     from telnetlib3.stream_reader import TelnetReader
     from telnetlib3.stream_writer import TelnetWriter
 
 from .run import run
 from .colors import ColorMode
 from .file_input import console_input_from_file_context
-from .main import add_base_arguments, add_optional_arguments, AppConfig
+from .main import (
+    add_base_arguments,
+    add_input_file_arguments,
+    add_tuning_arguments,
+    AppConfig,
+)
 from .console import Console, GameboyColor
 from .input_getter import BaseInputGetter
 from .keyboard_input import (
     MESSAGE_SUGGESTING_KITTY_SUPPORT,
     console_input_from_keyboard_protocol_context,
-    is_kitty_keyboard_protocol_supported,
 )
-from .remote_terminal import RemoteTerminal
+from .remote_terminal import (
+    KeyboardSupport,
+    KeyboardSupportDetection,
+    RemoteTerminal,
+    user_directory_name,
+    FrontendCallback,
+)
 from .telnet_app_session import (
     telnet_to_terminal,
 )
 
-
-def _save_dir_name(username: str | None) -> str:
-    """Hash the username into a safe directory name.
-
-    :param username: telnet-negotiated username, or ``None``
-    :returns: hex digest suitable for use as a directory name
-    """
-    if username is None:
-        return "_anonymous"
-    return hashlib.sha256(username.encode("utf-8")).hexdigest()[:16]
+logger = structlog.get_logger()
 
 
 def thread_target(
     terminal: RemoteTerminal,
-    console_callback: Callable[[], Console],
+    console_cls: type[Console],
     app_config: AppConfig,
-    color_mode: ColorMode,
     username: str | None,
+    users_directory: Path,
+    session_logger: structlog.BoundLogger,
+    frontend: FrontendCallback | None = None,
 ) -> int:
     """Run the emulator in a thread with the given RemoteTerminal."""
-    console: Console = console_callback()
+    keyboard_support_detection = KeyboardSupportDetection(terminal)
+    if frontend is not None:
+        try:
+            app_config = frontend(terminal, app_config, keyboard_support_detection)
+        except (KeyboardInterrupt, EOFError):
+            return 0
+
+    # Manage save directory
+    app_config.save_directory = (
+        None
+        if app_config.input_file is not None
+        else users_directory / user_directory_name(username)
+    )
+    if app_config.save_directory is not None:
+        app_config.save_directory.mkdir(parents=True, exist_ok=True)
+
+    console = console_cls.from_app_config(app_config)
 
     console_input_context: ContextManager[BaseInputGetter]
     if app_config.input_file is not None:
         console_input_context = console_input_from_file_context(
             console, terminal, app_config.input_file, app_config.skip_inputs
         )
-    elif is_kitty_keyboard_protocol_supported(terminal, timeout=3):
+    elif keyboard_support_detection.get() == KeyboardSupport.KEYBOARD_PROTOCOL:
         console_input_context = console_input_from_keyboard_protocol_context(
             console,
             terminal,
@@ -73,8 +96,16 @@ def thread_target(
         message = MESSAGE_SUGGESTING_KITTY_SUPPORT
         terminal.stream.write(message)
         terminal.stream.flush()
-        print(f"< User `{username}` did not support keyboard protocol")
+        session_logger.warning("User did not support keyboard protocol")
         return 1
+
+    # It is possible, here, to probe XTGETTCAP which helps correct terminal.number_of_colors using
+    # 'RGB' and 'colors', and some special attributes like blink, underline et al., but since they
+    # are not used by gambaterm, it is not called unless we find better reason otherwise.
+    # terminal.probe_xtgettcap(timeout=1.0)
+
+    # In practice kitty keyboard protocol pretty well implies 24-bit color support already,
+    color_mode = app_config.color_mode or ColorMode.HAS_24_BIT_COLOR
 
     try:
         terminal.stream.write(
@@ -90,6 +121,7 @@ def thread_target(
                 color_mode=color_mode,
                 break_after=app_config.break_after,
                 speed=app_config.speed,
+                use_cpr_sync=app_config.cpr_sync,
             )
     except (KeyboardInterrupt, EOFError):
         return 0
@@ -115,14 +147,23 @@ def make_telnet_shell(
     app_config: argparse.Namespace,
     console_cls: Type[Console],
     idle_timeout: float | None,
+    users_directory: Path,
     executor: ThreadPoolExecutor,
+    frontend: FrontendCallback | None = None,
 ) -> ShellCallback:
     """Create a telnet shell callback with app_config and executor bound."""
 
     async def telnet_shell(reader: TelnetReader, writer: TelnetWriter) -> None:
         try:
             await _telnet_shell(
-                reader, writer, app_config, console_cls, idle_timeout, executor
+                reader,
+                writer,
+                app_config,
+                console_cls,
+                idle_timeout,
+                users_directory,
+                executor,
+                frontend=frontend,
             )
         except (KeyboardInterrupt, EOFError):
             pass
@@ -150,8 +191,10 @@ async def _log_connection_stats(
     peer_port: int,
     idle_timeout: float,
     interval: float = 10.0,
+    logger: structlog.BoundLogger = logger,
 ) -> None:
     """Periodically log tx stats and idle time. Kick idle clients."""
+    conn_logger = logger
     protocol = writer.protocol
     if protocol is None:
         return
@@ -188,24 +231,22 @@ async def _log_connection_stats(
                 else f"{minutes}m{secs:02d}s"
             )
 
-            idle_str = (
-                f" (idle {_fmt_idle(idle_duration)})" if idle_duration >= 1.0 else ""
-            )
-
-            print(
-                f"[Stats {peer_host}:{peer_port}] "
-                f"up {uptime}, "
-                f"tx {tx:,}B ({tx_mbps:.3f}/{avg_tx_mbps:.3f} Mbit/s)"
-                f"{idle_str}"
+            conn_logger.info(
+                "Connection stats",
+                uptime=uptime,
+                tx_bytes=tx,
+                tx_rate_mbps=tx_mbps,
+                avg_tx_rate_mbps=avg_tx_mbps,
+                idle=idle_duration,
             )
 
             if idle_duration >= idle_timeout:
-                print(
-                    f"[Stats {peer_host}:{peer_port}] "
-                    f"kicking idle client after {_fmt_idle(idle_duration)}"
+                conn_logger.warning(
+                    "Kicking idle client",
+                    idle=idle_duration,
                 )
                 # Send an EOF to the emulator thread to trigger a graceful shutdown.
-                reader.feed_data(b"\x04")
+                reader.feed_eof()
                 return
 
             prev_time = now
@@ -216,10 +257,11 @@ async def _log_connection_stats(
         elapsed = now - start_time
         tx = getattr(protocol, "tx_bytes", 0)
         avg_tx_mbps = tx * 8 / elapsed / 1_000_000 if elapsed > 0 else 0.0
-        print(
-            f"[Stats {peer_host}:{peer_port}] "
-            f"disconnected after {elapsed:.1f}s, "
-            f"total tx {tx:,}B (avg {avg_tx_mbps:.3f} Mbit/s)"
+        conn_logger.info(
+            "Client disconnected",
+            duration=elapsed,
+            total_tx_bytes=tx,
+            avg_tx_rate_mbps=avg_tx_mbps,
         )
 
 
@@ -229,7 +271,9 @@ async def _telnet_shell(
     app_config: argparse.Namespace,
     console_cls: type[Console],
     idle_timeout: float | None,
+    users_directory: Path,
     executor: ThreadPoolExecutor,
+    frontend: FrontendCallback | None = None,
 ) -> int:
     peername = writer.get_extra_info("peername")
     peer_host = peername[0] if peername else "unknown"
@@ -244,58 +288,58 @@ async def _telnet_shell(
     except (asyncio.TimeoutError, KeyError):
         pass
 
-    terminal_type = writer.get_extra_info("TERM") or "unknown"
+    terminal_type = writer.get_extra_info("TERM") or None
     username = writer.get_extra_info("USER") or None
-    print(
-        f"> Telnet client connected ({peer_host}:{peer_port})"
-        + (f" user={username}" if username else "")
+    session_logger = logger.bind(
+        peer=f"{peer_host}:{peer_port}",
+        term=terminal_type,
+        username=username,
     )
-
-    if terminal_type == "unknown":
-        print("Warning: terminal type not negotiated, assuming xterm-256color.")
-        terminal_type = "xterm-256color"
-
-    # Kitty keyboard protocol implies 24-bit color support
-    color_mode = app_config.color_mode or ColorMode.HAS_24_BIT_COLOR
+    session_logger.info("Telnet client connected")
 
     if idle_timeout is not None:
         stats_task = asyncio.create_task(
-            _log_connection_stats(reader, writer, peer_host, peer_port, idle_timeout)
+            _log_connection_stats(
+                reader,
+                writer,
+                peer_host,
+                peer_port,
+                idle_timeout,
+                logger=session_logger,
+            )
         )
     else:
         stats_task = None
 
     cols = writer.get_extra_info("cols") or 80
     rows = writer.get_extra_info("rows") or 24
-    print(
-        f"[Terminal Info] {peer_host}: {terminal_type}, "
-        f"{color_mode.name}, {cols}x{rows}"
+    session_logger.info(
+        "Terminal info",
+        cols=cols,
+        rows=rows,
     )
 
     try:
-        # Copy namespace and set telnet-specific save directory
-        namespace = argparse.Namespace(**vars(app_config))
-        save_directory = (
-            None
-            if getattr(namespace, "input_file", None)
-            else Path("telnet_save") / _save_dir_name(username)
-        )
-        namespace.save_directory = save_directory
-        if save_directory is not None:
-            save_directory.mkdir(parents=True, exist_ok=True)
-
-        # Pop console-specific args and build console factory + AppConfig
-        console_callback = console_cls.pop_console_arguments(namespace)
-        config = AppConfig(**vars(namespace))
+        # Convert namespace to AppConfig
+        config = AppConfig.from_namespace(app_config)
 
         def target(term: RemoteTerminal) -> int:
-            return thread_target(term, console_callback, config, color_mode, username)
+            return thread_target(
+                term,
+                console_cls,
+                config,
+                username,
+                users_directory,
+                session_logger,
+                frontend=frontend,
+            )
 
         return await telnet_to_terminal(
             reader,
             writer,
             executor,
             target,
+            terminal_type=terminal_type,
         )
     finally:
         if stats_task is not None:
@@ -306,7 +350,8 @@ async def _telnet_shell(
                 pass
 
 
-async def run_server(
+@asynccontextmanager
+async def run_telnet_server(
     bind: str,
     port: int,
     robot_check: bool,
@@ -314,11 +359,20 @@ async def run_server(
     idle_timeout: float | None,
     console_cls: type[Console],
     namespace: argparse.Namespace,
+    users_directory: Path,
     executor: ThreadPoolExecutor,
-) -> None:
+    frontend: FrontendCallback | None = None,
+) -> AsyncIterator[telnetlib3.Server]:
     import telnetlib3
 
-    shell = make_telnet_shell(namespace, console_cls, idle_timeout, executor)
+    shell = make_telnet_shell(
+        namespace,
+        console_cls,
+        idle_timeout,
+        users_directory,
+        executor,
+        frontend=frontend,
+    )
 
     if robot_check or max_players > 0:
         from telnetlib3.guard_shells import ConnectionCounter, busy_shell
@@ -340,6 +394,11 @@ async def run_server(
                 if robot_check:
                     passed = await do_robot_check(reader, writer)
                     if not passed:
+                        peername = writer.get_extra_info("peername")
+                        logger.warning(
+                            "Rejected telnet client which failed robot check",
+                            peer=f"{peername[0]}:{peername[1]}" if peername else None,
+                        )
                         await robot_shell(reader, writer)
                         if not writer.is_closing():
                             writer.close()
@@ -363,8 +422,16 @@ async def run_server(
     sockets = server.sockets
     assert sockets is not None
     actual_bind, actual_port = sockets[0].getsockname()[:2]
-    print(f"Running telnet server on {actual_bind}:{actual_port}...", flush=True)
-    await asyncio.Future()
+    logger.info("Running telnet server", bind=actual_bind, port=actual_port)
+    try:
+        yield server
+    finally:
+        assert server._server is not None
+        server._server.close()
+        for client in server.clients:
+            if client.reader is not None:
+                client.reader.feed_eof()
+        await server.wait_closed()
 
 
 def main(
@@ -375,7 +442,8 @@ def main(
         description="Gambatte terminal front-end over telnet"
     )
     add_base_arguments(parser)
-    add_optional_arguments(parser)
+    add_input_file_arguments(parser)
+    add_tuning_arguments(parser)
     console_cls.add_console_arguments(parser)
     parser.add_argument(
         "--bind",
@@ -412,6 +480,12 @@ def main(
         default=None,
         help="Idle timeout in seconds (default is disabled)",
     )
+    parser.add_argument(
+        "--users-directory",
+        type=Path,
+        default=Path("users_save"),
+        help="Directory containing one save directory per user (default is ./users_save)",
+    )
 
     namespace = parser.parse_args(parser_args)
     bind: str = namespace.__dict__.pop("bind")
@@ -419,11 +493,13 @@ def main(
     robot_check: bool = namespace.__dict__.pop("robot_check")
     max_players: int = namespace.__dict__.pop("max_players")
     idle_timeout: float | None = namespace.__dict__.pop("idle_timeout")
+    users_directory: Path = namespace.__dict__.pop("users_directory")
 
     try:
         with ThreadPoolExecutor(max_workers=32) as executor:
-            asyncio.run(
-                run_server(
+
+            async def async_main() -> None:
+                async with run_telnet_server(
                     bind,
                     port,
                     robot_check,
@@ -431,9 +507,12 @@ def main(
                     idle_timeout,
                     console_cls,
                     namespace,
+                    users_directory,
                     executor,
-                )
-            )
+                ):
+                    await asyncio.Future()
+
+            asyncio.run(async_main())
     except KeyboardInterrupt:
         pass
 

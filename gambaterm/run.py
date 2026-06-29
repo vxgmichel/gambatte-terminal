@@ -162,6 +162,7 @@ def run(
                     height, width = new_height, new_width
                     refx, refy = get_ref(width, height, console)
                     color_mode = new_color_mode
+                    term.number_of_colors = new_color_mode.number_of_colors
                     last_frame.fill(0)
 
                 # Render frame with synchronized output mode (DEC 2026) to prevent flickering

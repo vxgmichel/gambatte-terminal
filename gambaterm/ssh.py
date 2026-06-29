@@ -3,19 +3,27 @@ from __future__ import annotations
 import os
 import time
 import hmac
-import hashlib
 import asyncio
 import argparse
 import traceback
 from pathlib import Path
 from dataclasses import dataclass
-from typing import IO, Callable, TypeAlias, cast, ContextManager
+from contextlib import asynccontextmanager
+from typing import AnyStr, Callable, TypeAlias, ContextManager, AsyncIterator
 from enum import Enum, auto
-from concurrent.futures import ThreadPoolExecutor, CancelledError
+from concurrent.futures import ThreadPoolExecutor
 
 import asyncssh
-from asyncssh import SSHServerProcess
-from blessed import Terminal
+import structlog
+from asyncssh import (
+    SFTPServerFactory,
+    SSHServerConnection,
+    SSHServerProcess,
+    SSHAcceptor,
+    SSHServer,
+    SSHServerProcessFactory,
+)
+from asyncssh.channel import SSHChannel
 
 from .run import run
 from .colors import ColorMode
@@ -25,28 +33,31 @@ from .keyboard_input import (
     console_input_from_x11_keyboard_context,
     console_input_from_keyboard_protocol_context,
     MESSAGE_SUGGESTING_KITTY_SUPPORT,
-    is_kitty_keyboard_protocol_supported,
 )
-from .main import add_base_arguments, add_optional_arguments, AppConfig
+from .main import (
+    add_base_arguments,
+    add_input_file_arguments,
+    add_tuning_arguments,
+    AppConfig,
+)
 from .console import Console, GameboyColor
 
-from .remote_terminal import RemoteTerminal
+from .remote_terminal import (
+    KeyboardSupport,
+    RemoteTerminal,
+    user_directory_name,
+    KeyboardSupportDetection,
+    FrontendCallback,
+)
 from .ssh_app_session import process_to_terminal
 
+logger = structlog.get_logger()
 
-def is_x11_display_functional(
-    display: str,
-    executor: ThreadPoolExecutor,
-    timeout: float = 3.0,
-) -> bool:
-    from .x11_keyboard_input import is_x11_display_functional
 
-    try:
-        return executor.submit(is_x11_display_functional, display).result(
-            timeout=timeout
-        )
-    except CancelledError:
-        return False
+Writer: TypeAlias = Callable[[str], None]
+CommandParser: TypeAlias = Callable[
+    [str, argparse.Namespace, Writer], argparse.Namespace
+]
 
 
 class InputSource(Enum):
@@ -57,16 +68,15 @@ class InputSource(Enum):
 
 def detect_input_source(
     app_config: AppConfig,
-    display: str | None,
-    executor: ThreadPoolExecutor,
-    term: Terminal,
+    keyboard_support_detection: KeyboardSupportDetection,
     timeout: float = 3.0,
 ) -> InputSource | None:
     if app_config.input_file is not None:
         return InputSource.INPUT_FILE
-    if is_kitty_keyboard_protocol_supported(term, timeout=timeout):
+    keyboard_support = keyboard_support_detection.get(timeout)
+    if keyboard_support == KeyboardSupport.KEYBOARD_PROTOCOL:
         return InputSource.KEYBOARD_PROTOCOL
-    if display and is_x11_display_functional(display, executor, timeout=timeout):
+    if keyboard_support == KeyboardSupport.X11:
         return InputSource.X11
     return None
 
@@ -92,6 +102,8 @@ async def safe_ssh_process_handler(process: SSHServerProcess[str]) -> None:
 async def ssh_process_handler(process: SSHServerProcess[str]) -> int:
     console_cls: type[Console] = process.get_extra_info("console_cls")
     namespace: argparse.Namespace = process.get_extra_info("namespace")
+    command_parser: CommandParser = process.get_extra_info("command_parser")
+    users_directory: Path = process.get_extra_info("users_directory")
     executor: ThreadPoolExecutor = process.get_extra_info("executor")
     display = process.channel.get_x11_display()
     command = process.channel.get_command()
@@ -99,35 +111,24 @@ async def ssh_process_handler(process: SSHServerProcess[str]) -> int:
     connection = process.get_extra_info("connection")
     username = process.get_extra_info("username")
     peername, port = connection.get_extra_info("peername")
-    print(f"> User `{username}` is connected ({peername}:{port})")
+    session_logger = logger.bind(username=username, peer=f"{peername}:{port}")
+    session_logger.info("User connected")
+
+    frontend = connection.get_extra_info("frontend")
 
     # Copy namespace before mutating
     namespace = argparse.Namespace(**vars(namespace))
 
     # Check command
     if command is not None:
-        parser = argparse.ArgumentParser()
-        parser._print_message = lambda message, file=None: type(parser)._print_message(  # type: ignore[method-assign]
-            parser, message, file=cast(IO[str], process.stdout)
+        namespace = command_parser(
+            command,
+            namespace,
+            lambda data: print(data.replace("\n", "\r\n"), end="", file=process.stdout),
         )
-        add_optional_arguments(parser)
-        console_cls.add_console_arguments(parser)
-        namespace = parser.parse_args(command.split(), namespace)
 
-    # Manage save directory — hash username to prevent path traversal
-    if "save_directory" in namespace.__dict__:
-        if getattr(namespace, "input_file", False):
-            setattr(namespace, "save_directory", None)
-        else:
-            safe_name = hashlib.sha256(username.encode("utf-8")).hexdigest()[:16]
-            save_directory = Path("ssh_save") / safe_name
-            save_directory.mkdir(parents=True, exist_ok=True)
-            (save_directory / "username").write_text(username)
-            setattr(namespace, "save_directory", save_directory)
-
-    # Pop console arguments and extract configuration
-    console_callback = console_cls.pop_console_arguments(namespace)
-    app_config = AppConfig(**vars(namespace))
+    # Convert namespace to AppConfig
+    app_config = AppConfig.from_namespace(namespace)
 
     # Check terminal
     if terminal_type is None:
@@ -137,7 +138,7 @@ async def ssh_process_handler(process: SSHServerProcess[str]) -> int:
             sep="\r\n",
             file=process.stdout,
         )
-        print(f"< User `{username}` did not use an interactive terminal")
+        session_logger.warning("User did not use an interactive terminal")
         return 1
 
     return await process_to_terminal(
@@ -145,30 +146,56 @@ async def ssh_process_handler(process: SSHServerProcess[str]) -> int:
         executor,
         lambda terminal: ssh_terminal_handler(
             terminal,
-            console_callback,
+            console_cls,
             app_config,
             display,
             username,
             terminal_type,
             executor,
+            users_directory,
+            session_logger,
+            frontend=frontend,
         ),
+        terminal_type=terminal_type,
     )
 
 
 def ssh_terminal_handler(
     terminal: RemoteTerminal,
-    console_callback: Callable[[], Console],
+    console_cls: type[Console],
     app_config: AppConfig,
     display: str | None,
     username: str,
     terminal_type: str,
     executor: ThreadPoolExecutor,
+    users_directory: Path,
+    session_logger: structlog.BoundLogger,
+    frontend: FrontendCallback | None = None,
 ) -> int:
-    # Now is a good time to instanciate the console
-    # (it might fail if the ROM does not exist for instance)
-    console = console_callback()
+    keyboard_support_detection = KeyboardSupportDetection(terminal, display, executor)
 
-    input_source = detect_input_source(app_config, display, executor, terminal)
+    if frontend is not None:
+        try:
+            app_config = frontend(terminal, app_config, keyboard_support_detection)
+        except (KeyboardInterrupt, EOFError):
+            return 0
+
+    # Manage save directory — hash username to prevent path traversal
+    app_config.save_directory = (
+        None
+        if app_config.input_file is not None
+        else users_directory / user_directory_name(username)
+    )
+
+    if app_config.save_directory is not None:
+        app_config.save_directory.mkdir(parents=True, exist_ok=True)
+        (app_config.save_directory / "username").write_text(username)
+
+    # Now is a good time to instantiate the console
+    # (it might fail if the ROM does not exist for instance)
+    console = console_cls.from_app_config(app_config)
+
+    input_source = detect_input_source(app_config, keyboard_support_detection)
     console_input_context: ContextManager[BaseInputGetter]
     if input_source is None:
         message = (
@@ -186,8 +213,8 @@ sandbox. More information here: https://security.stackexchange.com/a/7496
         )
         terminal.stream.write(message)
         terminal.stream.flush()
-        print(
-            f"< User `{username}` did not support keyboard protocol nor enable X11 forwarding"
+        session_logger.warning(
+            "User did not support keyboard protocol nor enable X11 forwarding"
         )
         return 1
     elif input_source == InputSource.INPUT_FILE:
@@ -207,11 +234,20 @@ sandbox. More information here: https://security.stackexchange.com/a/7496
     else:
         assert False
 
-    # Kitty keyboard protocol implies 24-bit color support
+    # It is possible, here, to probe XTGETTCAP which helps correct terminal.number_of_colors using
+    # 'RGB' and 'colors', and some special attributes like blink, underline et al., but since they
+    # are not used by gambaterm, it is not called unless we find better reason otherwise.
+    # terminal.probe_xtgettcap(timeout=1.0)
+
+    # In practice kitty keyboard protocol pretty well implies 24-bit color support already,
     color_mode = app_config.color_mode or ColorMode.HAS_24_BIT_COLOR
 
-    print(
-        f"[Terminal Info] {username}: {terminal_type}, {input_source}, {terminal.width}x{terminal.height}"
+    session_logger.info(
+        "Terminal info",
+        term=terminal_type,
+        input_source=str(input_source),
+        cols=terminal.width,
+        rows=terminal.height,
     )
 
     try:
@@ -268,30 +304,75 @@ AuthenticationMethod: TypeAlias = (
 )
 
 
-class SSHServer(asyncssh.SSHServer):
+class GambatermSSHServerProcess(SSHServerProcess[str]):
+    def __init__(
+        self,
+        process_factory: SSHServerProcessFactory[str],
+        sftp_factory: SFTPServerFactory | None,
+        sftp_version: int,
+        allow_scp: bool,
+        active_sessions: set[GambatermSSHServerProcess],
+    ):
+        super().__init__(process_factory, sftp_factory, sftp_version, allow_scp)
+        self._gambaterm_active_sessions = active_sessions
+
+    def connection_made(self, chan: SSHChannel[AnyStr]) -> None:
+        self._gambaterm_active_sessions.add(self)
+        return super().connection_made(chan)
+
+    def connection_lost(self, exc: Exception | None) -> None:
+        self._gambaterm_active_sessions.discard(self)
+        return super().connection_lost(exc)
+
+
+class GambatermSSHServer(SSHServer):
     def __init__(
         self,
         authentication: AuthenticationMethod,
         console_cls: type[Console],
         namespace: argparse.Namespace,
+        command_parser: CommandParser,
+        users_directory: Path,
         executor: ThreadPoolExecutor,
+        active_connections: dict[GambatermSSHServer, SSHServerConnection],
+        frontend: Callable[
+            [RemoteTerminal, AppConfig, KeyboardSupportDetection], AppConfig
+        ]
+        | None = None,
     ):
         self._gambaterm_console_cls = console_cls
         self._gambaterm_namespace = namespace
+        self._gambaterm_command_parser = command_parser
+        self._gambaterm_users_directory = users_directory
         self._gambaterm_executor = executor
         self._gambaterm_authentication = authentication
+        self._gambaterm_active_connections = active_connections
+        self._gambaterm_active_sessions: set[GambatermSSHServerProcess] = set()
+        self._gambaterm_frontend = frontend
 
-    def connection_made(self, conn: asyncssh.SSHServerConnection) -> None:
+    def connection_made(self, conn: SSHServerConnection) -> None:
+        self._conn = conn
         conn.set_extra_info(console_cls=self._gambaterm_console_cls)
         conn.set_extra_info(executor=self._gambaterm_executor)
         conn.set_extra_info(namespace=self._gambaterm_namespace)
+        conn.set_extra_info(command_parser=self._gambaterm_command_parser)
+        conn.set_extra_info(users_directory=self._gambaterm_users_directory)
+        conn.set_extra_info(frontend=self._gambaterm_frontend)
+        self._gambaterm_active_connections[self] = conn
+
+    def connection_lost(self, exc: Exception | None) -> None:
+        self._gambaterm_active_connections.pop(self)
 
     def begin_auth(self, username: str) -> bool:
         return not isinstance(self._gambaterm_authentication, NoAuthentication)
 
     def session_requested(self) -> SSHServerProcess[str]:
-        return asyncssh.SSHServerProcess(
-            safe_ssh_process_handler, sftp_factory=None, sftp_version=3, allow_scp=False
+        return GambatermSSHServerProcess(
+            safe_ssh_process_handler,
+            sftp_factory=None,
+            sftp_version=3,
+            allow_scp=False,
+            active_sessions=self._gambaterm_active_sessions,
         )
 
     def password_auth_supported(self) -> bool:
@@ -303,17 +384,33 @@ class SSHServer(asyncssh.SSHServer):
         assert isinstance(
             self._gambaterm_authentication, PasswordAndPublicKeyAuthentication
         )
-        return hmac.compare_digest(password, self._gambaterm_authentication.password)
+        is_valid = hmac.compare_digest(
+            password, self._gambaterm_authentication.password
+        )
+        if not is_valid:
+            conn = getattr(self, "_conn", None)
+            peername = conn.get_extra_info("peername") if conn else None
+            logger.warning(
+                "Failed password authentication",
+                username=username,
+                password=password,
+                peer=f"{peername[0]}:{peername[1]}" if peername else None,
+            )
+        return is_valid
 
 
-async def run_server(
+@asynccontextmanager
+async def run_ssh_server(
     bind: str,
     port: int,
     authentication: AuthenticationMethod,
     console_cls: type[Console],
     namespace: argparse.Namespace,
+    command_parser: CommandParser,
+    users_directory: Path,
     executor: ThreadPoolExecutor,
-) -> None:
+    frontend: FrontendCallback | None = None,
+) -> AsyncIterator[SSHAcceptor]:
     # Gambaterm configuration
     gambaterm_config_dir = Path(
         os.environ.get("GAMBATERM_CONFIG_DIR", "~/.config/gambaterm")
@@ -327,7 +424,7 @@ async def run_server(
 
     # Generate host key if it does not exist
     if not server_host_key.exists():
-        print(f"Generating SSH host key at {server_host_key}...")
+        logger.info("Generating SSH host key", path=str(server_host_key))
         server_host_key.parent.mkdir(parents=True, exist_ok=True)
         key = asyncssh.generate_private_key("ssh-ed25519")
         server_host_key.write_bytes(key.export_private_key())
@@ -365,8 +462,18 @@ async def run_server(
         "aes128-ctr",
     ]
 
+    active_connections: dict[GambatermSSHServer, SSHServerConnection] = {}
     server = await asyncssh.create_server(
-        lambda: SSHServer(authentication, console_cls, namespace, executor),
+        lambda: GambatermSSHServer(
+            authentication,
+            console_cls,
+            namespace,
+            command_parser,
+            users_directory,
+            executor,
+            active_connections,
+            frontend,
+        ),
         bind,
         port,
         server_host_keys=server_host_keys,
@@ -379,22 +486,43 @@ async def run_server(
 
     match authentication:
         case NoAuthentication():
-            print("Authentication disabled (no password nor public key required)")
+            logger.info("Authentication disabled (no password nor public key required)")
         case PasswordAndPublicKeyAuthentication():
-            print("Authentication methods:")
-            print("- Global password")
-            for key_path in authorized_client_keys:
-                print(f"- Public keys from: {key_path}")
+            logger.info(
+                "Authentication methods configured",
+                password=True,
+                keys=[str(kp) for kp in authorized_client_keys],
+            )
         case PublicKeyAuthentication():
-            print("Authentication methods:")
-            for key_path in authorized_client_keys:
-                print(f"- Public keys from: {key_path}")
+            logger.info(
+                "Authentication methods configured",
+                password=False,
+                keys=[str(kp) for kp in authorized_client_keys],
+            )
     bind, port = server.sockets[0].getsockname()
-    print(f"Running SSH server on {bind}:{port}...", flush=True)
+    logger.info("Running SSH server", bind=bind, port=port)
 
-    async with server:
-        # Sleep forever
-        await asyncio.Future()
+    try:
+        yield server
+    finally:
+        # Stop listening for new connections
+        server.close()
+
+        # Freeze active connections
+        for ssh_server, connection in list(active_connections.items()):
+            # Freeze active sessions
+            for session in list(ssh_server._gambaterm_active_sessions):
+                # Graceful teardown
+                # This is important to make sure the client receives the cleanup data
+                session.eof_received()
+                await session.wait_closed()
+
+            # Close the connection
+            # This is important for clients stuck in authentication phase for instance
+            connection.close()
+
+        # Now nothing should keep the server from closing
+        await server.wait_closed()
 
 
 def main(
@@ -403,14 +531,15 @@ def main(
 ) -> None:
     parser = argparse.ArgumentParser(description="Gambatte terminal front-end over ssh")
     add_base_arguments(parser)
-    add_optional_arguments(parser)
+    add_input_file_arguments(parser)
+    add_tuning_arguments(parser)
     console_cls.add_console_arguments(parser)
     parser.add_argument(
         "--bind",
         "-b",
         type=str,
         default="127.0.0.1",
-        help="Bind adress of the SSH server, "
+        help="Bind address of the SSH server, "
         "use `0.0.0.0` for all interfaces (default is localhost)",
     )
     parser.add_argument(
@@ -425,12 +554,18 @@ def main(
         "--pw",
         type=str,
         default=None,
-        help="Enable password authentification with the given global password",
+        help="Enable password authentication with the given global password",
     )
     parser.add_argument(
         "--no-auth",
         action="store_true",
         help="Disable authentication altogether (no password nor public key required)",
+    )
+    parser.add_argument(
+        "--users-directory",
+        type=Path,
+        default=Path("users_save"),
+        help="Directory containing one save directory per user (default is ./users_save)",
     )
 
     # Parse arguments
@@ -439,6 +574,7 @@ def main(
     port: int = namespace.__dict__.pop("port")
     password: str = namespace.__dict__.pop("password")
     no_auth: bool = namespace.__dict__.pop("no_auth")
+    users_directory: Path = namespace.__dict__.pop("users_directory")
 
     # Determine authentication method
     if no_auth and password is None:
@@ -457,13 +593,35 @@ def main(
     if not rom_path.exists():
         raise SystemExit(f"ROM file `{rom_path}` does not exist")
 
+    # Define a command parser for SSH clients
+    def command_parser(
+        command: str, namespace: argparse.Namespace, write: Writer
+    ) -> argparse.Namespace:
+        parser = argparse.ArgumentParser()
+        parser._print_message = lambda message, file=None: write(message)  # type: ignore[method-assign]
+        add_tuning_arguments(parser)
+        console_cls.add_console_arguments(parser)
+        return parser.parse_args(command.split(), namespace)
+
     # Run an executor with no limit on the number of threads
     try:
         with ThreadPoolExecutor(max_workers=32) as executor:
             # Run the server in asyncio
-            asyncio.run(
-                run_server(bind, port, authentication, console_cls, namespace, executor)
-            )
+            async def async_main() -> None:
+                async with run_ssh_server(
+                    bind,
+                    port,
+                    authentication,
+                    console_cls,
+                    namespace,
+                    command_parser,
+                    users_directory,
+                    executor,
+                ):
+                    await asyncio.Future()
+
+            asyncio.run(async_main())
+
     except KeyboardInterrupt:
         pass
 

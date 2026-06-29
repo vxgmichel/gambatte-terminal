@@ -1,32 +1,32 @@
 """
-Provide a blessed Terminal subclass for remote (SSH/telnet) streams.
+Provide common resources for both Telnet and SSH terminals.
 """
 
 from __future__ import annotations
 
 import codecs
+from concurrent.futures import ThreadPoolExecutor, CancelledError
+from enum import Enum
+import hashlib
 import contextlib
-from typing import IO, Generator
+from typing import IO, Callable, Generator, TypeAlias, TYPE_CHECKING
 
 from blessed import Terminal as BlessedTerminal
 from blessed.terminal import WINSZ
 
-# Python's curses.setupterm() can only be called once per process — subsequent
-# calls with a different terminal type are silently ignored. Since the SSH
-# server handles multiple concurrent connections in threads, all RemoteTerminal
-# instances share whatever terminal type was initialized first by the local
-# Terminal(). We hardcode 'xterm-256color' as the kind since:
-#   1. It's universally compatible with modern terminals
-#   2. We use standard VT100/ANSI escape codes directly, not terminfo caps
-#   3. It avoids issues where the first client's TERM value differs from subsequent
-REMOTE_TERMINAL_TYPE = "xterm-256color"
+if TYPE_CHECKING:
+    from .main import AppConfig
 
 
 class RemoteTerminal(BlessedTerminal):
     """A blessed Terminal subclass for remote streams (SSH, telnet).
 
     Stubs raw/cbreak mode (the remote connection is already raw) and
-    overrides size detection to use values provided by the server.
+    overrides size detection to use server protocol-negotiated values.
+
+    Callers should invoke ``get_xtgettcap()`` after initialization
+    to probe the terminal's true capabilities once the connection
+    is fully established.
     """
 
     def __init__(
@@ -35,18 +35,41 @@ class RemoteTerminal(BlessedTerminal):
         keyboard_fd: int,
         rows: int,
         columns: int,
+        kind: str | None = None,
     ) -> None:
         self._rows = rows
         self._columns = columns
-        super().__init__(kind=REMOTE_TERMINAL_TYPE, stream=stream, force_styling=True)
-        # Blessed only sets _keyboard_fd when stream is sys.__stdout__, so
-        # for remote pipes we must set it and initialize the decoder manually
-        self._keyboard_fd = keyboard_fd  # type: ignore[assignment]
+        self._remote_keyboard_fd = keyboard_fd
+        super().__init__(
+            kind=kind,
+            stream=stream,
+            force_styling=True,
+            kind_fallback="xterm-256color",
+        )
+        # wire `_keyboard_fd` and enable `_is_a_tty` *after* class initialization.
+        self._keyboard_fd = self._remote_keyboard_fd  # type: ignore[assignment]
+        self._is_a_tty = True
         self._keyboard_decoder = codecs.getincrementaldecoder("UTF-8")()
 
-    @property
-    def is_a_tty(self) -> bool:
-        return True
+    def probe_xtgettcap(self, timeout: float = 1.0) -> None:
+        """
+        Probe terminal capabilities via XTGETTCAP and apply results.
+
+        This allows to improved 'number_of_colors' detection, and, to "overlay" capabilities not
+        found in jinxed terminfo database but detected by XTGETTCAP: 'blink', 'sitm', 'ritm',
+        'cvvis', 'Smulx', 'Setulc', 'Ms', the same way that blessed.Terminal() would have but we
+        is_a_tty was detected False when we initialized it.
+
+        This method is not called or used by gambaterm-ssh or gambaterm-telnet, because the above
+        capabilities are not used and kitty keyboard support pretty reliably suggests 24-bit color
+        support.
+        """
+        self._xtgettcap_cache = self._Terminal__init__xtgettcap()  # type: ignore[assignment]
+        self.number_of_colors = self._Terminal__init__color_capabilities()  # type: ignore[assignment]
+        if self._xtgettcap_cache.supported and self.does_styling:
+            self._jinxed_term.overlay_capabilities(
+                **self._xtgettcap_cache.make_jinxed_capabilities()
+            )
 
     @contextlib.contextmanager
     def raw(self) -> Generator[None, None, None]:
@@ -67,3 +90,63 @@ class RemoteTerminal(BlessedTerminal):
     def update_size(self, rows: int, columns: int) -> None:
         self._rows = rows
         self._columns = columns
+
+
+class KeyboardSupport(Enum):
+    BASIC = "basic"
+    KEYBOARD_PROTOCOL = "keyboard_protocol"
+    X11 = "x11"
+
+
+class KeyboardSupportDetection:
+    def __init__(
+        self,
+        terminal: RemoteTerminal,
+        display: str | None = None,
+        executor: ThreadPoolExecutor | None = None,
+    ) -> None:
+        self.terminal = terminal
+        self.display = display
+        self.executor = executor
+        self._cache: KeyboardSupport | None = None
+
+    def get(self, timeout: float = 3.0) -> KeyboardSupport:
+        if self._cache is not None:
+            return self._cache
+        self._cache = self._detect(timeout)
+        return self._cache
+
+    def _detect(self, timeout: float = 3.0) -> KeyboardSupport:
+        from .keyboard_input import is_kitty_keyboard_protocol_supported
+
+        if is_kitty_keyboard_protocol_supported(self.terminal, timeout=timeout):
+            return KeyboardSupport.KEYBOARD_PROTOCOL
+
+        elif self.display and self.executor:
+            from .x11_keyboard_input import is_x11_display_functional
+
+            try:
+                if self.executor.submit(is_x11_display_functional, self.display).result(
+                    timeout=timeout
+                ):
+                    return KeyboardSupport.X11
+            except CancelledError:
+                pass
+
+        return KeyboardSupport.BASIC
+
+
+FrontendCallback: TypeAlias = Callable[
+    [RemoteTerminal, "AppConfig", KeyboardSupportDetection], "AppConfig"
+]
+
+
+def user_directory_name(username: str | None) -> str:
+    """Hash the username into a safe directory name.
+
+    :param username: telnet/ssh-negotiated username, or ``None``
+    :returns: hex digest suitable for use as a directory name
+    """
+    if username is None:
+        return "_anonymous"
+    return hashlib.sha256(username.encode("utf-8")).hexdigest()[:16]

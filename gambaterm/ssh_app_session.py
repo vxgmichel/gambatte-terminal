@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import os
 import asyncio
-import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager, contextmanager
 from typing import AsyncIterator, Iterator, TypeVar, Callable
@@ -32,8 +31,7 @@ async def _output_pipe_from_process(
     try:
         yield write_fd
     finally:
-        await process.redirect_stdout(subprocess.PIPE)
-        await asyncio.sleep(0)
+        os.close(write_fd)
 
 
 @asynccontextmanager
@@ -50,8 +48,7 @@ async def _input_pipe_from_process(
     try:
         yield read_fd
     finally:
-        await process.redirect_stdin(subprocess.PIPE)
-        await asyncio.sleep(0)
+        os.close(read_fd)
 
 
 @contextmanager
@@ -77,23 +74,32 @@ async def process_to_terminal(
     process: SSHServerProcess[str],
     executor: ThreadPoolExecutor,
     target: Callable[[RemoteTerminal], T],
+    terminal_type: str | None = None,
 ) -> T:
     """Create a blessed RemoteTerminal from an SSH process.
 
     Once the redirections are set up, I/O become synchronous,
     so we run the target function in a thread executor to avoid blocking the event loop
+
+    :param process: SSHServerProcess string
+    :param executor: ThreadPoolExecutor for running the game thread
+    :param target: callable receiving the RemoteTerminal, run in executor
+    :param terminal_type: terminal type from SSH SendEnv/AcceptEnv, `TERM` value
+    :returns: return value of *target*
+
     """
     width, height, _, _ = process.get_terminal_size()
     if width == height == 0:
         width, height = 80, 24
 
     def _target() -> T:
-        with open(write_fd, "w", newline="\r\n") as stream:
+        with os.fdopen(write_fd, "w", newline="\r\n", closefd=False) as stream:
             ssh_term = RemoteTerminal(
                 stream=stream,
                 keyboard_fd=keyboard_fd,
                 rows=height,
                 columns=width,
+                kind=terminal_type,
             )
             with _bind_resize(process, ssh_term):
                 return target(ssh_term)
