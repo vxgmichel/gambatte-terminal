@@ -2,18 +2,17 @@
 
 Queries terminal pixel dimensions and computes an integer nearest-neighbor
 scale factor so the Game Boy frame fills the available pixel area while
-preserving its 10:9 aspect ratio.  Scaling and encoding are composed into
-``blit_sixel`` and ``blit_kitty`` methods.
+preserving its 10:9 aspect ratio.
 """
 
 from __future__ import annotations
 
+import io
 from typing import TYPE_CHECKING
 
 import numpy as np
 
-from .sixelblit import sixel_blit as _sixel_blit
-from .kittyblit import kitty_blit as _kitty_blit
+from .graphics_renderer import encode_sixel, kitty_blit_bytes
 
 if TYPE_CHECKING:
     from blessed import Terminal
@@ -65,25 +64,26 @@ class SixelScaler:
         refy = (pixel_w - scaled_w) // 2 // cell_w + 1
         return cls(scale, refx, refy)
 
-    def _scaled(
-        self,
-        video: np.ndarray,
-        last_frame: np.ndarray | None,
-    ) -> tuple[np.ndarray, np.ndarray | None]:
-        """Return (video, last) scaled to ``self._scale``, or originals."""
-        if self._scale <= 1:
-            return video, last_frame
-        scaled_video = np.repeat(
-            np.repeat(video, self._scale, axis=0),
-            self._scale, axis=1,
-        )
-        scaled_last: np.ndarray | None = None
-        if last_frame is not None:
-            scaled_last = np.repeat(
-                np.repeat(last_frame, self._scale, axis=0),
-                self._scale, axis=1,
-            )
-        return scaled_video, scaled_last
+    def to_rgb(self, video: np.ndarray) -> np.ndarray:
+        """Convert uint32 RGBA (H, W) to float32 RGB (H, W, 3) in [0, 1]."""
+        img_h, img_w = video.shape[:2]
+        rgba = video.view(np.uint8).reshape(img_h, img_w, 4)
+        return rgba[:, :, :3].astype(np.float32) / 255.0
+
+    def to_rgba_u8(self, video: np.ndarray) -> np.ndarray:
+        """Convert uint32 RGBA (H, W) to uint8 RGBA (H, W, 4).
+
+        gambatte-core stores pixels as ``0xAABBGGRR`` — little-endian memory
+        is ``[RR, GG, BB, AA]``.  Kitty f=32 expects BGRA order so we swap R/B.
+        """
+        img_h, img_w = video.shape[:2]
+        rgba = video.view(np.uint8).reshape(img_h, img_w, 4)
+        out = np.empty((img_h, img_w, 4), dtype=np.uint8)
+        out[:, :, 0] = rgba[:, :, 2]  # B -> R slot
+        out[:, :, 1] = rgba[:, :, 1]  # G stays
+        out[:, :, 2] = rgba[:, :, 0]  # R -> B slot
+        out[:, :, 3] = 255
+        return out
 
     def blit_sixel(
         self,
@@ -93,12 +93,19 @@ class SixelScaler:
         height: int,
         color_mode: ColorMode,
     ) -> bytes:
-        """Scale ``video`` and encode as a sixel escape sequence."""
-        scaled_video, scaled_last = self._scaled(video, last_frame)
-        return _sixel_blit(
-            scaled_video, scaled_last,
-            self._refx, self._refy, width - 1, height, color_mode,
-        )
+        """Encode ``video`` as a sixel escape sequence.
+
+        Returns empty bytes if the frame is unchanged from *last_frame*.
+        """
+        if last_frame is not None and video.shape == last_frame.shape:
+            if np.array_equal(video, last_frame):
+                return b""
+
+        colors = self.to_rgb(video)
+        max_colors = min(color_mode.number_of_colors, 256)
+        buf = io.StringIO()
+        encode_sixel(colors, buf, max_colors=max_colors, scale=self._scale)
+        return buf.getvalue().encode("latin-1")
 
     def blit_kitty(
         self,
@@ -108,9 +115,20 @@ class SixelScaler:
         height: int,
         color_mode: ColorMode,
     ) -> bytes:
-        """Scale ``video`` and encode as a kitty graphics escape sequence."""
-        scaled_video, scaled_last = self._scaled(video, last_frame)
-        return _kitty_blit(
-            scaled_video, scaled_last,
-            self._refx, self._refy, width - 1, height, color_mode,
-        )
+        """Encode ``video`` as a kitty graphics escape sequence.
+
+        Returns empty bytes if the frame is unchanged from *last_frame*.
+        """
+        if last_frame is not None and video.shape == last_frame.shape:
+            if np.array_equal(video, last_frame):
+                return b""
+
+        # Convert to uint8 RGBA first (at native 160×144), then scale
+        rgba_u8 = self.to_rgba_u8(video).copy()
+        if self._scale > 1:
+            rgba_u8 = np.repeat(
+                np.repeat(rgba_u8, self._scale, axis=0),
+                self._scale, axis=1,
+            )
+        img_h, img_w = rgba_u8.shape[:2]
+        return kitty_blit_bytes(rgba_u8.tobytes(), img_w, img_h)

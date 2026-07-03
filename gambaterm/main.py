@@ -14,6 +14,8 @@ from .run import run
 from .console import GameboyColor, Console
 from .audio import audio_player
 from .colors import detect_local_color_mode, ColorMode
+from .remote_terminal import GraphicsProtocol
+from .keyboard_input import is_kitty_keyboard_protocol_supported
 from .input_getter import BaseInputGetter
 from .keyboard_input import console_input_from_keyboard_context
 from .controller_input import combine_console_input_from_controller_context
@@ -34,6 +36,10 @@ class AppConfig:
     speed: float
     skip_inputs: int
     cpr_sync: bool
+    graphics_protocol: GraphicsProtocol = GraphicsProtocol.TEXT
+    available_graphics: list[GraphicsProtocol] = field(
+        default_factory=lambda: [GraphicsProtocol.TEXT]
+    )
     save_directory: Path | None = None
     console_namespace: argparse.Namespace = field(default_factory=argparse.Namespace)
 
@@ -113,6 +119,13 @@ def add_tuning_arguments(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="Use CPR synchronization to prevent video buffering",
     )
+    parser.add_argument(
+        "--graphics",
+        choices=["text", "sixel", "kitty", "auto"],
+        default="auto",
+        help="Graphics rendering mode "
+        "(kitty, sixel, text, or auto-detect; default is auto)",
+    )
 
 
 def add_local_only_arguments(parser: argparse.ArgumentParser) -> None:
@@ -140,6 +153,22 @@ def add_local_only_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def detect_graphics_local(terminal: Terminal) -> tuple[GraphicsProtocol, list[GraphicsProtocol]]:
+    """Detect available graphics protocols on a local terminal.
+
+    Returns (selected, available) where selected is the preferred protocol
+    and available lists all supported protocols.
+    """
+    available = [GraphicsProtocol.TEXT]
+    has_kitty = is_kitty_keyboard_protocol_supported(terminal, timeout=1.0)
+    if has_kitty:
+        available.append(GraphicsProtocol.KITTY)
+    if terminal.does_sixel():
+        available.append(GraphicsProtocol.SIXEL)
+    # Prefer kitty, then sixel, then text
+    return available[-1], available
+
+
 def main(
     parser_args: tuple[str, ...] | None = None,
     console_cls: type[Console] = GameboyColor,
@@ -157,6 +186,7 @@ def main(
     # Parse arguments
     namespace = parser.parse_args(parser_args)
     disable_audio = getattr(namespace, "disable_audio", False)
+    graphics_value: str = namespace.__dict__.pop("graphics")
     args = LocalAppConfig.from_namespace(namespace)
 
     # Check that the ROM file exists
@@ -166,6 +196,14 @@ def main(
     # Instantiate the console and terminal
     console = console_cls.from_app_config(args)
     terminal = Terminal()
+
+    # Apply graphics protocol selection
+    available_graphics: list[GraphicsProtocol] = [GraphicsProtocol.TEXT]
+    if graphics_value == "auto":
+        args.graphics_protocol, available_graphics = detect_graphics_local(terminal)
+    elif graphics_value != "text":
+        args.graphics_protocol = GraphicsProtocol[graphics_value.upper()]
+        available_graphics = [GraphicsProtocol.TEXT, args.graphics_protocol]
 
     # Prepare input context
     input_context: ContextManager[BaseInputGetter]
@@ -217,6 +255,8 @@ def main(
                         break_after=args.break_after,
                         speed=args.speed,
                         use_cpr_sync=args.cpr_sync,
+                        graphics_protocol=args.graphics_protocol,
+                        available_graphics_protocols=available_graphics,
                     )
 
         # Deal with ctrl+c and ctrl+d exceptions

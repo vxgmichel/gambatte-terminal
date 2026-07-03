@@ -46,7 +46,7 @@ def test_gambaterm(interactive: bool, color_arg: str) -> None:
     assert TEST_ROM.exists()
     command = (
         f"gambaterm {TEST_ROM} --break-after 10"
-        f" --input-file /dev/null --disable-audio"
+        f" --input-file /dev/null --disable-audio --graphics text"
         + (f" {color_arg}" if color_arg else "")
     )
     result = run(
@@ -68,7 +68,7 @@ def test_gambaterm_ssh(
     ssh_config: Path, gambaterm_config: Path, color_arg: str
 ) -> None:
     assert TEST_ROM.exists()
-    command = f"gambaterm-ssh {TEST_ROM} --break-after 10 --input-file /dev/null" + (
+    command = f"gambaterm-ssh {TEST_ROM} --break-after 10 --input-file /dev/null --graphics text" + (
         f" {color_arg}" if color_arg else ""
     )
     env = os.environ.copy()
@@ -128,7 +128,7 @@ def test_gambaterm_telnet(color_arg: str) -> None:
     assert TEST_ROM.exists()
     command = (
         f"{sys.executable} -m gambaterm.telnet {TEST_ROM} --break-after 10"
-        f" --input-file /dev/null" + (f" {color_arg}" if color_arg else "")
+        f" --input-file /dev/null --graphics text" + (f" {color_arg}" if color_arg else "")
     )
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
@@ -193,7 +193,7 @@ def test_gambaterm_telnet_unknown_term() -> None:
     assert TEST_ROM.exists()
     command = (
         f"{sys.executable} -m gambaterm.telnet {TEST_ROM} --break-after 10"
-        f" --input-file /dev/null"
+        f" --input-file /dev/null --graphics text"
     )
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"

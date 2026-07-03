@@ -139,6 +139,7 @@ class GameboyColor(Console):
 
         self.gb = GB()
         self.force_gameboy = force_gameboy
+        self.last_video = np.zeros((self.HEIGHT, self.WIDTH), dtype=np.uint32)
 
         # Set save_directory
         if save_directory is not None:

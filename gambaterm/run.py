@@ -17,6 +17,8 @@ from .audio import MaybeAudioOut, DISABLED_AUDIO_OUT
 from .console import Console
 from .input_getter import BaseInputGetter
 from .colors import ColorMode
+from .sixel_scaler import SixelScaler
+from .remote_terminal import GraphicsProtocol
 
 _CPR_RE = re.compile(r"\x1b\[\d+;\d+R")
 
@@ -57,6 +59,8 @@ def run(
     break_after: int | None = None,
     speed: float = 1.0,
     use_cpr_sync: bool = False,
+    graphics_protocol: GraphicsProtocol = GraphicsProtocol.TEXT,
+    available_graphics_protocols: list[GraphicsProtocol] | None = None,
 ) -> None:
     assert color_mode > 0
 
@@ -90,6 +94,12 @@ def run(
     frame_start_time = None
     frame_data = bytearray()
     current_title_sequence = b""
+    scaler: SixelScaler | None = None
+
+    # Build cycle list from available protocols (detected before entering run).
+    if available_graphics_protocols is None:
+        available_graphics_protocols = list(GraphicsProtocol)
+    graphics_cycle = available_graphics_protocols
 
     # Loop over emulator frames
     for i in count():
@@ -119,6 +129,7 @@ def run(
         # decoded `key_name` attribute, since it ends up being `KEY_CTRL_C` for ctrl+c
         # and `KEY_CTRL_D` for ctrl+d regardless of the underlying encoding.
         new_color_mode = color_mode
+        new_graphics_protocol = graphics_protocol
         for key in input_getter.pop_keystrokes():
             if key.key_name == "KEY_CTRL_C":
                 raise KeyboardInterrupt
@@ -126,6 +137,18 @@ def run(
                 raise EOFError
             if key.key_name == "KEY_TAB":
                 new_color_mode = color_mode.cycle()
+            if key.key_name == "KEY_BTAB":
+                new_color_mode = color_mode.cycle_back()
+            if key.key_name == "KEY_BACKSPACE":
+                idx = graphics_cycle.index(graphics_protocol)
+                new_graphics_protocol = graphics_cycle[
+                    (idx + 1) % len(graphics_cycle)
+                ]
+            if key.key_name == "KEY_DELETE":
+                idx = graphics_cycle.index(graphics_protocol)
+                new_graphics_protocol = graphics_cycle[
+                    (idx - 1) % len(graphics_cycle)
+                ]
             if key.key_name in ("KEY_PGUP", "KEY_PGDOWN"):
                 speed += 0.1 if key.key_name == "KEY_PGUP" else -0.1
                 fps = console.FPS * speed
@@ -150,31 +173,46 @@ def run(
             if i % frame_advance == 0 and new_frame and screen_ready and not shift:
                 new_frame = False
 
-                # Detect terminal resize and color mode change
+                # Detect terminal resize, color mode, or graphics protocol change
                 new_height = term.height or 24
                 new_width = term.width or 80
                 maybe_clear_sequence = b""
                 if (new_height, new_width) != (
                     height,
                     width,
-                ) or new_color_mode != color_mode:
+                ) or new_color_mode != color_mode or new_graphics_protocol != graphics_protocol:
                     maybe_clear_sequence = b"\033[H\033[2J"
                     height, width = new_height, new_width
                     refx, refy = get_ref(width, height, console)
                     color_mode = new_color_mode
+                    graphics_protocol = new_graphics_protocol
                     term.number_of_colors = new_color_mode.number_of_colors
                     last_frame.fill(0)
+                    scaler = None
 
-                # Render frame with synchronized output mode (DEC 2026) to prevent flickering
-                # when the screen is cleared, or an artificial CRT-like "rolling band" side-effects
-                # from fast "sprite blinking" meant to cause "transparency" effect on original HW,
-                # https://zladx.github.io/posts/links-awakening-partial-translucency
-                frame_data += b"\033[?2026h"
-                frame_data += maybe_clear_sequence
-                frame_data += blit(
-                    video, last_frame, refx, refy, width - 1, height, color_mode
-                )
-                frame_data += b"\033[?2026l"
+                # Render frame
+                if graphics_protocol is GraphicsProtocol.TEXT:
+                    frame_data += b"\033[?2026h"
+                    frame_data += maybe_clear_sequence
+                    frame_data += blit(
+                        video, last_frame, refx, refy, width - 1, height, color_mode
+                    )
+                    frame_data += b"\033[?2026l"
+                else:
+                    if scaler is None:
+                        scaler = SixelScaler.recompute(term, console, height, width)
+                    frame_data += maybe_clear_sequence
+                    refx, refy = scaler.position
+                    frame_data += f"\033[{refx};{refy}H".encode()
+                    if graphics_protocol is GraphicsProtocol.SIXEL:
+                        frame_data += scaler.blit_sixel(
+                            video, last_frame, width, height, color_mode
+                        )
+                    else:
+                        frame_data += scaler.blit_kitty(
+                            video, last_frame, width, height, color_mode
+                        )
+
                 last_frame = video.copy()
 
                 # Update reporting
@@ -226,5 +264,10 @@ def run(
             title += f"Video: {video_fps:.0f} FPS - {video_percent:.0f}% CPU - "
             title += f"{data_rate:.0f} KB/s | "
             title += f"Audio: {audio_percent:.0f}% CPU | "
-            title += f"{color_mode.report()} mode"
+            if graphics_protocol is GraphicsProtocol.TEXT:
+                title += f"{color_mode.report()} textmode"
+            elif graphics_protocol is GraphicsProtocol.SIXEL:
+                title += "sixel graphics"
+            else:
+                title += "kitty graphics"
             current_title_sequence = term.set_window_title(title).encode("utf-8")

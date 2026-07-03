@@ -20,6 +20,13 @@ class ColorMode(IntEnum):
             value += 1
         return ColorMode(value)
 
+    def cycle_back(self) -> ColorMode:
+        """Cycle to the previous color mode."""
+        value = self - 1
+        if value == ColorMode.COULD_NOT_DETECT:
+            value = ColorMode.HAS_24_BIT_COLOR
+        return ColorMode(value)
+
     def report(self) -> str:
         """Return a human-readable report of the color mode."""
         if self == ColorMode.COULD_NOT_DETECT:

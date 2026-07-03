@@ -44,9 +44,10 @@ from .console import Console, GameboyColor
 
 from .remote_terminal import (
     KeyboardSupport,
-    RemoteTerminal,
-    user_directory_name,
     KeyboardSupportDetection,
+    RemoteTerminal,
+    make_graphics_frontend,
+    user_directory_name,
     FrontendCallback,
 )
 from .ssh_app_session import process_to_terminal
@@ -268,6 +269,8 @@ sandbox. More information here: https://security.stackexchange.com/a/7496
                 break_after=app_config.break_after,
                 speed=app_config.speed,
                 use_cpr_sync=app_config.cpr_sync,
+                graphics_protocol=app_config.graphics_protocol,
+                available_graphics_protocols=app_config.available_graphics,
             )
             return 0
     finally:
@@ -575,6 +578,10 @@ def main(
     password: str = namespace.__dict__.pop("password")
     no_auth: bool = namespace.__dict__.pop("no_auth")
     users_directory: Path = namespace.__dict__.pop("users_directory")
+    graphics_value: str = namespace.__dict__.pop("graphics")
+
+    # Determine frontend callback for graphics
+    frontend: FrontendCallback | None = make_graphics_frontend(graphics_value)
 
     # Determine authentication method
     if no_auth and password is None:
@@ -617,6 +624,7 @@ def main(
                     command_parser,
                     users_directory,
                     executor,
+                    frontend=frontend,
                 ):
                     await asyncio.Future()
 

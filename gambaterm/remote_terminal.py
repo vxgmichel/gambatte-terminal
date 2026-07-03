@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import codecs
 from concurrent.futures import ThreadPoolExecutor, CancelledError
-from enum import Enum
+from enum import Enum, auto
 import hashlib
 import contextlib
 from typing import IO, Callable, Generator, TypeAlias, TYPE_CHECKING
@@ -98,6 +98,12 @@ class KeyboardSupport(Enum):
     X11 = "x11"
 
 
+class GraphicsProtocol(Enum):
+    TEXT = auto()
+    SIXEL = auto()
+    KITTY = auto()
+
+
 class KeyboardSupportDetection:
     def __init__(
         self,
@@ -136,9 +142,64 @@ class KeyboardSupportDetection:
         return KeyboardSupport.BASIC
 
 
+def detect_graphics_frontend(
+    terminal: RemoteTerminal,
+    config: "AppConfig",
+    keyboard_detection: KeyboardSupportDetection,
+) -> "AppConfig":
+    """Probe terminal graphics capabilities and set config.graphics_protocol.
+
+    Detects both kitty and sixel support, preferring kitty for the
+    initial protocol.  The runtime can later cycle through all
+    available protocols.
+    """
+    has_kitty = keyboard_detection.get() == KeyboardSupport.KEYBOARD_PROTOCOL
+    has_sixel = terminal.does_sixel()
+
+    config.available_graphics = [GraphicsProtocol.TEXT]
+    if has_kitty:
+        config.available_graphics.append(GraphicsProtocol.KITTY)
+    if has_sixel:
+        config.available_graphics.append(GraphicsProtocol.SIXEL)
+
+    if has_kitty:
+        config.graphics_protocol = GraphicsProtocol.KITTY
+    elif has_sixel:
+        config.graphics_protocol = GraphicsProtocol.SIXEL
+
+    return config
+
+
 FrontendCallback: TypeAlias = Callable[
     [RemoteTerminal, "AppConfig", KeyboardSupportDetection], "AppConfig"
 ]
+
+
+def make_graphics_frontend(graphics_value: str) -> FrontendCallback | None:
+    """Return a FrontendCallback for the given --graphics value, or None.
+
+    ``"auto"`` returns :func:`detect_graphics_frontend`.  Explicit protocol
+    names return a callback that forces that protocol.  ``"text"`` returns
+    ``None`` (no frontend callback needed).
+    """
+    if graphics_value == "auto":
+        return detect_graphics_frontend
+    if graphics_value != "text":
+
+        def force_graphics(
+            term: RemoteTerminal,
+            config: "AppConfig",
+            kbd: KeyboardSupportDetection,
+        ) -> "AppConfig":
+            config.graphics_protocol = GraphicsProtocol[graphics_value.upper()]
+            config.available_graphics = [
+                GraphicsProtocol.TEXT,
+                config.graphics_protocol,
+            ]
+            return config
+
+        return force_graphics
+    return None
 
 
 def user_directory_name(username: str | None) -> str:
