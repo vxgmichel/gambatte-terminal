@@ -190,6 +190,7 @@ The table below sums up my findings when I tried the most common terminal emulat
 | Terminator       | Good       |               | 24-bit colors | Good                   | No                      | 60 FPS      |                                                             |
 | XTerm            | Good       |               | 24-bit colors | Good                   | No                      | 60 FPS      | Ctrl+Right click to resize, "Unreadable" locks up XTerm     |
 | Rxvt             | Good       |               | 24-bit colors | Good                   | No                      | 60 FPS      | No resize shortcuts                                         |
+| Tabby            | Good       | Sixel         | 24-bit colors | Good                   | No                      | 60 FPS      |                                                             |
 | Terminology      | Good       |               | 24-bit colors | Light misalignments    | No                      | 60 FPS      | Font sizes under ~9pt create horizontal line artifacts      |
 | Termit           | Ok         |               | 24-bit colors | Good                   | No                      | 60 FPS      | No window title                                             |
 | Mlterm           | Ok         |               | 24-bit colors | Light misalignments    | No                      | 60 FPS      | No resize shortcuts                                         |
