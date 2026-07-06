@@ -130,3 +130,79 @@ def test_kitty_rebaseline_deletes_delta():
     text = result.decode("latin-1")
     assert "i=1" in text
     assert "a=d,d=i,i=2" in text
+
+
+def test_sixel_overlay_delta():
+    """A small change produces a full-frame sixel overlay at refx,refy."""
+    from gambaterm.graphics_scaler import GraphicsScaler
+
+    scaler = GraphicsScaler(
+        scale=1,
+        kitty_scale=1,
+        refx=5,
+        refy=10,
+        refx_kitty=1,
+        refy_kitty=1,
+        cell_h=2,
+        cell_w=2,
+    )
+
+    baseline = np.full((10, 10), 0xFF00FF00, dtype=np.uint32)
+    scaler.blit_sixel(baseline, None, 10, 10)
+
+    changed = baseline.copy()
+    changed[3, 4] = 0xFFFF0000
+    result = scaler.blit_sixel(changed, baseline, 10, 10)
+
+    text = result.decode("latin-1")
+    assert text.startswith("\033[5;10H\033[0m")
+    assert "\033Pq" in text
+    assert "\033\\" in text
+
+
+def test_sixel_skip_identical():
+    """Identical frames return empty bytes."""
+    from gambaterm.graphics_scaler import GraphicsScaler
+
+    scaler = GraphicsScaler(
+        scale=1,
+        kitty_scale=1,
+        refx=1,
+        refy=1,
+        refx_kitty=1,
+        refy_kitty=1,
+        cell_h=2,
+        cell_w=2,
+    )
+
+    frame = np.full((10, 10), 0xFF00FF00, dtype=np.uint32)
+    scaler.blit_sixel(frame, None, 10, 10)
+    result = scaler.blit_sixel(frame, frame, 10, 10)
+    assert result == b""
+
+
+def test_sixel_rebaseline_on_large_change():
+    """A change exceeding the threshold produces a full-frame sixel at refx,refy."""
+    from gambaterm.graphics_scaler import GraphicsScaler
+
+    scaler = GraphicsScaler(
+        scale=1,
+        kitty_scale=1,
+        refx=2,
+        refy=3,
+        refx_kitty=1,
+        refy_kitty=1,
+        cell_h=2,
+        cell_w=2,
+    )
+
+    baseline = np.full((10, 10), 0xFF00FF00, dtype=np.uint32)
+    scaler.blit_sixel(baseline, None, 10, 10)
+
+    changed = np.full((10, 10), 0xFF0000FF, dtype=np.uint32)
+    result = scaler.blit_sixel(changed, baseline, 10, 10)
+
+    text = result.decode("latin-1")
+    assert text.startswith("\033[2;3H\033[0m")
+    assert "\033Pq" in text
+    assert "\033\\" in text

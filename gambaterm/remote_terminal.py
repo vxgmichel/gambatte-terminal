@@ -102,6 +102,32 @@ class GraphicsProtocol(Enum):
     TEXT = auto()
     SIXEL = auto()
     KITTY = auto()
+    BLITLESS_SIXEL = auto()
+
+
+def does_sixel(term: BlessedTerminal, timeout: float = 1.0) -> bool:
+    """Check if the terminal supports sixel graphics.
+
+    Includes workarounds for terminals that report sixel support in error.
+    """
+    if not term.does_sixel(timeout=timeout):
+        return False
+    sv = term.get_software_version(timeout=timeout)
+    if sv is None:
+        return True
+    if sv.name == 'rio' and _version_in_range(sv.version, '0.3', '0.4.9'):
+        # rio supported sixel, then broke it in 0.4 release (still reports
+        # support via DA/XTGETTCAP), fixed in 0.4.9+.
+        return False
+    return True
+
+
+def _version_in_range(version: str, lo_excl: str, hi_excl: str) -> bool:
+    """Return True if *version* is in (lo_excl, hi_excl)."""
+    v = tuple(int(p) for p in version.split('.'))
+    lo = tuple(int(p) for p in lo_excl.split('.'))
+    hi = tuple(int(p) for p in hi_excl.split('.'))
+    return lo < v < hi
 
 
 class KeyboardSupportDetection:
@@ -154,9 +180,16 @@ def detect_graphics_frontend(
     available protocols.
     """
     has_kitty = keyboard_detection.get() == KeyboardSupport.KEYBOARD_PROTOCOL
-    has_sixel = terminal.does_sixel()
+    has_sixel = does_sixel(terminal)
+
+    sv = terminal.get_software_version(timeout=1.0)
+    is_contour = sv is not None and sv.name == 'contour'
 
     config.available_graphics = [GraphicsProtocol.TEXT]
+    if is_contour:
+        config.available_graphics.append(GraphicsProtocol.BLITLESS_SIXEL)
+        config.graphics_protocol = GraphicsProtocol.TEXT
+        return config
     if has_kitty:
         config.available_graphics.append(GraphicsProtocol.KITTY)
     if has_sixel:

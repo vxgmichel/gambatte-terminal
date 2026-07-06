@@ -138,19 +138,18 @@ def is_kitty_keyboard_protocol_supported(
     #
     # Other terminals (eg. last release of Alacritty), *do* support the kitty keyboard protocol
     # flags that set, but fail to accurately report their state!
-    # https://github.com/alacritty/alacritty/pull/8953 -- it's too bad alacritty also doesn't
-    # support XTVERSION either, or we could conditionally return True for a version range!
-    #
-    # In a sense, we tradeoff: "ensure contour is not wrongly detected" (report_events not
-    # implemented) for Alacritty is wrongly detected as missing support for kitty (report_events not
-    # reported due to bug). I hope that Alacritty will accept the reported bug and next release will
-    # be OK.
+    # https://github.com/alacritty/alacritty/pull/8953
     state = term.get_kitty_keyboard_state(timeout=timeout)
     if state is None:
         return False
     with term.enable_kitty_keyboard(report_events=True, timeout=timeout):
         active = term.get_kitty_keyboard_state(timeout=timeout)
-    return active is not None and active.report_events
+    if active is not None and active.report_events:
+        return True
+    sv = term.get_software_version(timeout=timeout)
+    if sv is not None and sv.name == 'alacritty':
+        return True
+    return False
 
 
 @contextmanager

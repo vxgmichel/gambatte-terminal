@@ -12,7 +12,7 @@ import base64
 
 import numpy as np
 
-DCS_START = "\033Pq"
+DCS_START = "\033P0;1;0q"
 DCS_END = "\033\\"
 APC_START = "\033_G"
 APC_END = "\033\\"

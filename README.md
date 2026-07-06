@@ -181,10 +181,10 @@ The table below sums up my findings when I tried the most common terminal emulat
 |------------------|------------|---------------|---------------|------------------------|-------------------------|-------------|-------------------------------------------------------------|
 | Ghostty          | Excellent  | kitty         | 24-bit colors | Good                   | Yes                     | 60 FPS      |                                                             |
 | Kitty            | Excellent  | kitty         | 24-bit colors | Good                   | Yes                     | 60 FPS      |                                                             |
-| foot             | Excellent  |               | 24-bit colors | Good                   | Yes                     | 60 FPS      |                                                             |
-| Rio              | Excellent  |               | 24-bit colors | Good                   | Yes                     | 60 FPS      |                                                             |
-| Contour          | Excellent  |               | 24-bit colors | Good                   | Yes                     | 60 FPS      | [Download latest for kitty support](https://github.com/contour-terminal/contour/releases) |
-| Alacritty        | Good       |               | 24-bit colors | Good                   | No*                     | 60 FPS      | \*Fails kitty detection [due to reported bug](https://github.com/alacritty/alacritty/pull/8953) |
+| foot             | Excellent  | sixel         | 24-bit colors | Good                   | Yes                     | 60 FPS      |                                                             |
+| Rio              | Excellent  | kitty, sixel* | 24-bit colors | Good                   | Yes                     | 60 FPS      | \*sixel supported *before* 0.4, active regression, PR #XXX  |
+| Contour          | Excellent  | sixel*        | 24-bit colors | Good                   | Yes                     | 60 FPS\*    | \*does not support transparent sixel pixels, uses more CPU  |
+| Alacritty        | Good       |               | 24-bit colors | Good                   | No*                     | 60 FPS      |                                                             |
 | Konsole          | Good       |               | 24-bit colors | Good                   | No                      | 60 FPS      |                                                             |
 | Gnome terminal   | Good       |               | 24-bit colors | Good                   | No                      | 60 FPS      |                                                             |
 | Terminator       | Good       |               | 24-bit colors | Good                   | No                      | 60 FPS      |                                                             |
@@ -193,7 +193,7 @@ The table below sums up my findings when I tried the most common terminal emulat
 | Tabby            | Good       | Sixel         | 24-bit colors | Good                   | No                      | 60 FPS      |                                                             |
 | Terminology      | Good       |               | 24-bit colors | Light misalignments    | No                      | 60 FPS      | Font sizes under ~9pt create horizontal line artifacts      |
 | Termit           | Ok         |               | 24-bit colors | Good                   | No                      | 60 FPS      | No window title                                             |
-| Mlterm           | Ok         |               | 24-bit colors | Light misalignments    | No                      | 60 FPS      | No resize shortcuts                                         |
+| Mlterm           | Ok         | Sixel         | 24-bit colors | Light misalignments    | No                      | 60 FPS      | No convenient resize shortcuts in text mode                 |
 
 About MacOS:
 

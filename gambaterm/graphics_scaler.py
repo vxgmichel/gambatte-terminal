@@ -14,6 +14,7 @@ from .graphicsblit import (
     to_rgba_u8,
     encode_sixel,
     encode_kitty_rgba,
+    quantize_colors,
 )
 
 if TYPE_CHECKING:
@@ -28,6 +29,8 @@ DELTA_ID = 2
 
 KITTY_SCALE_MAX = int(os.environ.get("GAMBATERM_KITTY_SCALE_MAX", "6"))
 SIXEL_SCALE_MAX = int(os.environ.get("GAMBATERM_SIXEL_SCALE_MAX", "6"))
+SIXEL_REBASELINE_THRESHOLD = 0.35
+_SIXEL_DELTAS_ENABLED = os.environ.get("GAMBATERM_SIXEL_DELTAS", "1") != "0"
 
 
 class _Profile:
@@ -78,6 +81,8 @@ class GraphicsScaler:
         "_cell_h",
         "_cell_w",
         "_baseline",
+        "_sixel_baseline",
+        "_sixel_frame_no",
         "_had_delta",
         "_profile",
         "_frame_no",
@@ -104,6 +109,8 @@ class GraphicsScaler:
         self._cell_h = cell_h
         self._cell_w = cell_w
         self._baseline: np.ndarray | None = None
+        self._sixel_baseline: np.ndarray | None = None
+        self._sixel_frame_no = 0
         self._had_delta = False
         self._profile = _Profile()
         self._frame_no = 0
@@ -176,23 +183,128 @@ class GraphicsScaler:
         last_frame: np.ndarray | None,
         width: int,
         height: int,
-        color_mode: ColorMode,
     ) -> bytes:
         """Encode ``video`` as a sixel escape sequence.
+
+        Uses a baseline frame with dirty-rect delta updates for bandwidth
+        savings, falling back to a full keyframe when more than
+        ``SIXEL_REBASELINE_THRESHOLD`` of pixels change.
 
         Returns empty bytes if the frame is unchanged from *last_frame*.
         """
         if last_frame is not None and video.shape == last_frame.shape:
             if np.array_equal(video, last_frame):
                 self._profile.skipped += 1
+                self._sixel_frame_no += 1
                 return b""
 
-        self._profile.keyframes += 1
+        self._sixel_frame_no += 1
+        n = self._sixel_frame_no
+        t0 = time.perf_counter()
+
+        dump_dir = os.environ.get("GAMBATERM_DUMP_FRAMES")
+        if dump_dir:
+            os.makedirs(dump_dir, exist_ok=True)
+            np.save(f"{dump_dir}/{n:05d}.npy", video, allow_pickle=False)
+            scaler_json = f"{dump_dir}/scaler.json"
+            if not os.path.exists(scaler_json):
+                import json
+
+                with open(scaler_json, "w") as jf:
+                    json.dump(
+                        {
+                            "cell_h": self._cell_h,
+                            "cell_w": self._cell_w,
+                            "scale": self.scale,
+                            "refx": self.refx,
+                            "refy": self.refy,
+                            "kitty_scale": self.kitty_scale,
+                            "refx_kitty": self.refx_kitty,
+                            "refy_kitty": self.refy_kitty,
+                        },
+                        jf,
+                    )
+
+        if self._sixel_baseline is None:
+            self._profile.keyframes += 1
+            self._sixel_baseline = video.copy()
+            colors = to_rgb(video)
+            result = encode_sixel(colors, max_colors=256, scale=self.scale)
+            self._profile.bytes_out += len(result)
+            elapsed_us = int((time.perf_counter() - t0) * 1e6)
+            self._stats_fh.write(
+                f"{n},0.0,first_keyframe,{len(result)},{elapsed_us},"
+                f"{self.refx},{self.refy},,,,,\n"
+            )
+            self._stats_fh.flush()
+            return f"\033[{self.refx};{self.refy}H\033[0m".encode() + result
+
+        total_pixels = video.size
+        diff = video != self._sixel_baseline
+        changed = diff.sum()
+        changed_pct = changed / total_pixels
+
+        if changed_pct > SIXEL_REBASELINE_THRESHOLD or not _SIXEL_DELTAS_ENABLED:
+            self._profile.keyframes += 1
+            self._sixel_baseline = video.copy()
+            colors = to_rgb(video)
+            result = encode_sixel(colors, max_colors=256, scale=self.scale)
+            self._profile.bytes_out += len(result)
+            elapsed_us = int((time.perf_counter() - t0) * 1e6)
+            self._stats_fh.write(
+                f"{n},{changed_pct:.2f},rebaseline,{len(result)},{elapsed_us},"
+                f"{self.refx},{self.refy},,,,,\n"
+            )
+            self._stats_fh.flush()
+            return f"\033[{self.refx};{self.refy}H\033[0m".encode() + result
+
+        self._profile.deltas += 1
+
         colors = to_rgb(video)
-        max_colors = min(color_mode.number_of_colors, 256)
-        result = encode_sixel(colors, max_colors=max_colors, scale=self.scale)
+        indices, palette = quantize_colors(colors, 256)
+        indices = np.asarray(indices)
+        palette = np.asarray(palette)
+        indices[~diff] = 255
+
+        result = encode_sixel(colors, max_colors=256, scale=self.scale,
+                              indices=indices, palette=palette, skip_index=255)
+        self._sixel_baseline = video.copy()
         self._profile.bytes_out += len(result)
-        return result
+        elapsed_us = int((time.perf_counter() - t0) * 1e6)
+
+        self._stats_fh.write(
+            f"{n},{changed_pct:.2f},overlay_delta,{len(result)},{elapsed_us},"
+            f"{self.refx},{self.refy},,,,,\n"
+        )
+        self._stats_fh.flush()
+
+        return f"\033[{self.refx};{self.refy}H\033[0m".encode() + result
+
+    def blit_sixel_blitless(
+        self,
+        video: np.ndarray,
+        width: int,
+        height: int,
+    ) -> bytes:
+        """Encode ``video`` as a full opaque sixel keyframe.
+
+        No baseline tracking, no delta encoding, no P2=1 transparency.
+        Every frame is a standalone keyframe.  Used for Contour which
+        does not support sixel blitting.
+        """
+        self._sixel_frame_no += 1
+        t0 = time.perf_counter()
+        colors = to_rgb(video)
+        result = encode_sixel(colors, max_colors=256, scale=self.scale)
+        self._profile.keyframes += 1
+        self._profile.bytes_out += len(result)
+        elapsed_us = int((time.perf_counter() - t0) * 1e6)
+        self._stats_fh.write(
+            f"{self._sixel_frame_no},0.0,blitless_keyframe,{len(result)},{elapsed_us},"
+            f"{self.refx},{self.refy},,,,,\n"
+        )
+        self._stats_fh.flush()
+        return f"\033[{self.refx};{self.refy}H\033[0m".encode() + result
 
     def _encode_kitty(self, video, encode_fn):
         """Encode kitty frame: full keyframe on first call, delta otherwise.
@@ -207,6 +319,7 @@ class GraphicsScaler:
 
         dump_dir = os.environ.get("GAMBATERM_DUMP_FRAMES")
         if dump_dir:
+            os.makedirs(dump_dir, exist_ok=True)
             np.save(f"{dump_dir}/{n:05d}.npy", video, allow_pickle=False)
             scaler_json = f"{dump_dir}/scaler.json"
             if not os.path.exists(scaler_json):

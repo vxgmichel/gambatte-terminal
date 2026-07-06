@@ -18,7 +18,7 @@ ZLIB_LEVEL = int(os.environ.get("GAMBATERM_ZLIB_LEVEL", "3"))
 
 
 SIXEL_BITS = np.array([1, 2, 4, 8, 16, 32], dtype=np.uint8)
-DCS_START = b"\x1bPq"
+DCS_START = b"\x1bP0;1;0q"
 DCS_END = b"\x1b\\"
 APC_START = b"\x1b_G"
 APC_END = b"\x1b\\"
@@ -97,22 +97,35 @@ def quantize_colors(float[:, :, ::1] colors, int n_colors):
 
 
 @boundscheck(False)
-def encode_sixel(float[:, :, ::1] colors, int max_colors=256, int scale=1):
+def encode_sixel(float[:, :, ::1] colors, int max_colors=256, int scale=1,
+                 uint8_t[:, ::1] indices=None, float[:, ::1] palette=None,
+                 int skip_index=-1):
     """Encode an RGB image as a sixel escape sequence.
 
     Returns bytes (the full escape sequence).
+
+    If *indices* and *palette* are provided, internal quantization is
+    skipped and the pre-computed values are used.  *skip_index* is a
+    colour index that is never emitted to the sixel stream, producing
+    transparent pixels when P2=1.
     """
     cdef int h = colors.shape[0]
     cdef int w = colors.shape[1]
 
     # Scale via numpy (already fast C)
     cdef float[:, :, ::1] scaled_colors
+    cdef int use_precomputed = indices is not None and palette is not None
     if scale > 1:
         arr = np.asarray(colors)
         arr = np.repeat(np.repeat(arr, scale, axis=0), scale, axis=1)
         scaled_colors = arr
         h = scaled_colors.shape[0]
         w = scaled_colors.shape[1]
+        if use_precomputed:
+            indices = np.ascontiguousarray(
+                np.repeat(np.repeat(np.asarray(indices), scale, axis=0),
+                          scale, axis=1),
+                dtype=np.uint8)
     else:
         scaled_colors = colors
 
@@ -123,12 +136,22 @@ def encode_sixel(float[:, :, ::1] colors, int max_colors=256, int scale=1):
         arr = np.pad(arr, ((0, pad_h), (0, 0), (0, 0)), constant_values=0)
         scaled_colors = arr
         h = scaled_colors.shape[0]
+        if use_precomputed:
+            indices_padded = np.zeros((h, w), dtype=np.uint8)
+            indices_padded[:indices.shape[0], :] = np.asarray(indices)
+            indices = indices_padded
 
-    cdef uint8_t[:, ::1] indices
-    cdef float[:, ::1] palette
-    indices, palette = quantize_colors(scaled_colors, max_colors)
+    cdef uint8_t[:, ::1] _indices
+    cdef float[:, ::1] _palette
+    if use_precomputed:
+        _indices = indices
+        _palette = palette
+    else:
+        indices, palette = quantize_colors(scaled_colors, max_colors)
+        _indices = indices
+        _palette = palette
 
-    cdef int n_colors = palette.shape[0]
+    cdef int n_colors = _palette.shape[0]
     cdef int i, band_y, x, start, length
     cdef int color_idx
     cdef uint8_t pat_byte
@@ -143,8 +166,8 @@ def encode_sixel(float[:, :, ::1] colors, int max_colors=256, int scale=1):
     # Palette
     for i in range(n_colors):
         parts.append(
-            f"#{i};2;{<int>(palette[i, 0] * 100)};"
-            f"{<int>(palette[i, 1] * 100)};{<int>(palette[i, 2] * 100)}".encode()
+            f"#{i};2;{<int>(_palette[i, 0] * 100)};"
+            f"{<int>(_palette[i, 1] * 100)};{<int>(_palette[i, 2] * 100)}".encode()
         )
 
     # Encode bands
@@ -154,7 +177,7 @@ def encode_sixel(float[:, :, ::1] colors, int max_colors=256, int scale=1):
     cdef int[256] seen
 
     for band_y in range(0, h, 6):
-        band = indices[band_y:band_y + 6, :]
+        band = _indices[band_y:band_y + 6, :]
         for i in range(256):
             seen[i] = 0
         for y in range(band.shape[0]):
@@ -162,6 +185,8 @@ def encode_sixel(float[:, :, ::1] colors, int max_colors=256, int scale=1):
                 seen[band[y, x]] = 1
 
         for color_idx in range(256):
+            if color_idx == skip_index:
+                continue
             if seen[color_idx] == 0:
                 continue
             parts.append(f"#{color_idx}".encode())

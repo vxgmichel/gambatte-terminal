@@ -14,7 +14,7 @@ from .run import run
 from .console import GameboyColor, Console
 from .audio import audio_player
 from .colors import detect_local_color_mode, ColorMode
-from .remote_terminal import GraphicsProtocol
+from .remote_terminal import GraphicsProtocol, does_sixel
 from .keyboard_input import is_kitty_keyboard_protocol_supported
 from .input_getter import BaseInputGetter
 from .keyboard_input import console_input_from_keyboard_context
@@ -162,10 +162,15 @@ def detect_graphics_local(
     and available lists all supported protocols.
     """
     available = [GraphicsProtocol.TEXT]
+    sv = terminal.get_software_version(timeout=1.0)
+    is_contour = sv is not None and sv.name == 'contour'
+    if is_contour:
+        available.append(GraphicsProtocol.BLITLESS_SIXEL)
+        return GraphicsProtocol.TEXT, available
     has_kitty = is_kitty_keyboard_protocol_supported(terminal, timeout=1.0)
     if has_kitty:
         available.append(GraphicsProtocol.KITTY)
-    if terminal.does_sixel():
+    if does_sixel(terminal):
         available.append(GraphicsProtocol.SIXEL)
     # Prefer kitty, then sixel, then text
     return available[-1], available
@@ -227,7 +232,7 @@ def main(
         )
 
     # Enter terminal raw mode
-    with terminal.raw():
+    with terminal.raw(), terminal.focus_events():
         try:
             # Detect color mode
             if args.color_mode is None:

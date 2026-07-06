@@ -96,7 +96,7 @@ def run(
 
     # Build cycle list from available protocols (detected before entering run).
     if available_graphics_protocols is None:
-        available_graphics_protocols = list(GraphicsProtocol)
+        available_graphics_protocols = [GraphicsProtocol.TEXT]
     graphics_cycle = available_graphics_protocols
 
     # Loop over emulator frames
@@ -152,6 +152,8 @@ def run(
                 fps = console.FPS * speed
                 average_over = int(round(fps))  # frames
                 audio_out.update_speed(console, speed)
+            elif key.key_name == 'FOCUS_IN':
+                scaler = None
 
         # Render video
         with timing(video_deltas):
@@ -205,9 +207,12 @@ def run(
                         maybe_clear_sequence = b"\033[H\033[2J"
                     frame_data += maybe_clear_sequence
                     if graphics_protocol is GraphicsProtocol.SIXEL:
-                        frame_data += f"\033[{scaler.refx};{scaler.refy}H".encode()
                         frame_data += scaler.blit_sixel(
-                            video, last_frame, width, height, color_mode
+                            video, last_frame, width, height
+                        )
+                    elif graphics_protocol is GraphicsProtocol.BLITLESS_SIXEL:
+                        frame_data += scaler.blit_sixel_blitless(
+                            video, width, height
                         )
                     else:
                         frame_data += scaler.blit_kitty(
@@ -269,6 +274,8 @@ def run(
                 title += f"{color_mode.report()} textmode"
             elif graphics_protocol is GraphicsProtocol.SIXEL:
                 title += "sixel graphics"
+            elif graphics_protocol is GraphicsProtocol.BLITLESS_SIXEL:
+                title += "sixel graphics (blitless)"
             else:
                 title += "kitty graphics"
             current_title_sequence = term.set_window_title(title).encode("utf-8")
