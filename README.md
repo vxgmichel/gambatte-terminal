@@ -192,8 +192,8 @@ The table below sums up my findings when I tried the most common terminal emulat
 | Rxvt             | Good       |               | 24-bit colors | Good                   | No                      | 60 FPS      | No resize shortcuts                                         |
 | Tabby            | Good       | Sixel         | 24-bit colors | Good                   | No                      | 60 FPS      |                                                             |
 | Terminology      | Good       |               | 24-bit colors | Light misalignments    | No                      | 60 FPS      | Font sizes under ~9pt create horizontal line artifacts      |
+| Mlterm           | Good       | sixel*        | 24-bit colors | Good                   | No                      | 60 FPS      | \* sixel doesn't update correctly when out of focus         |
 | Termit           | Ok         |               | 24-bit colors | Good                   | No                      | 60 FPS      | No window title                                             |
-| Mlterm           | Ok         | Sixel         | 24-bit colors | Light misalignments    | No                      | 60 FPS      | No convenient resize shortcuts in text mode                 |
 
 About MacOS:
 

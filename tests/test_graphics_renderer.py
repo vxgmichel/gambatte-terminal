@@ -33,7 +33,7 @@ def _load_golden(name):
 def test_encode_sixel_emits_raster_attributes():
     colors = np.zeros((6, 10, 3), dtype=np.float32)
     result = encode_sixel(colors, max_colors=256, scale=1).decode("latin-1")
-    assert result.startswith("\033Pq")
+    assert result.startswith("\033P0;1;0q")
     assert '"1;1;10;6' in result
     assert result.endswith("\033\\")
 
@@ -68,8 +68,8 @@ def test_encode_kitty_rgba_positioned():
     assert text.endswith("\033\\")
 
 
-def test_kitty_dirty_rect_delta():
-    """A small change produces a cell-snapped positioned delta (no X/Y offsets)."""
+def test_kitty_overlay_delta():
+    """A small change produces a full-frame overlay delta at refx,refy with z=1."""
     from gambaterm.graphics_scaler import GraphicsScaler
 
     scaler = GraphicsScaler(
@@ -86,7 +86,6 @@ def test_kitty_dirty_rect_delta():
     baseline = np.full((10, 10), 0xFF00FF00, dtype=np.uint32)
     scaler.blit_kitty(baseline, None, 10, 10, None)
 
-    # One pixel changed at (4,3) → padded to 12×24 cell at (1,1), no X/Y
     changed = baseline.copy()
     changed[3, 4] = 0xFFFF0000
     result = scaler.blit_kitty(changed, baseline, 10, 10, None)
@@ -94,17 +93,13 @@ def test_kitty_dirty_rect_delta():
     text = result.decode("latin-1")
     assert text.startswith("\033[1;1H")
     assert "i=2" in text
-    assert "p=1" in text
-    assert "z=" not in text  # not needed; i=2 > i=1 ensures stacking
-    assert "s=12" in text
-    assert "v=24" in text
-    assert "X=" not in text
-    assert "Y=" not in text
+    assert "z=1" in text
+    assert "p=1" not in text
     assert "i=1" not in text
 
 
 def test_kitty_rebaseline_deletes_delta():
-    """A rebaseline sends a new i=1; i=2 is orphaned (no explicit delete)."""
+    """A rebaseline sends a new i=1 and explicitly deletes i=2."""
     from gambaterm.graphics_scaler import GraphicsScaler
 
     scaler = GraphicsScaler(
@@ -130,6 +125,7 @@ def test_kitty_rebaseline_deletes_delta():
     text = result.decode("latin-1")
     assert "i=1" in text
     assert "a=d,d=i,i=2" in text
+    assert "z=1" not in text
 
 
 def test_sixel_overlay_delta():
@@ -156,7 +152,7 @@ def test_sixel_overlay_delta():
 
     text = result.decode("latin-1")
     assert text.startswith("\033[5;10H\033[0m")
-    assert "\033Pq" in text
+    assert "\033P0;1;0q" in text
     assert "\033\\" in text
 
 
@@ -204,5 +200,5 @@ def test_sixel_rebaseline_on_large_change():
 
     text = result.decode("latin-1")
     assert text.startswith("\033[2;3H\033[0m")
-    assert "\033Pq" in text
+    assert "\033P0;1;0q" in text
     assert "\033\\" in text

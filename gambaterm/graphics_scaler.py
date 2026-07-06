@@ -307,10 +307,14 @@ class GraphicsScaler:
         return f"\033[{self.refx};{self.refy}H\033[0m".encode() + result
 
     def _encode_kitty(self, video, encode_fn):
-        """Encode kitty frame: full keyframe on first call, delta otherwise.
+        """Encode kitty frame: keyframe on first call, hybrid delta otherwise.
 
-        Deltas send only the bounding box of changed pixels, positioned
-        on top of the baseline via cursor move and intra-cell X/Y offsets.
+        Chooses between two delta strategies based on change pattern:
+        - Dirty-rect: bounding box is small, send only the changed region.
+        - Overlay: changes are scattered (large bbox, few pixels), send
+          full-frame RGBA with alpha=0 for unchanged pixels at z=1.
+        Falls back to a full keyframe when more than the rebaseline
+        threshold of pixels change.
         """
         t0 = time.perf_counter()
         self._frame_no += 1
@@ -360,9 +364,8 @@ class GraphicsScaler:
 
         diff = video != self._baseline
         changed = diff.sum()
-        changed_pct = changed / total_pixels * 100
+        changed_pct = changed / total_pixels
 
-        # Compute bounding box of changed pixels
         rows = diff.any(axis=1)
         cols = diff.any(axis=0)
         y1 = int(rows.argmax())
@@ -373,8 +376,7 @@ class GraphicsScaler:
         rect_h = y2 - y1
         rect_area = rect_w * rect_h
 
-        if rect_area > total_pixels * 0.35:
-            # Bounding box covers too much of the frame — full rebaseline.
+        if changed_pct > SIXEL_REBASELINE_THRESHOLD:
             self._profile.keyframes += 1
             self._baseline = video.copy()
             rgba = to_rgba_u8(video)
@@ -385,10 +387,10 @@ class GraphicsScaler:
             h, w = rgba.shape[:2]
             result = [
                 f"\033[{self.refx_kitty};{self.refy_kitty}H".encode(),
-                encode_fn(rgba.tobytes(), w, h, image_id=BASELINE_ID),
             ]
             if self._had_delta:
                 result.append(f"\033_Ga=d,d=i,i={DELTA_ID}\033\\".encode())
+            result.append(encode_fn(rgba.tobytes(), w, h, image_id=BASELINE_ID))
             self._had_delta = False
             result = b"".join(result)
             elapsed_us = int((time.perf_counter() - t0) * 1e6)
@@ -398,61 +400,86 @@ class GraphicsScaler:
             self._stats_fh.flush()
             return result
 
-        # Dirty-rect delta: send only the bounding box of changed pixels.
-        self._had_delta = True
+        if rect_area <= total_pixels * 0.35:
+            self._profile.deltas += 1
+            self._had_delta = True
+
+            rgba = to_rgba_u8(video)
+            rect_rgba = rgba[y1:y2, x1:x2]
+            if self.kitty_scale > 1:
+                rect_rgba = np.repeat(
+                    np.repeat(rect_rgba, self.kitty_scale, axis=0),
+                    self.kitty_scale,
+                    axis=1,
+                )
+            scaled_w = rect_w * self.kitty_scale
+            scaled_h = rect_h * self.kitty_scale
+
+            px = x1 * self.kitty_scale
+            py = y1 * self.kitty_scale
+            row = self.refx_kitty + py // self._cell_h
+            col = self.refy_kitty + px // self._cell_w
+
+            px2 = px + scaled_w
+            py2 = py + scaled_h
+            col2 = self.refy_kitty + (px2 - 1) // self._cell_w + 1
+            row2 = self.refx_kitty + (py2 - 1) // self._cell_h + 1
+            padded_w = (col2 - col) * self._cell_w
+            padded_h = (row2 - row) * self._cell_h
+
+            padded = np.zeros((padded_h, padded_w, 4), dtype=np.uint8)
+            off_y = py % self._cell_h
+            off_x = px % self._cell_w
+            padded[off_y : off_y + scaled_h, off_x : off_x + scaled_w] = rect_rgba
+
+            result_parts = [
+                f"\033[{row};{col}H".encode(),
+            ]
+            if self._had_delta:
+                result_parts.append(
+                    f"\033_Ga=d,d=i,i={DELTA_ID}\033\\".encode()
+                )
+            result_parts.append(
+                encode_fn(
+                    padded.tobytes(),
+                    padded_w,
+                    padded_h,
+                    image_id=DELTA_ID,
+                    placement_id=1,
+                )
+            )
+            result = b"".join(result_parts)
+            elapsed_us = int((time.perf_counter() - t0) * 1e6)
+            self._stats_fh.write(
+                f"{n},{changed_pct:.2f},dirty_rect,{len(result)},{elapsed_us},"
+                f"{row},{col},{self._cell_h},{self._cell_w},{padded_w},{padded_h},"
+                f"{x1},{y1},{rect_w},{rect_h},"
+                f"{self.refx_kitty},{self.refy_kitty},{self.kitty_scale}\n"
+            )
+            self._stats_fh.flush()
+            return result
+
         self._profile.deltas += 1
 
-        # Extract rectangle and apply kitty scaling
         rgba = to_rgba_u8(video)
-        rect_rgba = rgba[y1:y2, x1:x2]
+        rgba[~diff] = 0
         if self.kitty_scale > 1:
-            rect_rgba = np.repeat(
-                np.repeat(rect_rgba, self.kitty_scale, axis=0),
-                self.kitty_scale,
-                axis=1,
+            rgba = np.repeat(
+                np.repeat(rgba, self.kitty_scale, axis=0), self.kitty_scale, axis=1
             )
-        scaled_w = rect_w * self.kitty_scale
-        scaled_h = rect_h * self.kitty_scale
-
-        # Compute cell position: snap to cell boundary, expand rect to cover
-        # the partial cells.  No X/Y intra-cell offsets — some terminals (Ghostty)
-        # mishandle them.
-        px = x1 * self.kitty_scale
-        py = y1 * self.kitty_scale
-        row = self.refx_kitty + py // self._cell_h
-        col = self.refy_kitty + px // self._cell_w
-
-        # Pad rect to cell-aligned boundaries
-        px2 = px + scaled_w
-        py2 = py + scaled_h
-        col2 = self.refy_kitty + (px2 - 1) // self._cell_w + 1
-        row2 = self.refx_kitty + (py2 - 1) // self._cell_h + 1
-        padded_w = (col2 - col) * self._cell_w
-        padded_h = (row2 - row) * self._cell_h
-
-        # Pad rect_rgba with transparent pixels
-        padded = np.zeros((padded_h, padded_w, 4), dtype=np.uint8)
-        off_y = py % self._cell_h
-        off_x = px % self._cell_w
-        padded[off_y : off_y + scaled_h, off_x : off_x + scaled_w] = rect_rgba
+        h, w = rgba.shape[:2]
 
         result_parts = [
-            f"\033[{row};{col}H".encode(),
-            encode_fn(
-                padded.tobytes(),
-                padded_w,
-                padded_h,
-                image_id=DELTA_ID,
-                placement_id=1,
-            ),
+            f"\033[{self.refx_kitty};{self.refy_kitty}H".encode(),
         ]
+        if self._had_delta:
+            result_parts.append(f"\033_Ga=d,d=i,i={DELTA_ID}\033\\".encode())
+        result_parts.append(encode_fn(rgba.tobytes(), w, h, image_id=DELTA_ID, z=1))
+        self._had_delta = True
         result = b"".join(result_parts)
         elapsed_us = int((time.perf_counter() - t0) * 1e6)
         self._stats_fh.write(
-            f"{n},{changed_pct:.2f},delta,{len(result)},{elapsed_us},"
-            f"{row},{col},{self._cell_h},{self._cell_w},{padded_w},{padded_h},"
-            f"{x1},{y1},{rect_w},{rect_h},"
-            f"{self.refx_kitty},{self.refy_kitty},{self.kitty_scale}\n"
+            f"{n},{changed_pct:.2f},overlay_delta,{len(result)},{elapsed_us},,,,,,,,,,,,,,\n"
         )
         self._stats_fh.flush()
         return result
@@ -467,8 +494,9 @@ class GraphicsScaler:
     ) -> bytes:
         """Encode ``video`` as a kitty RGBA escape sequence.
 
-        Uses a baseline image (i=1) with transparent delta layers (i=2)
-        for incremental updates.  Returns empty bytes when unchanged.
+        Uses a baseline image (i=1, z=0) with full-frame overlay delta
+        images (i=2, z=1) where unchanged pixels are alpha=0.
+        Returns empty bytes when unchanged.
         """
         if last_frame is not None and video.shape == last_frame.shape:
             if np.array_equal(video, last_frame):
