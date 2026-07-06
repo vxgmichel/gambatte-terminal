@@ -20,9 +20,6 @@ from .colors import ColorMode
 from .graphics_scaler import GraphicsScaler
 from .remote_terminal import GraphicsProtocol
 
-_CPR_RE = re.compile(r"\x1b\[\d+;\d+R")
-
-
 @contextlib.contextmanager
 def timing(deltas: Deque[float]) -> Iterator[None]:
     start = time.perf_counter()
@@ -132,32 +129,29 @@ def run(
         new_color_mode = color_mode
         new_graphics_protocol = graphics_protocol
         for key in input_getter.pop_keystrokes():
-            if key.key_name == "KEY_CTRL_C":
+            if key.key_name == 'CPR_RESPONSE':
+                screen_ready = True
+            elif key.key_name == "KEY_CTRL_C":
                 raise KeyboardInterrupt
-            if key.key_name == "KEY_CTRL_D":
+            elif key.key_name == "KEY_CTRL_D":
                 raise EOFError
-            if key.key_name in ("KEY_TAB", "KEY_SHIFT_TAB"):
+            # debug text color modes
+            elif key.key_name in ("KEY_TAB", "KEY_SHIFT_TAB"):
                 if key.key_name.startswith("KEY_SHIFT"):
                     new_color_mode = color_mode.cycle_back()
                 else:
                     new_color_mode = color_mode.cycle()
-
-            if key.key_name.lstrip("KEY_SHIFT_").lstrip("KEY_") in (
-                "BACKSPACE",
-                "DELETE",
-            ):
+            # debug available graphics renders
+            elif key.key_name and ("BACKSPACE" in key.key_name or "DELETE" in key.key_name):
                 step = -1 if key.key_name.startswith("KEY_SHIFT") else 1
                 idx = graphics_cycle.index(graphics_protocol)
-                new_graphics_protocol = graphics_cycle[
-                    (idx + step) % len(graphics_cycle)
-                ]
-            if key.key_name in ("KEY_PGUP", "KEY_PGDOWN"):
+                new_graphics_protocol = graphics_cycle[(idx + step) % len(graphics_cycle)]
+            # debug runtime adjustment of --speed by 10%
+            elif key.key_name in ("KEY_PGUP", "KEY_PGDOWN"):
                 speed += 0.1 if key.key_name == "KEY_PGUP" else -0.1
                 fps = console.FPS * speed
                 average_over = int(round(fps))  # frames
                 audio_out.update_speed(console, speed)
-            if _CPR_RE.match(str(key)):
-                screen_ready = True
 
         # Render video
         with timing(video_deltas):

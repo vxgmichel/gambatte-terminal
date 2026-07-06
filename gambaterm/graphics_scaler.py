@@ -27,6 +27,7 @@ DELTA_ID = 2
 # with kitty graphics at a scale level of 8 or more.
 
 KITTY_SCALE_MAX = int(os.environ.get("GAMBATERM_KITTY_SCALE_MAX", "6"))
+SIXEL_SCALE_MAX = int(os.environ.get("GAMBATERM_SIXEL_SCALE_MAX", "6"))
 
 
 class _Profile:
@@ -134,27 +135,39 @@ class GraphicsScaler:
             return cls(1, 1, 1, 1, 1, 1, 1, 1)
         scale = max(1, min(pixel_w // console.WIDTH, pixel_h // console.HEIGHT))
         kitty_scale = min(scale, KITTY_SCALE_MAX)
+        sixel_scale = min(scale, SIXEL_SCALE_MAX)
         cell_h = max(1, pixel_h // height)
         cell_w = max(1, pixel_w // width)
 
-        # If the image fills the screen with less than one cell of vertical
-        # margin, drop the scale by one to avoid edge-to-edge crowding.
-        if pixel_h - console.HEIGHT * scale < cell_h and scale > 1:
-            scale -= 1
-            kitty_scale = min(scale, KITTY_SCALE_MAX)
+        # Reduce sixel scale if the image would fill the screen with less
+        # than one cell of vertical margin, to avoid edge-to-edge crowding.
+        if pixel_h - console.HEIGHT * sixel_scale < cell_h and sixel_scale > 1:
+            sixel_scale -= 1
+
+        # After sixel rendering the text cursor moves to the line below the
+        # image.  If that line doesn't exist the terminal scrolls, creating a
+        # shifting offset on every frame.  Reduce scale until the image plus
+        # the trailing cursor line fit without scrolling.
+        while sixel_scale > 1:
+            img_h = console.HEIGHT * sixel_scale
+            rows = (img_h + cell_h - 1) // cell_h
+            refx = max(1, (pixel_h - img_h) // 2 // cell_h + 1)
+            if refx + rows <= height:
+                break
+            sixel_scale -= 1
 
         def _pos(img_h, img_w):
             rx = max(1, (pixel_h - img_h) // 2 // cell_h + 1)
             ry = max(1, (pixel_w - img_w) // 2 // cell_w + 1)
             return rx, ry
 
-        refx, refy = _pos(console.HEIGHT * scale, console.WIDTH * scale)
+        refx, refy = _pos(console.HEIGHT * sixel_scale, console.WIDTH * sixel_scale)
         refx_kitty, refy_kitty = _pos(
             console.HEIGHT * kitty_scale,
             console.WIDTH * kitty_scale,
         )
         return cls(
-            scale, kitty_scale, refx, refy, refx_kitty, refy_kitty, cell_h, cell_w
+            sixel_scale, kitty_scale, refx, refy, refx_kitty, refy_kitty, cell_h, cell_w
         )
 
     def blit_sixel(
