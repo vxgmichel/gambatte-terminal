@@ -162,10 +162,10 @@ def detect_graphics_frontend(
     if has_sixel:
         config.available_graphics.append(GraphicsProtocol.SIXEL)
 
-    if has_kitty:
-        config.graphics_protocol = GraphicsProtocol.KITTY
-    elif has_sixel:
+    if has_sixel:
         config.graphics_protocol = GraphicsProtocol.SIXEL
+    elif has_kitty:
+        config.graphics_protocol = GraphicsProtocol.KITTY
 
     return config
 

@@ -6,6 +6,7 @@ Pure Python + numpy — no libsixel dependency.  Ported from telix.
 from __future__ import annotations
 
 import io
+import os
 import zlib
 import base64
 
@@ -16,6 +17,7 @@ DCS_END = "\033\\"
 APC_START = "\033_G"
 APC_END = "\033\\"
 SIXEL_BITS = np.array([1, 2, 4, 8, 16, 32], dtype=np.uint8)
+ZLIB_LEVEL = int(os.environ.get("GAMBATERM_ZLIB_LEVEL", "3"))
 
 
 def quantize_colors(
@@ -122,6 +124,6 @@ def kitty_blit_bytes(
     :param h: image height in pixels.
     """
     control = f"a=T,q=2,f=32,s={w},v={h},o=z"
-    compressed = zlib.compress(rgba_data, level=6)
+    compressed = zlib.compress(rgba_data, level=ZLIB_LEVEL)
     payload_b64 = base64.b64encode(compressed).decode()
     return f"{APC_START}{control};{payload_b64}{APC_END}".encode()

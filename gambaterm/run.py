@@ -17,7 +17,7 @@ from .audio import MaybeAudioOut, DISABLED_AUDIO_OUT
 from .console import Console
 from .input_getter import BaseInputGetter
 from .colors import ColorMode
-from .sixel_scaler import SixelScaler
+from .graphics_scaler import GraphicsScaler
 from .remote_terminal import GraphicsProtocol
 
 _CPR_RE = re.compile(r"\x1b\[\d+;\d+R")
@@ -67,7 +67,8 @@ def run(
     # Prepare buffers with invalid data
     video = np.full((console.HEIGHT, console.WIDTH), 0, np.uint32)
     audio = np.full((2 * console.TICKS_IN_FRAME, 2), 0, np.int16)
-    last_frame = video.copy()
+    # Force first diff: 0xFFFFFFFF never matches real GB pixels (high byte always 0xFF).
+    last_frame = np.full((console.HEIGHT, console.WIDTH), 0xFFFFFFFF, np.uint32)
 
     # Print area (default to 24x80 if terminal reports zero)
     height = term.height or 24
@@ -94,7 +95,7 @@ def run(
     frame_start_time = None
     frame_data = bytearray()
     current_title_sequence = b""
-    scaler: SixelScaler | None = None
+    scaler: GraphicsScaler | None = None
 
     # Build cycle list from available protocols (detected before entering run).
     if available_graphics_protocols is None:
@@ -135,19 +136,17 @@ def run(
                 raise KeyboardInterrupt
             if key.key_name == "KEY_CTRL_D":
                 raise EOFError
-            if key.key_name == "KEY_TAB":
-                new_color_mode = color_mode.cycle()
-            if key.key_name == "KEY_BTAB":
-                new_color_mode = color_mode.cycle_back()
-            if key.key_name == "KEY_BACKSPACE":
+            if key.key_name in ("KEY_TAB", "KEY_SHIFT_TAB"):
+                if key.key_name.startswith("KEY_SHIFT"):
+                    new_color_mode = color_mode.cycle_back()
+                else:
+                    new_color_mode = color_mode.cycle()
+
+            if key.key_name.lstrip("KEY_SHIFT_").lstrip("KEY_") in ("BACKSPACE", "DELETE"):
+                step = -1 if key.key_name.startswith("KEY_SHIFT") else 1
                 idx = graphics_cycle.index(graphics_protocol)
                 new_graphics_protocol = graphics_cycle[
-                    (idx + 1) % len(graphics_cycle)
-                ]
-            if key.key_name == "KEY_DELETE":
-                idx = graphics_cycle.index(graphics_protocol)
-                new_graphics_protocol = graphics_cycle[
-                    (idx - 1) % len(graphics_cycle)
+                    (idx + step) % len(graphics_cycle)
                 ]
             if key.key_name in ("KEY_PGUP", "KEY_PGDOWN"):
                 speed += 0.1 if key.key_name == "KEY_PGUP" else -0.1
@@ -200,20 +199,22 @@ def run(
                     frame_data += b"\033[?2026l"
                 else:
                     if scaler is None:
-                        scaler = SixelScaler.recompute(term, console, height, width)
+                        scaler = GraphicsScaler.recompute(term, console, height, width)
+                        maybe_clear_sequence = b"\033[H\033[2J"
                     frame_data += maybe_clear_sequence
-                    refx, refy = scaler.position
-                    frame_data += f"\033[{refx};{refy}H".encode()
                     if graphics_protocol is GraphicsProtocol.SIXEL:
+                        frame_data += f"\033[{scaler.refx};{scaler.refy}H".encode()
                         frame_data += scaler.blit_sixel(
                             video, last_frame, width, height, color_mode
                         )
                     else:
+                        refx, refy = scaler.position
+                        frame_data += f"\033[{refx};{refy}H".encode()
                         frame_data += scaler.blit_kitty(
                             video, last_frame, width, height, color_mode
                         )
 
-                last_frame = video.copy()
+                video, last_frame = last_frame, video
 
                 # Update reporting
                 data_length.append(len(frame_data))
