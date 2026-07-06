@@ -210,10 +210,15 @@ cdef bytes _sixel_rle(uint8_t[:] patterns, int w):
     return b"".join(parts)
 
 
-def encode_kitty_rgba(const unsigned char[:] rgba_data, int w, int h, int image_id=1):
+def encode_kitty_rgba(const unsigned char[:] rgba_data, int w, int h,
+                      int image_id=1, int X=0, int Y=0, int z=0,
+                      int placement_id=0):
     """Encode RGBA bytes as kitty f=32 escape sequence.
 
     *image_id* sets the kitty image ID for placement/stacking control.
+    *X*, *Y* set intra-cell pixel offsets for positioned placement.
+    *z* sets z-index (0=default, 1=above baseline for deltas).
+    *placement_id* sets the p= key for placement replacement (0=none).
     """
     cdef bytes raw
     if isinstance(rgba_data, memoryview):
@@ -222,5 +227,11 @@ def encode_kitty_rgba(const unsigned char[:] rgba_data, int w, int h, int image_
         raw = bytes(rgba_data)
     compressed = zlib.compress(raw, ZLIB_LEVEL)
     payload_b64 = base64.b64encode(compressed).decode()
-    control = f"a=T,i={image_id},q=2,f=32,s={w},v={h},o=z"
+    cdef str control = f"a=T,i={image_id},q=2,f=32,s={w},v={h},o=z"
+    if z:
+        control += f",z={z}"
+    if X or Y:
+        control += f",X={X},Y={Y}"
+    if placement_id:
+        control += f",p={placement_id}"
     return f"{APC_START.decode()}{control};{payload_b64}{APC_END.decode()}".encode()

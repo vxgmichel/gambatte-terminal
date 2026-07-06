@@ -17,12 +17,13 @@ DCS_END = "\033\\"
 APC_START = "\033_G"
 APC_END = "\033\\"
 SIXEL_BITS = np.array([1, 2, 4, 8, 16, 32], dtype=np.uint8)
+
+# CPU vs. Bandwidth trade-off, levels 1-3 are comparable performance, but compression level 4 costs
+# almost 2x of level 3 and begins to cut into framerate. I also tested PNG, which is slower+larger
+# due to overhead of PNG header.
 ZLIB_LEVEL = int(os.environ.get("GAMBATERM_ZLIB_LEVEL", "3"))
 
-
-def quantize_colors(
-    colors: np.ndarray, n_colors: int
-) -> tuple[np.ndarray, np.ndarray]:
+def quantize_colors(colors: np.ndarray, n_colors: int) -> tuple[np.ndarray, np.ndarray]:
     """Quantize RGB colors to a uniform cube palette.
 
     :param colors: (H, W, 3) float32 in [0, 1].
@@ -38,7 +39,7 @@ def quantize_colors(
     b = (colors[:, :, 2] * (levels - 0.001)).astype(np.uint8)
     indices = r * levels * levels + g * levels + b
 
-    n_actual = levels ** 3
+    n_actual = levels**3
     palette = np.zeros((n_actual, 3), dtype=np.float32)
     for i in range(n_actual):
         ri = i // (levels * levels)

@@ -153,7 +153,9 @@ def add_local_only_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def detect_graphics_local(terminal: Terminal) -> tuple[GraphicsProtocol, list[GraphicsProtocol]]:
+def detect_graphics_local(
+    terminal: Terminal,
+) -> tuple[GraphicsProtocol, list[GraphicsProtocol]]:
     """Detect available graphics protocols on a local terminal.
 
     Returns (selected, available) where selected is the preferred protocol

@@ -142,7 +142,10 @@ def run(
                 else:
                     new_color_mode = color_mode.cycle()
 
-            if key.key_name.lstrip("KEY_SHIFT_").lstrip("KEY_") in ("BACKSPACE", "DELETE"):
+            if key.key_name.lstrip("KEY_SHIFT_").lstrip("KEY_") in (
+                "BACKSPACE",
+                "DELETE",
+            ):
                 step = -1 if key.key_name.startswith("KEY_SHIFT") else 1
                 idx = graphics_cycle.index(graphics_protocol)
                 new_graphics_protocol = graphics_cycle[
@@ -176,10 +179,15 @@ def run(
                 new_height = term.height or 24
                 new_width = term.width or 80
                 maybe_clear_sequence = b""
-                if (new_height, new_width) != (
-                    height,
-                    width,
-                ) or new_color_mode != color_mode or new_graphics_protocol != graphics_protocol:
+                if (
+                    (new_height, new_width)
+                    != (
+                        height,
+                        width,
+                    )
+                    or new_color_mode != color_mode
+                    or new_graphics_protocol != graphics_protocol
+                ):
                     maybe_clear_sequence = b"\033[H\033[2J"
                     height, width = new_height, new_width
                     refx, refy = get_ref(width, height, console)
@@ -208,8 +216,6 @@ def run(
                             video, last_frame, width, height, color_mode
                         )
                     else:
-                        refx, refy = scaler.position
-                        frame_data += f"\033[{refx};{refy}H".encode()
                         frame_data += scaler.blit_kitty(
                             video, last_frame, width, height, color_mode
                         )
