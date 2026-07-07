@@ -442,7 +442,9 @@ def main(
     console_cls: type[Console] = GameboyColor,
 ) -> None:
     parser = argparse.ArgumentParser(
-        description="Gambatte terminal front-end over telnet"
+        prog="gambaterm-telnet",
+        description="Gambatte terminal front-end over telnet",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     add_base_arguments(parser)
     add_input_file_arguments(parser)

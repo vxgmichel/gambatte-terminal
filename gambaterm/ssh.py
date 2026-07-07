@@ -532,7 +532,11 @@ def main(
     parser_args: tuple[str, ...] | None = None,
     console_cls: type[Console] = GameboyColor,
 ) -> None:
-    parser = argparse.ArgumentParser(description="Gambatte terminal front-end over ssh")
+    parser = argparse.ArgumentParser(
+        prog="gambaterm-ssh",
+        description="Gambatte terminal front-end over ssh",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
     add_base_arguments(parser)
     add_input_file_arguments(parser)
     add_tuning_arguments(parser)

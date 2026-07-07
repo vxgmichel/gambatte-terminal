@@ -5,7 +5,7 @@ from __future__ import annotations
 import atexit
 import os
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 import numpy as np
 
@@ -24,13 +24,133 @@ if TYPE_CHECKING:
 
 BASELINE_ID = 1
 DELTA_ID = 2
-# on my 2.9Ghz AMD Ryzen 5 CPU, small audio clipping occurs as CPU usage in 'video' approaches 25%,
-# with kitty graphics at a scale level of 8 or more.
-
-KITTY_SCALE_MAX = int(os.environ.get("GAMBATERM_KITTY_SCALE_MAX", "6"))
-SIXEL_SCALE_MAX = int(os.environ.get("GAMBATERM_SIXEL_SCALE_MAX", "6"))
 SIXEL_REBASELINE_THRESHOLD = 0.35
-_SIXEL_DELTAS_ENABLED = os.environ.get("GAMBATERM_SIXEL_DELTAS", "1") != "0"
+_SCALE_CEILING = int(os.environ.get("GAMBATERM_SCALE_MAX", "32"))
+
+
+class AutoScaleConfig(NamedTuple):
+    """Parsed ``--graphics-autoscale`` configuration."""
+
+    enabled: bool
+    seconds: int
+    fps: float
+    bandwidth_mbits: float
+
+
+def parse_autoscale(value: str) -> AutoScaleConfig:
+    """Parse a ``--graphics-autoscale`` value.
+
+    Recognised tokens (comma-separated, order independent):
+
+    * ``Ns`` — window in seconds (-1 for always active)
+    * ``always`` — shorthand for -1s (always active)
+    * ``Nfps`` — video FPS threshold
+    * ``Nmb`` — bandwidth cap in MBit/s
+    * ``Nkb`` — bandwidth cap in KB/s (converted to MBit/s)
+    * ``off``, ``no``, ``disabled`` — disable autoscale entirely
+
+    When any trigger is specified without a window token the window
+    defaults to ``-1`` (always active).  Other defaults: 40 fps,
+    0 bandwidth.
+    """
+    value = value.strip().lower()
+    if value in ("off", "no", "disabled", ""):
+        return AutoScaleConfig(enabled=False, seconds=0, fps=40.0, bandwidth_mbits=0.0)
+
+    seconds = -1
+    fps = 40.0
+    bandwidth_mbits = 0.0
+    saw_always = False
+    saw_seconds = False
+    saw_disable = False
+
+    for token in value.split(","):
+        token = token.strip()
+        if token in ("off", "no", "disabled"):
+            saw_disable = True
+        elif token == "always":
+            saw_always = True
+        elif token.endswith("fps"):
+            fps = float(token[:-3])
+        elif token.endswith("kb"):
+            bandwidth_mbits = float(token[:-2]) / 125.0
+        elif token.endswith("mb"):
+            bandwidth_mbits = float(token[:-2])
+        elif token.endswith("s"):
+            seconds = int(token[:-1])
+            saw_seconds = True
+        else:
+            raise ValueError(f"Unknown autoscale token: {token!r}")
+
+    if saw_disable:
+        raise ValueError(
+            "'off'/'no'/'disabled' is mutually exclusive with other tokens"
+        )
+    if saw_always and saw_seconds:
+        raise ValueError("'always' is mutually exclusive with 'Ns'")
+
+    return AutoScaleConfig(
+        enabled=True, seconds=seconds, fps=fps, bandwidth_mbits=bandwidth_mbits
+    )
+
+
+class AutoScale:
+    """Dynamic scale cap that decreases when rendering can't keep up.
+
+    Starts at *ceiling* and only ever decreases.  The floor (50% of
+    natural screen scale) is enforced by :meth:`GraphicsScaler.recompute`,
+    not by this class.
+
+    Two independent reduction triggers:
+
+    * :meth:`feed_fps` — reduce when ``video_fps`` drops below a threshold.
+    * :meth:`feed_bandwidth` — reduce when output data rate exceeds a cap.
+
+    Reductions are only allowed within *window_s* seconds of construction
+    or the most recent :meth:`reset` call.
+    """
+
+    def __init__(self, ceiling: int, window_s: int) -> None:
+        self._ceiling = ceiling
+        self._window_s = window_s
+        self.max_scale = ceiling
+        self._deadline = self._compute_deadline()
+
+    def _compute_deadline(self) -> float:
+        if self._window_s == 0:
+            return 0.0
+        if self._window_s == -1:
+            return float("inf")
+        return time.monotonic() + self._window_s
+
+    def feed_fps(self, video_fps: float, threshold_fps: float) -> bool:
+        """Return True if *max_scale* was reduced."""
+        if threshold_fps <= 0:
+            return False
+        if time.monotonic() > self._deadline:
+            return False
+        if video_fps < threshold_fps:
+            if self.max_scale > 1:
+                self.max_scale -= 1
+                return True
+        return False
+
+    def reset(self) -> None:
+        """Restore *max_scale* to ceiling, reset deadline."""
+        self.max_scale = self._ceiling
+        self._deadline = self._compute_deadline()
+
+    def feed_bandwidth(self, data_rate_kb_s: float, threshold_mbit_s: float) -> bool:
+        """Return True if *max_scale* was reduced due to bandwidth."""
+        if threshold_mbit_s <= 0:
+            return False
+        if time.monotonic() > self._deadline:
+            return False
+        if data_rate_kb_s > threshold_mbit_s * 125.0:
+            if self.max_scale > 1:
+                self.max_scale -= 1
+                return True
+        return False
 
 
 class _Profile:
@@ -115,13 +235,17 @@ class GraphicsScaler:
         self._profile = _Profile()
         self._frame_no = 0
         profile_dir = os.environ.get("GAMBATERM_PROFILE_DIR", "/tmp")
-        self._stats_fh = open(f"{profile_dir}/gambatterm-frame-stats.csv", "w")
-        self._stats_fh.write(
-            "frame_no,changed_pct,action,bytes,time_us,"
-            "row,col,cell_h,cell_w,padded_w,padded_h,"
-            "x1,y1,rect_w,rect_h,"
-            "refx_kitty,refy_kitty,scale\n"
-        )
+        os.makedirs(profile_dir, exist_ok=True)
+        csv_path = f"{profile_dir}/gambatterm-frame-stats.csv"
+        is_new = not os.path.exists(csv_path) or os.path.getsize(csv_path) == 0
+        self._stats_fh = open(csv_path, "a")
+        if is_new:
+            self._stats_fh.write(
+                "frame_no,changed_pct,action,bytes,time_us,"
+                "row,col,cell_h,cell_w,padded_w,padded_h,"
+                "x1,y1,rect_w,rect_h,"
+                "refx_kitty,refy_kitty,scale\n"
+            )
         atexit.register(self._profile.dump, f"{profile_dir}/gambaterm-profile.txt")
 
     @property
@@ -135,19 +259,27 @@ class GraphicsScaler:
         console: Console,
         height: int,
         width: int,
+        auto_scale: AutoScale | None = None,
     ) -> GraphicsScaler:
         """Query terminal pixel geometry and return a new GraphicsScaler."""
         pixel_h, pixel_w = term.get_sixel_height_and_width(force=True)
         if pixel_h <= 0 or pixel_w <= 0:
             return cls(1, 1, 1, 1, 1, 1, 1, 1)
-        scale = max(1, min(pixel_w // console.WIDTH, pixel_h // console.HEIGHT))
-        kitty_scale = min(scale, KITTY_SCALE_MAX)
-        sixel_scale = min(scale, SIXEL_SCALE_MAX)
+        natural_scale = max(1, min(pixel_w // console.WIDTH, pixel_h // console.HEIGHT))
+        if auto_scale is not None:
+            if auto_scale.max_scale > natural_scale:
+                auto_scale.max_scale = natural_scale
+            effective_cap = auto_scale.max_scale
+        else:
+            effective_cap = min(natural_scale, _SCALE_CEILING)
+        floor = max(1, natural_scale // 2)
+        graphics_scale = max(floor, effective_cap)
         cell_h = max(1, pixel_h // height)
         cell_w = max(1, pixel_w // width)
 
         # Reduce sixel scale if the image would fill the screen with less
         # than one cell of vertical margin, to avoid edge-to-edge crowding.
+        sixel_scale = graphics_scale
         if pixel_h - console.HEIGHT * sixel_scale < cell_h and sixel_scale > 1:
             sixel_scale -= 1
 
@@ -163,6 +295,8 @@ class GraphicsScaler:
                 break
             sixel_scale -= 1
 
+        kitty_scale = graphics_scale
+
         def _pos(img_h, img_w):
             rx = max(1, (pixel_h - img_h) // 2 // cell_h + 1)
             ry = max(1, (pixel_w - img_w) // 2 // cell_w + 1)
@@ -174,7 +308,8 @@ class GraphicsScaler:
             console.WIDTH * kitty_scale,
         )
         return cls(
-            sixel_scale, kitty_scale, refx, refy, refx_kitty, refy_kitty, cell_h, cell_w
+            sixel_scale, kitty_scale, refx, refy, refx_kitty, refy_kitty,
+            cell_h, cell_w,
         )
 
     def blit_sixel(
@@ -244,7 +379,7 @@ class GraphicsScaler:
         changed = diff.sum()
         changed_pct = changed / total_pixels
 
-        if changed_pct > SIXEL_REBASELINE_THRESHOLD or not _SIXEL_DELTAS_ENABLED:
+        if changed_pct > SIXEL_REBASELINE_THRESHOLD:
             self._profile.keyframes += 1
             self._sixel_baseline = video.copy()
             colors = to_rgb(video)
@@ -307,14 +442,13 @@ class GraphicsScaler:
         return f"\033[{self.refx};{self.refy}H\033[0m".encode() + result
 
     def _encode_kitty(self, video, encode_fn):
-        """Encode kitty frame: keyframe on first call, hybrid delta otherwise.
+        """Encode kitty frame: keyframe on first call, dirty-rect delta otherwise.
 
-        Chooses between two delta strategies based on change pattern:
-        - Dirty-rect: bounding box is small, send only the changed region.
-        - Overlay: changes are scattered (large bbox, few pixels), send
-          full-frame RGBA with alpha=0 for unchanged pixels at z=1.
-        Falls back to a full keyframe when more than the rebaseline
-        threshold of pixels change.
+        Deltas send the bounding box of changed pixels positioned via
+        cell-snapped cursor move, using p=1 placement replacement.
+        Rebaselines when either pixel-change count exceeds 35% OR the
+        bounding box exceeds 35% of the frame — catching both genuine
+        scene changes and scattered-but-small changes efficiently.
         """
         t0 = time.perf_counter()
         self._frame_no += 1
@@ -376,7 +510,8 @@ class GraphicsScaler:
         rect_h = y2 - y1
         rect_area = rect_w * rect_h
 
-        if changed_pct > SIXEL_REBASELINE_THRESHOLD:
+        if (changed_pct > SIXEL_REBASELINE_THRESHOLD or
+                rect_area > total_pixels * 0.35):
             self._profile.keyframes += 1
             self._baseline = video.copy()
             rgba = to_rgba_u8(video)
@@ -400,86 +535,51 @@ class GraphicsScaler:
             self._stats_fh.flush()
             return result
 
-        if rect_area <= total_pixels * 0.35:
-            self._profile.deltas += 1
-            self._had_delta = True
-
-            rgba = to_rgba_u8(video)
-            rect_rgba = rgba[y1:y2, x1:x2]
-            if self.kitty_scale > 1:
-                rect_rgba = np.repeat(
-                    np.repeat(rect_rgba, self.kitty_scale, axis=0),
-                    self.kitty_scale,
-                    axis=1,
-                )
-            scaled_w = rect_w * self.kitty_scale
-            scaled_h = rect_h * self.kitty_scale
-
-            px = x1 * self.kitty_scale
-            py = y1 * self.kitty_scale
-            row = self.refx_kitty + py // self._cell_h
-            col = self.refy_kitty + px // self._cell_w
-
-            px2 = px + scaled_w
-            py2 = py + scaled_h
-            col2 = self.refy_kitty + (px2 - 1) // self._cell_w + 1
-            row2 = self.refx_kitty + (py2 - 1) // self._cell_h + 1
-            padded_w = (col2 - col) * self._cell_w
-            padded_h = (row2 - row) * self._cell_h
-
-            padded = np.zeros((padded_h, padded_w, 4), dtype=np.uint8)
-            off_y = py % self._cell_h
-            off_x = px % self._cell_w
-            padded[off_y : off_y + scaled_h, off_x : off_x + scaled_w] = rect_rgba
-
-            result_parts = [
-                f"\033[{row};{col}H".encode(),
-            ]
-            if self._had_delta:
-                result_parts.append(
-                    f"\033_Ga=d,d=i,i={DELTA_ID}\033\\".encode()
-                )
-            result_parts.append(
-                encode_fn(
-                    padded.tobytes(),
-                    padded_w,
-                    padded_h,
-                    image_id=DELTA_ID,
-                    placement_id=1,
-                )
-            )
-            result = b"".join(result_parts)
-            elapsed_us = int((time.perf_counter() - t0) * 1e6)
-            self._stats_fh.write(
-                f"{n},{changed_pct:.2f},dirty_rect,{len(result)},{elapsed_us},"
-                f"{row},{col},{self._cell_h},{self._cell_w},{padded_w},{padded_h},"
-                f"{x1},{y1},{rect_w},{rect_h},"
-                f"{self.refx_kitty},{self.refy_kitty},{self.kitty_scale}\n"
-            )
-            self._stats_fh.flush()
-            return result
-
         self._profile.deltas += 1
 
-        rgba = to_rgba_u8(video)
-        rgba[~diff] = 0
+        rect_video = np.ascontiguousarray(video[y1:y2, x1:x2])
+        rect_rgba = to_rgba_u8(rect_video)
         if self.kitty_scale > 1:
-            rgba = np.repeat(
-                np.repeat(rgba, self.kitty_scale, axis=0), self.kitty_scale, axis=1
+            rect_rgba = np.repeat(
+                np.repeat(rect_rgba, self.kitty_scale, axis=0),
+                self.kitty_scale,
+                axis=1,
             )
-        h, w = rgba.shape[:2]
+        scaled_w = rect_w * self.kitty_scale
+        scaled_h = rect_h * self.kitty_scale
+
+        px = x1 * self.kitty_scale
+        py = y1 * self.kitty_scale
+        row = self.refx_kitty + py // self._cell_h
+        col = self.refy_kitty + px // self._cell_w
+
+        px2 = px + scaled_w
+        py2 = py + scaled_h
+        col2 = self.refy_kitty + (px2 - 1) // self._cell_w + 1
+        row2 = self.refx_kitty + (py2 - 1) // self._cell_h + 1
+        padded_w = (col2 - col) * self._cell_w
+        padded_h = (row2 - row) * self._cell_h
+
+        padded = np.zeros((padded_h, padded_w, 4), dtype=np.uint8)
+        off_y = py % self._cell_h
+        off_x = px % self._cell_w
+        padded[off_y : off_y + scaled_h, off_x : off_x + scaled_w] = rect_rgba
 
         result_parts = [
-            f"\033[{self.refx_kitty};{self.refy_kitty}H".encode(),
+            f"\033[{row};{col}H".encode(),
+            encode_fn(
+                padded.tobytes(), padded_w, padded_h,
+                image_id=DELTA_ID, placement_id=1,
+            ),
         ]
-        if self._had_delta:
-            result_parts.append(f"\033_Ga=d,d=i,i={DELTA_ID}\033\\".encode())
-        result_parts.append(encode_fn(rgba.tobytes(), w, h, image_id=DELTA_ID, z=1))
         self._had_delta = True
         result = b"".join(result_parts)
         elapsed_us = int((time.perf_counter() - t0) * 1e6)
         self._stats_fh.write(
-            f"{n},{changed_pct:.2f},overlay_delta,{len(result)},{elapsed_us},,,,,,,,,,,,,,\n"
+            f"{n},{changed_pct:.2f},dirty_rect,{len(result)},{elapsed_us},"
+            f"{row},{col},{self._cell_h},{self._cell_w},{padded_w},{padded_h},"
+            f"{x1},{y1},{rect_w},{rect_h},"
+            f"{self.refx_kitty},{self.refy_kitty},{self.kitty_scale}\n"
         )
         self._stats_fh.flush()
         return result
@@ -494,9 +594,8 @@ class GraphicsScaler:
     ) -> bytes:
         """Encode ``video`` as a kitty RGBA escape sequence.
 
-        Uses a baseline image (i=1, z=0) with full-frame overlay delta
-        images (i=2, z=1) where unchanged pixels are alpha=0.
-        Returns empty bytes when unchanged.
+        Uses a baseline image (i=1) with dirty-rect delta updates (i=2)
+        via p=1 placement replacement.  Returns empty bytes when unchanged.
         """
         if last_frame is not None and video.shape == last_frame.shape:
             if np.array_equal(video, last_frame):

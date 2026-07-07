@@ -245,12 +245,7 @@ def encode_kitty_rgba(const unsigned char[:] rgba_data, int w, int h,
     *z* sets z-index (0=default, 1=above baseline for deltas).
     *placement_id* sets the p= key for placement replacement (0=none).
     """
-    cdef bytes raw
-    if isinstance(rgba_data, memoryview):
-        raw = bytes(rgba_data)
-    else:
-        raw = bytes(rgba_data)
-    compressed = zlib.compress(raw, ZLIB_LEVEL)
+    cdef bytes compressed = zlib.compress(rgba_data, ZLIB_LEVEL)
     payload_b64 = base64.b64encode(compressed).decode()
     cdef str control = f"a=T,i={image_id},q=2,f=32,s={w},v={h},o=z"
     if z:

@@ -68,8 +68,8 @@ def test_encode_kitty_rgba_positioned():
     assert text.endswith("\033\\")
 
 
-def test_kitty_overlay_delta():
-    """A small change produces a full-frame overlay delta at refx,refy with z=1."""
+def test_kitty_dirty_rect_delta():
+    """Dirty-rect delta uses p=1 placement with cell-snapped cursor position."""
     from gambaterm.graphics_scaler import GraphicsScaler
 
     scaler = GraphicsScaler(
@@ -91,10 +91,9 @@ def test_kitty_overlay_delta():
     result = scaler.blit_kitty(changed, baseline, 10, 10, None)
 
     text = result.decode("latin-1")
-    assert text.startswith("\033[1;1H")
     assert "i=2" in text
-    assert "z=1" in text
-    assert "p=1" not in text
+    assert "p=1" in text
+    assert "z=" not in text
     assert "i=1" not in text
 
 
@@ -202,3 +201,138 @@ def test_sixel_rebaseline_on_large_change():
     assert text.startswith("\033[2;3H\033[0m")
     assert "\033P0;1;0q" in text
     assert "\033\\" in text
+
+class TestAutoScale:
+    @staticmethod
+    def test_fps_below_threshold_reduces():
+        from gambaterm.graphics_scaler import AutoScale
+
+        as_ = AutoScale(8, -1)
+        result = as_.feed_fps(30.0, 40.0)
+        assert result is True
+        assert as_.max_scale == 7
+
+    @staticmethod
+    def test_fps_above_threshold_no_reduction():
+        from gambaterm.graphics_scaler import AutoScale
+
+        as_ = AutoScale(8, -1)
+        result = as_.feed_fps(50.0, 40.0)
+        assert result is False
+        assert as_.max_scale == 8
+
+    @pytest.mark.parametrize("threshold,expected", [(0.0, False), (40.0, False)])
+    def test_fps_check_respects(self, threshold, expected):
+        from gambaterm.graphics_scaler import AutoScale
+
+        as_ = AutoScale(8, -1)
+        if threshold == 0.0:
+            result = as_.feed_fps(10.0, threshold)
+            assert result is expected
+        else:
+            as_._deadline = 0
+            result = as_.feed_fps(10.0, threshold)
+            assert result is expected
+        assert as_.max_scale == 8
+
+    @staticmethod
+    def test_reduces_to_floor_of_one():
+        from gambaterm.graphics_scaler import AutoScale
+
+        as_ = AutoScale(3, -1)
+        result = as_.feed_fps(30.0, 40.0)
+        assert result is True
+        assert as_.max_scale == 2
+        result = as_.feed_fps(30.0, 40.0)
+        assert result is True
+        assert as_.max_scale == 1
+        result = as_.feed_fps(30.0, 40.0)
+        assert result is False
+        assert as_.max_scale == 1
+
+    @staticmethod
+    def test_reset_restores_ceiling():
+        from gambaterm.graphics_scaler import AutoScale
+
+        as_ = AutoScale(8, -1)
+        as_.feed_fps(30.0, 40.0)
+        assert as_.max_scale == 7
+        as_.reset()
+        assert as_.max_scale == 8
+
+    @pytest.mark.parametrize("window_s", [0, -1])
+    def test_window_modes(self, window_s):
+        from gambaterm.graphics_scaler import AutoScale
+
+        as_ = AutoScale(8, window_s)
+        if window_s == 0:
+            result = as_.feed_fps(10.0, 40.0)
+            assert result is False
+            assert as_.max_scale == 8
+        else:
+            assert as_._deadline == float("inf")
+
+    @staticmethod
+    def test_bandwidth_over_threshold_reduces():
+        from gambaterm.graphics_scaler import AutoScale
+
+        as_ = AutoScale(8, -1)
+        result = as_.feed_bandwidth(300.0, 2.0)
+        assert result is True
+        assert as_.max_scale == 7
+
+    @staticmethod
+    def test_bandwidth_below_threshold_no_reduction():
+        from gambaterm.graphics_scaler import AutoScale
+
+        as_ = AutoScale(8, -1)
+        result = as_.feed_bandwidth(200.0, 2.0)
+        assert result is False
+        assert as_.max_scale == 8
+
+    @pytest.mark.parametrize("threshold,expected", [(0.0, False), (1.0, False)])
+    def test_bandwidth_check_respects(self, threshold, expected):
+        from gambaterm.graphics_scaler import AutoScale
+
+        as_ = AutoScale(8, -1)
+        if threshold == 0.0:
+            result = as_.feed_bandwidth(9999.0, threshold)
+        else:
+            as_._deadline = 0
+            result = as_.feed_bandwidth(9999.0, threshold)
+        assert result is expected
+        assert as_.max_scale == 8
+
+
+class TestParseAutoscale:
+    @pytest.mark.parametrize("value", ["off", "no", "disabled", ""])
+    def test_disabled(self, value):
+        from gambaterm.graphics_scaler import parse_autoscale
+
+        assert parse_autoscale(value).enabled is False
+
+    @pytest.mark.parametrize("value,seconds,fps,mbits", [
+        ("30fps", -1, 30.0, 0.0),
+        ("60s,30fps,10mb", 60, 30.0, 10.0),
+        ("1500kb", -1, 40.0, 12.0),
+        ("always,25fps", -1, 25.0, 0.0),
+    ])
+    def test_parse(self, value, seconds, fps, mbits):
+        from gambaterm.graphics_scaler import parse_autoscale
+
+        cfg = parse_autoscale(value)
+        assert cfg.enabled is True
+        assert cfg.seconds == seconds
+        assert cfg.fps == fps
+        assert cfg.bandwidth_mbits == mbits
+
+    @pytest.mark.parametrize("value", [
+        "always,90s,30fps",
+        "disabled,90s,10mb",
+        "off,30fps",
+    ])
+    def test_mutually_exclusive_errors(self, value):
+        from gambaterm.graphics_scaler import parse_autoscale
+
+        with pytest.raises(ValueError):
+            parse_autoscale(value)

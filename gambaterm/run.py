@@ -17,7 +17,7 @@ from .audio import MaybeAudioOut, DISABLED_AUDIO_OUT
 from .console import Console
 from .input_getter import BaseInputGetter
 from .colors import ColorMode
-from .graphics_scaler import GraphicsScaler
+from .graphics_scaler import GraphicsScaler, AutoScale, AutoScaleConfig, _SCALE_CEILING
 from .remote_terminal import GraphicsProtocol
 
 @contextlib.contextmanager
@@ -33,6 +33,15 @@ def get_ref(width: int, height: int, console: Console) -> tuple[int, int]:
     refx = 2 + max(0, (height - console.HEIGHT // 2) // 2)
     refy = 3 + max(0, (width - console.WIDTH) // 2)
     return refx, refy
+
+
+def _is_mlterm(term: Terminal) -> bool:
+    """Return True if the terminal is mlterm (loses sixel on focus-out)."""
+    try:
+        sv = term.get_software_version(timeout=0.25)
+        return sv is not None and "mlterm" in sv.name.lower()
+    except Exception:
+        return False
 
 
 def write_frame(term: Terminal, frame_data: bytes) -> None:
@@ -58,14 +67,16 @@ def run(
     use_cpr_sync: bool = False,
     graphics_protocol: GraphicsProtocol = GraphicsProtocol.TEXT,
     available_graphics_protocols: list[GraphicsProtocol] | None = None,
+    autoscale: AutoScaleConfig | None = None,
 ) -> None:
     assert color_mode > 0
 
     # Prepare buffers with invalid data
     video = np.full((console.HEIGHT, console.WIDTH), 0, np.uint32)
     audio = np.full((2 * console.TICKS_IN_FRAME, 2), 0, np.int16)
-    # Force first diff: 0xFFFFFFFF never matches real GB pixels (high byte always 0xFF).
-    last_frame = np.full((console.HEIGHT, console.WIDTH), 0xFFFFFFFF, np.uint32)
+    # Force first diff: 0x00000000 has alpha=0 which never matches
+    # real GB pixels (alpha always 0xFF).
+    last_frame = np.full((console.HEIGHT, console.WIDTH), 0x00000000, np.uint32)
 
     # Print area (default to 24x80 if terminal reports zero)
     height = term.height or 24
@@ -93,6 +104,13 @@ def run(
     frame_data = bytearray()
     current_title_sequence = b""
     scaler: GraphicsScaler | None = None
+    force_clear = False
+    auto_scale: AutoScale | None = (
+        AutoScale(_SCALE_CEILING, autoscale.seconds)
+        if autoscale is not None and autoscale.enabled
+        and graphics_protocol is not GraphicsProtocol.TEXT
+        else None
+    )
 
     # Build cycle list from available protocols (detected before entering run).
     if available_graphics_protocols is None:
@@ -152,8 +170,10 @@ def run(
                 fps = console.FPS * speed
                 average_over = int(round(fps))  # frames
                 audio_out.update_speed(console, speed)
-            elif key.key_name == 'FOCUS_IN':
-                scaler = None
+            elif key.key_name in ('FOCUS_IN', 'FOCUS_OUT'):
+                if graphics_protocol is GraphicsProtocol.SIXEL and _is_mlterm(term):
+                    if scaler is not None:
+                        scaler._sixel_baseline = None
 
         # Render video
         with timing(video_deltas):
@@ -175,15 +195,26 @@ def run(
                 new_height = term.height or 24
                 new_width = term.width or 80
                 maybe_clear_sequence = b""
-                if (
-                    (new_height, new_width)
-                    != (
-                        height,
-                        width,
-                    )
+                resized = (new_height, new_width) != (height, width)
+                changed = (
+                    resized
                     or new_color_mode != color_mode
                     or new_graphics_protocol != graphics_protocol
-                ):
+                )
+                if changed:
+                    if resized:
+                        # Prefer text mode when it fits (160 cols x 72 rows)
+                        if (
+                            new_width >= console.WIDTH
+                            and new_height >= console.HEIGHT // 2
+                        ):
+                            new_graphics_protocol = GraphicsProtocol.TEXT
+                    if new_graphics_protocol is GraphicsProtocol.TEXT:
+                        auto_scale = None
+                    elif auto_scale is None and autoscale is not None and autoscale.enabled:
+                        auto_scale = AutoScale(_SCALE_CEILING, autoscale.seconds)
+                    elif auto_scale is not None:
+                        auto_scale.reset()
                     maybe_clear_sequence = b"\033[H\033[2J"
                     height, width = new_height, new_width
                     refx, refy = get_ref(width, height, console)
@@ -203,8 +234,13 @@ def run(
                     frame_data += b"\033[?2026l"
                 else:
                     if scaler is None:
-                        scaler = GraphicsScaler.recompute(term, console, height, width)
+                        scaler = GraphicsScaler.recompute(
+                            term, console, height, width, auto_scale
+                        )
                         maybe_clear_sequence = b"\033[H\033[2J"
+                    if force_clear:
+                        maybe_clear_sequence = b"\033[H\033[2J"
+                        force_clear = False
                     frame_data += maybe_clear_sequence
                     if graphics_protocol is GraphicsProtocol.SIXEL:
                         frame_data += scaler.blit_sixel(
@@ -229,6 +265,15 @@ def run(
             else:
                 data_length.append(0)
                 shown_frames.append(False)
+
+        # Feed auto-scale with output bandwidth; reduce cap if too high.
+        if data_length and auto_scale is not None and autoscale is not None:
+            data_rate_kb_s = sum(data_length) / len(data_length) * fps / 1000
+            if auto_scale.feed_bandwidth(data_rate_kb_s, autoscale.bandwidth_mbits):
+                scaler = GraphicsScaler.recompute(
+                    term, console, height, width, auto_scale
+                )
+                force_clear = True
 
         # Pacing and synchronization
         with timing(sync_deltas):
@@ -258,6 +303,15 @@ def run(
             emu_fps = tps * len(ticks) / sum(ticks)
             video_fps = emu_fps * sum(shown_frames) / len(shown_frames)
             total_fps = len(total_deltas) / sum(total_deltas)
+
+            # Feed auto-scale with video FPS; reduce cap if too slow.
+            if auto_scale is not None and autoscale is not None:
+                if auto_scale.feed_fps(video_fps, autoscale.fps):
+                    scaler = GraphicsScaler.recompute(
+                        term, console, height, width, auto_scale
+                    )
+                    force_clear = True
+
             emu_percent = sum(emu_deltas) / len(emu_deltas) * total_fps * 100
             audio_percent = sum(audio_deltas) / len(audio_deltas) * total_fps * 100
             video_percent = sum(video_deltas) / len(video_deltas) * total_fps * 100

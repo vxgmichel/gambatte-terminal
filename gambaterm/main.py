@@ -15,6 +15,7 @@ from .console import GameboyColor, Console
 from .audio import audio_player
 from .colors import detect_local_color_mode, ColorMode
 from .remote_terminal import GraphicsProtocol, does_sixel
+from .graphics_scaler import parse_autoscale
 from .keyboard_input import is_kitty_keyboard_protocol_supported
 from .input_getter import BaseInputGetter
 from .keyboard_input import console_input_from_keyboard_context
@@ -76,7 +77,7 @@ def add_input_file_arguments(parser: argparse.ArgumentParser) -> None:
         type=int,
         default=188,
         help="Number of frame inputs to skip in order to compensate "
-        "for the lack of BIOS (default is 188)",
+        "for the lack of BIOS",
     )
 
 
@@ -96,7 +97,7 @@ def add_tuning_arguments(parser: argparse.ArgumentParser) -> None:
         "--fa",
         type=int,
         default=1,
-        help="Number of frames to run before displaying the next one (default is 1)",
+        help="Number of frames to run before displaying the next one",
     )
     parser.add_argument(
         "--break-after",
@@ -111,7 +112,7 @@ def add_tuning_arguments(parser: argparse.ArgumentParser) -> None:
         "-s",
         type=float,
         default=1.0,
-        help="Control the execution speed (default is 1.0)",
+        help="Control the execution speed",
     )
     parser.add_argument(
         "--cpr-sync",
@@ -125,6 +126,19 @@ def add_tuning_arguments(parser: argparse.ArgumentParser) -> None:
         default="auto",
         help="Graphics rendering mode "
         "(kitty, sixel, text, or auto-detect; default is auto)",
+    )
+    parser.add_argument(
+        "--graphics-autoscale",
+        type=str,
+        default="90s,55fps",
+        help="Auto-scale graphics when frame rate or bandwidth triggers fire. "
+        "Comma-separated tokens with suffixes: <N>s indicates number of seconds "
+        "after resize or game start that autoscaling is enabled. "
+        "use 'off' to disable, or 'always' to enable for entire process. "
+        "<N>fps indicates FPS threshold, graphics will scale smaller when "
+        "FPS drops below this value. <N>mb or <N>kb indicates "
+        "bandwidth limit, useful for network servers: E.g. "
+        "'always,20fps,2500kb'."
     )
 
 
@@ -166,7 +180,7 @@ def detect_graphics_local(
     is_contour = sv is not None and sv.name == 'contour'
     if is_contour:
         available.append(GraphicsProtocol.BLITLESS_SIXEL)
-        return GraphicsProtocol.TEXT, available
+        return GraphicsProtocol.BLITLESS_SIXEL, available
     has_kitty = is_kitty_keyboard_protocol_supported(terminal, timeout=1.0)
     if has_kitty:
         available.append(GraphicsProtocol.KITTY)
@@ -182,7 +196,9 @@ def main(
 ) -> None:
     # Create parser
     parser = argparse.ArgumentParser(
-        prog="gambaterm", description="Gambatte terminal front-end"
+        prog="gambaterm",
+        description="Gambatte terminal front-end",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     add_base_arguments(parser)
     add_input_file_arguments(parser)
@@ -194,6 +210,8 @@ def main(
     namespace = parser.parse_args(parser_args)
     disable_audio = getattr(namespace, "disable_audio", False)
     graphics_value: str = namespace.__dict__.pop("graphics")
+    autoscale_value: str = namespace.__dict__.pop("graphics_autoscale")
+    autoscale = parse_autoscale(autoscale_value)
     args = LocalAppConfig.from_namespace(namespace)
 
     # Check that the ROM file exists
@@ -264,6 +282,7 @@ def main(
                         use_cpr_sync=args.cpr_sync,
                         graphics_protocol=args.graphics_protocol,
                         available_graphics_protocols=available_graphics,
+                        autoscale=autoscale,
                     )
 
         # Deal with ctrl+c and ctrl+d exceptions
