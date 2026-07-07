@@ -147,7 +147,7 @@ def is_kitty_keyboard_protocol_supported(
     if active is not None and active.report_events:
         return True
     sv = term.get_software_version(timeout=timeout)
-    if sv is not None and sv.name == 'alacritty':
+    if sv is not None and sv.name == "alacritty":
         return True
     return False
 

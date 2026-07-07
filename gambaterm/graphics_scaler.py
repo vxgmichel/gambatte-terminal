@@ -319,8 +319,14 @@ class GraphicsScaler:
             console.WIDTH * kitty_scale,
         )
         return cls(
-            sixel_scale, kitty_scale, refx, refy, refx_kitty, refy_kitty,
-            cell_h, cell_w,
+            sixel_scale,
+            kitty_scale,
+            refx,
+            refy,
+            refx_kitty,
+            refy_kitty,
+            cell_h,
+            cell_w,
         )
 
     def blit_sixel(
@@ -412,8 +418,14 @@ class GraphicsScaler:
         palette = np.asarray(palette)
         indices[~diff] = 255
 
-        result = encode_sixel(colors, max_colors=256, scale=self.scale,
-                              indices=indices, palette=palette, skip_index=255)
+        result = encode_sixel(
+            colors,
+            max_colors=256,
+            scale=self.scale,
+            indices=indices,
+            palette=palette,
+            skip_index=255,
+        )
         self._sixel_baseline = video.copy()
         self._profile.bytes_out += len(result)
         elapsed_us = int((time.perf_counter() - t0) * 1e6)
@@ -523,8 +535,7 @@ class GraphicsScaler:
         rect_h = y2 - y1
         rect_area = rect_w * rect_h
 
-        if (changed_pct > SIXEL_REBASELINE_THRESHOLD or
-                rect_area > total_pixels * 0.35):
+        if changed_pct > SIXEL_REBASELINE_THRESHOLD or rect_area > total_pixels * 0.35:
             self._profile.keyframes += 1
             self._baseline = video.copy()
             rgba = to_rgba_u8(video)
@@ -581,8 +592,11 @@ class GraphicsScaler:
         result_parts = [
             f"\033[{row};{col}H".encode(),
             encode_fn(
-                padded.tobytes(), padded_w, padded_h,
-                image_id=DELTA_ID, placement_id=1,
+                padded.tobytes(),
+                padded_w,
+                padded_h,
+                image_id=DELTA_ID,
+                placement_id=1,
             ),
         ]
         self._had_delta = True

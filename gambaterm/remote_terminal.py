@@ -106,8 +106,9 @@ class GraphicsProtocol(Enum):
     BLITLESS_SIXEL = auto()
 
 
-def does_sixel(term: BlessedTerminal, timeout: float = 1.0,
-               sv: SoftwareVersion | None = None) -> bool:
+def does_sixel(
+    term: BlessedTerminal, timeout: float = 1.0, sv: SoftwareVersion | None = None
+) -> bool:
     """Check if the terminal supports sixel graphics.
 
     Includes workarounds for terminals that report sixel support in error.
@@ -118,7 +119,7 @@ def does_sixel(term: BlessedTerminal, timeout: float = 1.0,
         sv = term.get_software_version(timeout=timeout)
     if sv is None:
         return True
-    if sv.name.lower() == 'rio' and _version_in_range(sv.version, '0.3', '0.4.9'):
+    if sv.name.lower() == "rio" and _version_in_range(sv.version, "0.3", "0.4.9"):
         # rio supported sixel, then broke it in 0.4 release (still reports
         # support via DA/XTGETTCAP), fixed in 0.4.9+.
         return False
@@ -127,9 +128,9 @@ def does_sixel(term: BlessedTerminal, timeout: float = 1.0,
 
 def _version_in_range(version: str, lo_excl: str, hi_excl: str) -> bool:
     """Return True if *version* is in (lo_excl, hi_excl)."""
-    v = tuple(int(p) for p in version.split('.'))
-    lo = tuple(int(p) for p in lo_excl.split('.'))
-    hi = tuple(int(p) for p in hi_excl.split('.'))
+    v = tuple(int(p) for p in version.split("."))
+    lo = tuple(int(p) for p in lo_excl.split("."))
+    hi = tuple(int(p) for p in hi_excl.split("."))
     return lo < v < hi
 
 

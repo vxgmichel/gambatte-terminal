@@ -139,7 +139,8 @@ def add_tuning_arguments(parser: argparse.ArgumentParser) -> None:
         "timer. use 'off' to disable autoscaling, or 'always' to enable for entire "
         "process. <N>fps indicates FPS threshold, graphics will scale smaller when "
         "FPS drops below this value. <N>mb or <N>kb indicates bandwidth limit, "
-        "useful for network servers: E.g. " "'always,30fps,2500kb'."
+        "useful for network servers: E.g. "
+        "'always,30fps,2500kb'.",
     )
 
 
@@ -247,8 +248,7 @@ def main(
         available_graphics = [GraphicsProtocol.TEXT, args.graphics_protocol]
 
     # Unknown terminals may have broken sixel transparency — force blitless.
-    if (not terminal_name
-            and args.graphics_protocol is GraphicsProtocol.SIXEL):
+    if not terminal_name and args.graphics_protocol is GraphicsProtocol.SIXEL:
         args.graphics_protocol = GraphicsProtocol.BLITLESS_SIXEL
 
     # Prefer text mode when it fits the terminal, unless the terminal has
@@ -256,8 +256,11 @@ def main(
     _bad_text = ("rio", "mlterm")  # corrupted unicode font rendering
     term_height = terminal.height or 24
     term_width = terminal.width or 80
-    if (term_width >= console.WIDTH and term_height >= console.HEIGHT // 2
-            and not terminal_name.startswith(_bad_text)):
+    if (
+        term_width >= console.WIDTH
+        and term_height >= console.HEIGHT // 2
+        and not terminal_name.startswith(_bad_text)
+    ):
         args.graphics_protocol = GraphicsProtocol.TEXT
 
     # Prepare input context

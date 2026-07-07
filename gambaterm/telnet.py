@@ -469,8 +469,7 @@ def main(
         "--robot-check",
         action="store_true",
         default=False,
-        help="reject bots by checking if client responds to "
-        "cursor position requests",
+        help="reject bots by checking if client responds to cursor position requests",
     )
     parser.add_argument(
         "--port",
