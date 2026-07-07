@@ -17,10 +17,7 @@ from .console import Console
 from .input_getter import BaseInputGetter
 from .colors import ColorMode
 from .graphics_scaler import GraphicsScaler, AutoScale, AutoScaleConfig, SCALE_MAX
-from .remote_terminal import GraphicsProtocol, BAD_TEXT
-
-# Terminals needing full frames every frame (no dirty-rect / overlay deltas).
-FORCE_KITTY_BLITLESS = ("rio", "ghostty")
+from .remote_terminal import GraphicsProtocol, BAD_TEXT, FORCE_KITTY_BLITLESS
 
 
 @contextlib.contextmanager

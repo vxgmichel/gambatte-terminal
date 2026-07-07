@@ -175,6 +175,7 @@ class KeyboardSupportDetection:
 
 
 FORCE_SIXEL_BLITLESS = ("contour", "tabby", "konsole", "mlterm", "iterm2")
+FORCE_KITTY_BLITLESS = ("rio", "ghostty")
 
 # Terminals with corrupted unicode font rendering; always prefer graphics.
 BAD_TEXT = ("rio", "mlterm")
