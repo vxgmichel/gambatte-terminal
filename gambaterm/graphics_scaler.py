@@ -6,7 +6,7 @@ import atexit
 import os
 import time
 import json
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, Callable, NamedTuple
 
 import numpy as np
 
@@ -257,7 +257,7 @@ class GraphicsScaler:
         """Close the stats file handle if it is not /dev/null."""
         if self.stats_fh is not None and self.stats_fh.name != os.devnull:
             self.stats_fh.close()
-        self.stats_fh = None
+        self.stats_fh = None  # type: ignore[assignment]
 
     @classmethod
     def recompute(
@@ -316,7 +316,7 @@ class GraphicsScaler:
                 break
             kitty_scale -= 1
 
-        def pos(img_h, img_w):
+        def pos(img_h: int, img_w: int) -> tuple[int, int]:
             rx = max(2, (pixel_h - img_h) // 2 // cell_h + 1)
             ry = max(1, (pixel_w - img_w) // 2 // cell_w + 1)
             return rx, ry
@@ -385,7 +385,7 @@ class GraphicsScaler:
                 f"{self.refx},{self.refy},,,,,\n"
             )
             self.stats_fh.flush()
-            return f"\033[{self.refx};{self.refy}H\033[0m".encode() + result
+            return f"\033[{self.refx};{self.refy}H\033[0m".encode() + result  # type: ignore[no-any-return]
 
         total_pixels = video.size
         diff = video != self.sixel_baseline
@@ -404,7 +404,7 @@ class GraphicsScaler:
                 f"{self.refx},{self.refy},,,,,\n"
             )
             self.stats_fh.flush()
-            return f"\033[{self.refx};{self.refy}H\033[0m".encode() + result
+            return f"\033[{self.refx};{self.refy}H\033[0m".encode() + result  # type: ignore[no-any-return]
 
         self.profile.deltas += 1
 
@@ -439,7 +439,7 @@ class GraphicsScaler:
         )
         self.stats_fh.flush()
 
-        return f"\033[{self.refx};{self.refy}H\033[0m".encode() + result
+        return f"\033[{self.refx};{self.refy}H\033[0m".encode() + result  # type: ignore[no-any-return]
 
     def blit_sixel_blitless(
         self,
@@ -465,9 +465,13 @@ class GraphicsScaler:
             f"{self.refx},{self.refy},,,,,\n"
         )
         self.stats_fh.flush()
-        return f"\033[{self.refx};{self.refy}H\033[0m".encode() + result
+        return f"\033[{self.refx};{self.refy}H\033[0m".encode() + result  # type: ignore[no-any-return]
 
-    def encode_kitty_frame(self, video, encode_fn):
+    def encode_kitty_frame(
+        self,
+        video: "np.ndarray",
+        encode_fn: "Callable[..., bytes]",
+    ) -> bytes:
         """Encode kitty frame: keyframe on first call, dirty-rect delta otherwise.
 
         Deltas send the bounding box of changed pixels positioned via
@@ -499,11 +503,11 @@ class GraphicsScaler:
                     np.repeat(rgba, self.kitty_scale, axis=0), self.kitty_scale, axis=1
                 )
             h, w = rgba.shape[:2]
-            result = [
+            parts: list[bytes] = [
                 f"\033[{self.refx_kitty};{self.refy_kitty}H".encode(),
                 encode_fn(rgba.tobytes(), w, h, image_id=BASELINE_ID),
             ]
-            result = b"".join(result)
+            result = b"".join(parts)
             elapsed_us = int((time.perf_counter() - t0) * 1e6)
             self.stats_fh.write(
                 f"{n},0.0,first_keyframe,{len(result)},{elapsed_us},,,,,,,,,,,,,,\n"
@@ -537,14 +541,14 @@ class GraphicsScaler:
                     np.repeat(rgba, self.kitty_scale, axis=0), self.kitty_scale, axis=1
                 )
             h, w = rgba.shape[:2]
-            result = [
+            rebase_parts: list[bytes] = [
                 f"\033[{self.refx_kitty};{self.refy_kitty}H".encode(),
             ]
             if self.had_delta:
-                result.append(f"\033_Ga=d,d=i,i={DELTA_ID}\033\\".encode())
-            result.append(encode_fn(rgba.tobytes(), w, h, image_id=BASELINE_ID))
+                rebase_parts.append(f"\033_Ga=d,d=i,i={DELTA_ID}\033\\".encode())
+            rebase_parts.append(encode_fn(rgba.tobytes(), w, h, image_id=BASELINE_ID))
             self.had_delta = False
-            result = b"".join(result)
+            result = b"".join(rebase_parts)
             elapsed_us = int((time.perf_counter() - t0) * 1e6)
             self.stats_fh.write(
                 f"{n},{changed_pct:.2f},rebaseline,{len(result)},{elapsed_us},,,,,,,,,,,,,,\n"

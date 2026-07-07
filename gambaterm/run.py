@@ -38,7 +38,7 @@ def get_ref(width: int, height: int, console: Console) -> tuple[int, int]:
     return refx, refy
 
 
-def write_frame(term: Terminal, frame_data: bytes) -> None:
+def write_frame(term: Terminal, frame_data: bytes | bytearray) -> None:
     # Fix code page issue on windows:
     # `sys.stdout.buffer.raw` is a `WindowsConsoleIO` that always support UTF-8
     # regardless of the configured codepage
