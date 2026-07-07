@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import time
 import argparse
-import os
 from pathlib import Path
 from typing import ContextManager, TYPE_CHECKING
 import dataclasses
@@ -294,7 +293,6 @@ def main(
                     args.color_mode = ColorMode.HAS_8_BIT_COLOR
 
             # Prepare alternate screen
-            _t0 = time.perf_counter()
             terminal.stream.write(
                 terminal.enter_fullscreen + terminal.clear + terminal.hide_cursor
             )
@@ -302,16 +300,7 @@ def main(
 
             # Enter input and audio contexts
             with input_context as get_gb_input:
-                _t1 = time.perf_counter()
                 with audio_player(console, args.speed, disable_audio) as audio_out:
-                    _t2 = time.perf_counter()
-                    _profile_dir = os.environ.get("GAMBATERM_PROFILE_DIR", "/tmp")
-                    with open(f"{_profile_dir}/startup.log", "a") as _f:
-                        _f.write(
-                            f"fullscreen_to_input {_t1 - _t0:.3f}s  "
-                            f"input_to_audio {_t2 - _t1:.3f}s\n"
-                        )
-                    # Run the emulator
                     run(
                         console,
                         get_gb_input,

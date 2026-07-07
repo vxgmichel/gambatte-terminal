@@ -39,21 +39,6 @@ class AutoScaleConfig(NamedTuple):
 
 
 def parse_autoscale(value: str) -> AutoScaleConfig:
-    """Parse a ``--graphics-autoscale`` value.
-
-    Recognised tokens (comma-separated, order independent):
-
-    * ``Ns`` — window in seconds (-1 for always active)
-    * ``always`` — shorthand for -1s (always active)
-    * ``Nfps`` — video FPS threshold
-    * ``Nmb`` — bandwidth cap in MBit/s
-    * ``Nkb`` — bandwidth cap in KB/s (converted to MBit/s)
-    * ``off``, ``no``, ``disabled`` — disable autoscale entirely
-
-    When any trigger is specified without a window token the window
-    defaults to ``-1`` (always active).  Other defaults: 40 fps,
-    0 bandwidth.
-    """
     value = value.strip().lower()
     if value in ("off", "no", "disabled", ""):
         return AutoScaleConfig(enabled=False, seconds=0, fps=40.0, bandwidth_mbits=0.0)
@@ -233,19 +218,24 @@ class GraphicsScaler:
         self._had_delta = False
         self._profile = _Profile()
         self._frame_no = 0
-        profile_dir = os.environ.get("GAMBATERM_PROFILE_DIR", "/tmp")
-        os.makedirs(profile_dir, exist_ok=True)
-        csv_path = f"{profile_dir}/gambatterm-frame-stats.csv"
-        is_new = not os.path.exists(csv_path) or os.path.getsize(csv_path) == 0
-        self._stats_fh = open(csv_path, "a")
-        if is_new:
-            self._stats_fh.write(
-                "frame_no,changed_pct,action,bytes,time_us,"
-                "row,col,cell_h,cell_w,padded_w,padded_h,"
-                "x1,y1,rect_w,rect_h,"
-                "refx_kitty,refy_kitty,scale\n"
+        profile_dir = os.environ.get("GAMBATERM_PROFILE_DIR")
+        if profile_dir is not None:
+            os.makedirs(profile_dir, exist_ok=True)
+            csv_path = f"{profile_dir}/gambatterm-frame-stats.csv"
+            is_new = not os.path.exists(csv_path) or os.path.getsize(csv_path) == 0
+            self._stats_fh = open(csv_path, "a")
+            if is_new:
+                self._stats_fh.write(
+                    "frame_no,changed_pct,action,bytes,time_us,"
+                    "row,col,cell_h,cell_w,padded_w,padded_h,"
+                    "x1,y1,rect_w,rect_h,"
+                    "refx_kitty,refy_kitty,scale\n"
+                )
+            atexit.register(
+                self._profile.dump, f"{profile_dir}/gambaterm-profile.txt"
             )
-        atexit.register(self._profile.dump, f"{profile_dir}/gambaterm-profile.txt")
+        else:
+            self._stats_fh = open(os.devnull, "w")
 
     @property
     def position(self) -> tuple[int, int]:
