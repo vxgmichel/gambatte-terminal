@@ -221,10 +221,10 @@ The table below sums up my findings when I tried the most common terminal emulat
 
 About MacOS:
 
-| MacOS            | Status     | Graphics      | Colors        | Unicode rendering         | Kitty keyboard protocol | Performance | Comments                 |
-|------------------|------------|---------------|---------------------------|-------------------------|-------------|--------------------------|
-| iTerm2           | Excellent  |               | 24-bit colors | Good                      | Yes                     | 60 FPS      |                          |
-| Terminal.app     | Bad        |               | 24-bit colors | Bad--adjust font spacing! | No                      | 30 FPS      | A bit jittery            |
+| MacOS            | Status     | Graphics      | Colors        | Unicode rendering  | Kitty keyboard protocol | Performance | Comments                                                        |
+|------------------|------------|---------------|------------------------------------|-------------------------|-------------|-----------------------------------------------------------------|
+| iTerm2           | Excellent  | Sixel*        | 24-bit colors | Good               | Yes                     | 60 FPS\*    | Poor resize performance, `--graphics-autoscale=off` suggested ! |
+| Terminal.app     | Bad        |               | 24-bit colors | Bad                | No                      | 30 FPS      | A bit jittery                                                   |
 
 About Windows:
 
