@@ -14,7 +14,12 @@ from .run import run
 from .console import GameboyColor, Console
 from .audio import audio_player
 from .colors import detect_local_color_mode, ColorMode
-from .remote_terminal import GraphicsProtocol, FORCE_SIXEL_BLITLESS, BAD_TEXT, does_sixel
+from .remote_terminal import (
+    GraphicsProtocol,
+    FORCE_SIXEL_BLITLESS,
+    BAD_TEXT,
+    does_sixel,
+)
 from .graphics_scaler import parse_autoscale
 from .keyboard_input import is_kitty_keyboard_protocol_supported
 from .input_getter import BaseInputGetter

@@ -24,12 +24,8 @@ if TYPE_CHECKING:
 
 BASELINE_ID = 1
 DELTA_ID = 2
-SIXEL_REBASELINE_THRESHOLD = float(
-    os.environ.get("GAMBATERM_SIXEL_REBASELINE", "0.35")
-)
-KITTY_REBASELINE_THRESHOLD = float(
-    os.environ.get("GAMBATERM_KITTY_REBASELINE", "0.35")
-)
+SIXEL_REBASELINE_THRESHOLD = float(os.environ.get("GAMBATERM_SIXEL_REBASELINE", "0.35"))
+KITTY_REBASELINE_THRESHOLD = float(os.environ.get("GAMBATERM_KITTY_REBASELINE", "0.35"))
 SCALE_MAX = int(os.environ.get("GAMBATERM_SCALE_MAX", "12"))
 
 
@@ -239,9 +235,7 @@ class GraphicsScaler:
                     "x1,y1,rect_w,rect_h,"
                     "refx_kitty,refy_kitty,scale\n"
                 )
-            atexit.register(
-                self.profile.dump, f"{profile_dir}/gambaterm-profile.txt"
-            )
+            atexit.register(self.profile.dump, f"{profile_dir}/gambaterm-profile.txt")
         else:
             self.stats_fh = open(os.devnull, "w")
 
@@ -531,7 +525,10 @@ class GraphicsScaler:
         rect_h = y2 - y1
         rect_area = rect_w * rect_h
 
-        if changed_pct > KITTY_REBASELINE_THRESHOLD or rect_area > total_pixels * KITTY_REBASELINE_THRESHOLD:
+        if (
+            changed_pct > KITTY_REBASELINE_THRESHOLD
+            or rect_area > total_pixels * KITTY_REBASELINE_THRESHOLD
+        ):
             self.profile.keyframes += 1
             self.baseline = video.copy()
             rgba = to_rgba_u8(video)

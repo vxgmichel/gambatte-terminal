@@ -199,10 +199,7 @@ def ssh_terminal_handler(
     input_source = detect_input_source(app_config, keyboard_support_detection)
     console_input_context: ContextManager[BaseInputGetter]
     if input_source is None:
-        message = (
-            MESSAGE_SUGGESTING_KITTY_SUPPORT
-            + "\n\n"
-            + """\
+        message = MESSAGE_SUGGESTING_KITTY_SUPPORT + "\n\n" + """\
 Alternatively, X11 forwarding can be used in order to give the gambaterm-ssh
 server access to your keyboard, eg. `ssh -Y -p 8022 localhost`.
 ===============================[ WARNING ]=====================================
@@ -211,7 +208,6 @@ endanger your machine. Please only do so if you are running the X11 server in a
 sandbox. More information here: https://security.stackexchange.com/a/7496
 ===============================[ WARNING ]=====================================
 """
-        )
         terminal.stream.write(message)
         terminal.stream.flush()
         session_logger.warning(
@@ -338,10 +334,10 @@ class GambatermSSHServer(SSHServer):
         users_directory: Path,
         executor: ThreadPoolExecutor,
         active_connections: dict[GambatermSSHServer, SSHServerConnection],
-        frontend: Callable[
-            [RemoteTerminal, AppConfig, KeyboardSupportDetection], AppConfig
-        ]
-        | None = None,
+        frontend: (
+            Callable[[RemoteTerminal, AppConfig, KeyboardSupportDetection], AppConfig]
+            | None
+        ) = None,
     ):
         self._gambaterm_console_cls = console_cls
         self._gambaterm_namespace = namespace

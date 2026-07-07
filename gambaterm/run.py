@@ -168,7 +168,8 @@ def run(
                 cycle = [
                     p
                     for p in graphics_cycle
-                    if p is not GraphicsProtocol.TEXT or not terminal_name.startswith(BAD_TEXT)
+                    if p is not GraphicsProtocol.TEXT
+                    or not terminal_name.startswith(BAD_TEXT)
                 ]
                 if cycle:
                     idx = cycle.index(graphics_protocol)
@@ -180,7 +181,10 @@ def run(
                 average_over = int(round(fps))  # frames
                 audio_out.update_speed(console, speed)
             elif key.key_name in ("FOCUS_IN", "FOCUS_OUT"):
-                if graphics_protocol is GraphicsProtocol.SIXEL and terminal_name.startswith("mlterm"):
+                if (
+                    graphics_protocol is GraphicsProtocol.SIXEL
+                    and terminal_name.startswith("mlterm")
+                ):
                     if scaler is not None:
                         scaler.sixel_baseline = None
             elif key.key_name in ("KEY_GRAVE_ACCENT", "KEY_TILDE") or key in ("`", "~"):
@@ -312,15 +316,11 @@ def run(
                     force_clear = False
                     frame_data += maybe_clear_sequence
                     if graphics_protocol is GraphicsProtocol.SIXEL:
-                        frame_data += scaler.blit_sixel(
-                            video, last_frame
-                        )
+                        frame_data += scaler.blit_sixel(video, last_frame)
                     elif graphics_protocol is GraphicsProtocol.BLITLESS_SIXEL:
                         frame_data += scaler.blit_sixel_blitless(video, width, height)
                     else:
-                        frame_data += scaler.blit_kitty(
-                            video, last_frame
-                        )
+                        frame_data += scaler.blit_kitty(video, last_frame)
                         if terminal_name.startswith(FORCE_KITTY_BLITLESS):
                             scaler.baseline = None
                     if sync_end:
