@@ -20,7 +20,6 @@ from .graphicsblit import (
 if TYPE_CHECKING:
     from blessed import Terminal
     from .console import Console
-    from .colors import ColorMode
 
 BASELINE_ID = 1
 DELTA_ID = 2
@@ -61,7 +60,7 @@ def parse_autoscale(value: str) -> AutoScaleConfig:
         elif token.endswith("kb"):
             bandwidth_mbits = float(token[:-2]) / 125.0
         elif token.endswith("mb"):
-            bandwidth_mbits = float(token[:-2])
+            bandwidth_mbits = float(token[:-2]) * 8.0
         elif token.endswith("s"):
             seconds = int(token[:-1])
             saw_seconds = True
@@ -241,6 +240,12 @@ class GraphicsScaler:
     def position(self) -> tuple[int, int]:
         return self.refx_kitty, self.refy_kitty
 
+    def close(self) -> None:
+        """Close the stats file handle if it is not /dev/null."""
+        if self._stats_fh is not None and self._stats_fh.name != os.devnull:
+            self._stats_fh.close()
+        self._stats_fh = None
+
     @classmethod
     def recompute(
         cls,
@@ -402,20 +407,27 @@ class GraphicsScaler:
 
         self._profile.deltas += 1
 
-        colors = to_rgb(video)
-        indices, palette = quantize_colors(colors, 256)
-        indices = np.asarray(indices)
+        # Quantize only changed pixels for the overlay delta — unchanged
+        # pixels are transparent (skip_index=255) and already on screen
+        # from the prior frame via P2=1 mode.
+        changed_pixels = video[diff].reshape(-1, 1)
+        changed_colors = to_rgb(changed_pixels)
+        max_colors = min(256, changed_colors.shape[0])
+        indices_delta, palette = quantize_colors(changed_colors, max_colors)
         palette = np.asarray(palette)
-        indices[~diff] = 255
+        indices = np.full(video.shape, 255, dtype=np.uint8)
+        indices[diff] = np.asarray(indices_delta).ravel()
 
         result = encode_sixel(
-            colors,
+            to_rgb(video),
             max_colors=256,
             scale=self.scale,
             indices=indices,
             palette=palette,
             skip_index=255,
         )
+        # Baseline updated every overlay: sixel P2=1 transparency requires
+        # frame-to-frame diffs so unchanged pixels aren't double-rendered.
         self._sixel_baseline = video.copy()
         self._profile.bytes_out += len(result)
         elapsed_us = int((time.perf_counter() - t0) * 1e6)
@@ -590,6 +602,10 @@ class GraphicsScaler:
             ),
         ]
         self._had_delta = True
+        # Baseline NOT updated after delta: kitty p=1 rect replacement
+        # diffs against the last keyframe, not the previous frame.  Each
+        # p=1 replacement removes the prior delta at the target rect, so
+        # keyframe-relative diffs avoid compounding residual artifacts.
         result = b"".join(result_parts)
         elapsed_us = int((time.perf_counter() - t0) * 1e6)
         self._stats_fh.write(
@@ -607,7 +623,6 @@ class GraphicsScaler:
         last_frame: np.ndarray | None,
         width: int,
         height: int,
-        color_mode: ColorMode,
     ) -> bytes:
         """Encode ``video`` as a kitty RGBA escape sequence.
 

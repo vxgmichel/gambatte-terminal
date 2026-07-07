@@ -17,7 +17,10 @@ from .console import Console
 from .input_getter import BaseInputGetter
 from .colors import ColorMode
 from .graphics_scaler import GraphicsScaler, AutoScale, AutoScaleConfig, _SCALE_CEILING
-from .remote_terminal import GraphicsProtocol
+from .remote_terminal import GraphicsProtocol, _BAD_TEXT
+
+# Terminals needing full frames every frame (no dirty-rect / overlay deltas).
+_FORCE_KITTY_BLITLESS = ("rio", "ghostty")
 
 
 @contextlib.contextmanager
@@ -33,21 +36,6 @@ def get_ref(width: int, height: int, console: Console) -> tuple[int, int]:
     refx = 2 + max(0, (height - console.HEIGHT // 2) // 2)
     refy = 3 + max(0, (width - console.WIDTH) // 2)
     return refx, refy
-
-
-# Terminals with corrupted unicode font rendering — always prefer graphics.
-_BAD_TEXT = ("rio", "mlterm")
-# Terminals needing full frames every frame (no dirty-rect / overlay deltas).
-_FORCE_KITTY_BLITLESS = ("rio", "ghostty")
-
-
-def _is_mlterm(term: Terminal) -> bool:
-    """Return True if the terminal is mlterm (loses sixel on focus-out)."""
-    try:
-        sv = term.get_software_version(timeout=0.25)
-        return sv is not None and "mlterm" in sv.name.lower()
-    except Exception:
-        return False
 
 
 def write_frame(term: Terminal, frame_data: bytes) -> None:
@@ -180,7 +168,7 @@ def run(
                 cycle = [
                     p
                     for p in graphics_cycle
-                    if p is not GraphicsProtocol.TEXT or terminal_name not in _BAD_TEXT
+                    if p is not GraphicsProtocol.TEXT or not terminal_name.startswith(_BAD_TEXT)
                 ]
                 if cycle:
                     idx = cycle.index(graphics_protocol)
@@ -192,7 +180,7 @@ def run(
                 average_over = int(round(fps))  # frames
                 audio_out.update_speed(console, speed)
             elif key.key_name in ("FOCUS_IN", "FOCUS_OUT"):
-                if graphics_protocol is GraphicsProtocol.SIXEL and _is_mlterm(term):
+                if graphics_protocol is GraphicsProtocol.SIXEL and terminal_name.startswith("mlterm"):
                     if scaler is not None:
                         scaler._sixel_baseline = None
             elif key.key_name in ("KEY_GRAVE_ACCENT", "KEY_TILDE") or key in ("`", "~"):
@@ -229,7 +217,7 @@ def run(
                     if (
                         new_width >= console.WIDTH
                         and new_height >= console.HEIGHT // 2
-                        and not terminal_name.startswith(("rio", "mlterm"))
+                        and not terminal_name.startswith(_BAD_TEXT)
                     ):
                         new_graphics_protocol = GraphicsProtocol.TEXT
                         changed = True
@@ -242,7 +230,7 @@ def run(
                         if (
                             text_fits
                             and graphics_protocol is not GraphicsProtocol.TEXT
-                            and terminal_name not in _BAD_TEXT
+                            and not terminal_name.startswith(_BAD_TEXT)
                         ):
                             new_graphics_protocol = GraphicsProtocol.TEXT
                         elif (
@@ -285,6 +273,8 @@ def run(
                     graphics_protocol = new_graphics_protocol
                     term.number_of_colors = new_color_mode.number_of_colors
                     last_frame.fill(0)
+                    if scaler is not None:
+                        scaler.close()
                     scaler = None
                     force_status_update = True
 
@@ -329,9 +319,9 @@ def run(
                         frame_data += scaler.blit_sixel_blitless(video, width, height)
                     else:
                         frame_data += scaler.blit_kitty(
-                            video, last_frame, width, height, color_mode
+                            video, last_frame, width, height
                         )
-                        if terminal_name in _FORCE_KITTY_BLITLESS:
+                        if terminal_name.startswith(_FORCE_KITTY_BLITLESS):
                             scaler._baseline = None
                     if sync_end:
                         frame_data += sync_end
@@ -351,6 +341,8 @@ def run(
         if data_length and auto_scale is not None and autoscale is not None:
             data_rate_kb_s = sum(data_length) / len(data_length) * fps / 1000
             if auto_scale.feed_bandwidth(data_rate_kb_s, autoscale.bandwidth_mbits):
+                if scaler is not None:
+                    scaler.close()
                 scaler = GraphicsScaler.recompute(
                     term,
                     console,
@@ -404,6 +396,8 @@ def run(
                         and graphics_protocol is GraphicsProtocol.KITTY
                     ):
                         kitty_pending_delete = True
+                    if scaler is not None:
+                        scaler.close()
                     scaler = GraphicsScaler.recompute(
                         term,
                         console,

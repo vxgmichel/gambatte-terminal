@@ -14,7 +14,7 @@ from .run import run
 from .console import GameboyColor, Console
 from .audio import audio_player
 from .colors import detect_local_color_mode, ColorMode
-from .remote_terminal import GraphicsProtocol, _FORCE_SIXEL_BLITLESS, does_sixel
+from .remote_terminal import GraphicsProtocol, _FORCE_SIXEL_BLITLESS, _BAD_TEXT, does_sixel
 from .graphics_scaler import parse_autoscale
 from .keyboard_input import is_kitty_keyboard_protocol_supported
 from .input_getter import BaseInputGetter
@@ -195,6 +195,8 @@ def detect_graphics_local(
     if does_sixel(terminal, sv=sv):
         available.append(GraphicsProtocol.SIXEL)
     # Prefer kitty, then sixel, then text
+    if GraphicsProtocol.KITTY in available:
+        return GraphicsProtocol.KITTY, available
     return available[-1], available
 
 
@@ -249,13 +251,12 @@ def main(
 
     # Prefer text mode when it fits the terminal, unless the terminal has
     # poor unicode rendering (Rio, mlterm).
-    _bad_text = ("rio", "mlterm")  # corrupted unicode font rendering
     term_height = terminal.height or 24
     term_width = terminal.width or 80
     if (
         term_width >= console.WIDTH
         and term_height >= console.HEIGHT // 2
-        and not terminal_name.startswith(_bad_text)
+        and not terminal_name.startswith(_BAD_TEXT)
     ):
         args.graphics_protocol = GraphicsProtocol.TEXT
 

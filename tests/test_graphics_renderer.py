@@ -84,11 +84,11 @@ def test_kitty_dirty_rect_delta():
     )
 
     baseline = np.full((10, 10), 0xFF00FF00, dtype=np.uint32)
-    scaler.blit_kitty(baseline, None, 10, 10, None)
+    scaler.blit_kitty(baseline, None, 10, 10)
 
     changed = baseline.copy()
     changed[3, 4] = 0xFFFF0000
-    result = scaler.blit_kitty(changed, baseline, 10, 10, None)
+    result = scaler.blit_kitty(changed, baseline, 10, 10)
 
     text = result.decode("latin-1")
     assert "i=2" in text
@@ -113,14 +113,14 @@ def test_kitty_rebaseline_deletes_delta():
     )
 
     baseline = np.full((10, 10), 0xFF00FF00, dtype=np.uint32)
-    scaler.blit_kitty(baseline, None, 10, 10, None)
+    scaler.blit_kitty(baseline, None, 10, 10)
 
     changed = baseline.copy()
     changed[0, 0] = 0xFFFF0000
-    scaler.blit_kitty(changed, baseline, 10, 10, None)
+    scaler.blit_kitty(changed, baseline, 10, 10)
 
     big_change = np.full((10, 10), 0xFF0000FF, dtype=np.uint32)
-    result = scaler.blit_kitty(big_change, changed, 10, 10, None)
+    result = scaler.blit_kitty(big_change, changed, 10, 10)
     text = result.decode("latin-1")
     assert "i=1" in text
     assert "a=d,d=i,i=2" in text
@@ -313,7 +313,7 @@ class TestParseAutoscale:
 
     @pytest.mark.parametrize("value,seconds,fps,mbits", [
         ("30fps", -1, 30.0, 0.0),
-        ("60s,30fps,10mb", 60, 30.0, 10.0),
+        ("60s,30fps,10mb", 60, 30.0, 80.0),
         ("1500kb", -1, 40.0, 12.0),
         ("always,25fps", -1, 25.0, 0.0),
     ])

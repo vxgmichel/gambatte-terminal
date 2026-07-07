@@ -128,7 +128,9 @@ def does_sixel(
 
 def _version_in_range(version: str, lo_excl: str, hi_excl: str) -> bool:
     """Return True if *version* is in (lo_excl, hi_excl)."""
-    v = tuple(int(p) for p in version.split("."))
+    # Strip pre-release suffixes (e.g. "0.4.0-alpha") before numeric parse.
+    _nums = __import__("re").split(r"[^\d]", version)
+    v = tuple(int(p) for p in _nums if p)
     lo = tuple(int(p) for p in lo_excl.split("."))
     hi = tuple(int(p) for p in hi_excl.split("."))
     return lo < v < hi
@@ -173,6 +175,9 @@ class KeyboardSupportDetection:
 
 
 _FORCE_SIXEL_BLITLESS = ("contour", "tabby", "konsole", "mlterm", "iterm2")
+
+# Terminals with corrupted unicode font rendering — always prefer graphics.
+_BAD_TEXT = ("rio", "mlterm")
 
 
 def detect_graphics_frontend(

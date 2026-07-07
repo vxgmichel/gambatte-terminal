@@ -22,9 +22,9 @@ class ColorMode(IntEnum):
 
     def cycle_back(self) -> ColorMode:
         """Cycle to the previous color mode."""
-        value = self - 1
-        if value == ColorMode.COULD_NOT_DETECT:
-            value = ColorMode.HAS_24_BIT_COLOR
+        value = int(self) - 1
+        if value <= int(ColorMode.COULD_NOT_DETECT):
+            value = int(ColorMode.HAS_24_BIT_COLOR)
         return ColorMode(value)
 
     def report(self) -> str:
