@@ -119,14 +119,14 @@ def does_sixel(
         sv = term.get_software_version(timeout=timeout)
     if sv is None:
         return True
-    if sv.name.lower() == "rio" and _version_in_range(sv.version, "0.3", "0.4.9"):
+    if sv.name.lower() == "rio" and version_in_range(sv.version, "0.3", "0.4.9"):
         # rio supported sixel, then broke it in 0.4 release (still reports
         # support via DA/XTGETTCAP), fixed in 0.4.9+.
         return False
     return True
 
 
-def _version_in_range(version: str, lo_excl: str, hi_excl: str) -> bool:
+def version_in_range(version: str, lo_excl: str, hi_excl: str) -> bool:
     """Return True if *version* is in (lo_excl, hi_excl)."""
     # Strip pre-release suffixes (e.g. "0.4.0-alpha") before numeric parse.
     _nums = __import__("re").split(r"[^\d]", version)
@@ -174,10 +174,10 @@ class KeyboardSupportDetection:
         return KeyboardSupport.BASIC
 
 
-_FORCE_SIXEL_BLITLESS = ("contour", "tabby", "konsole", "mlterm", "iterm2")
+FORCE_SIXEL_BLITLESS = ("contour", "tabby", "konsole", "mlterm", "iterm2")
 
-# Terminals with corrupted unicode font rendering — always prefer graphics.
-_BAD_TEXT = ("rio", "mlterm")
+# Terminals with corrupted unicode font rendering; always prefer graphics.
+BAD_TEXT = ("rio", "mlterm")
 
 
 def detect_graphics_frontend(
@@ -195,7 +195,7 @@ def detect_graphics_frontend(
     has_sixel = does_sixel(terminal)
 
     sv = terminal.get_software_version(timeout=1.0)
-    blitless = sv is not None and sv.name.lower() in _FORCE_SIXEL_BLITLESS
+    blitless = sv is not None and sv.name.lower() in FORCE_SIXEL_BLITLESS
     config.available_graphics = [GraphicsProtocol.TEXT]
     if blitless:
         config.available_graphics.append(GraphicsProtocol.BLITLESS_SIXEL)

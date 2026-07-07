@@ -16,11 +16,11 @@ from .audio import MaybeAudioOut, DISABLED_AUDIO_OUT
 from .console import Console
 from .input_getter import BaseInputGetter
 from .colors import ColorMode
-from .graphics_scaler import GraphicsScaler, AutoScale, AutoScaleConfig, _SCALE_CEILING
-from .remote_terminal import GraphicsProtocol, _BAD_TEXT
+from .graphics_scaler import GraphicsScaler, AutoScale, AutoScaleConfig, SCALE_MAX
+from .remote_terminal import GraphicsProtocol, BAD_TEXT
 
 # Terminals needing full frames every frame (no dirty-rect / overlay deltas).
-_FORCE_KITTY_BLITLESS = ("rio", "ghostty")
+FORCE_KITTY_BLITLESS = ("rio", "ghostty")
 
 
 @contextlib.contextmanager
@@ -106,7 +106,7 @@ def run(
     first_frame = True
     kitty_pending_delete = False
     auto_scale: AutoScale | None = (
-        AutoScale(_SCALE_CEILING, autoscale.seconds)
+        AutoScale(SCALE_MAX, autoscale.seconds)
         if autoscale is not None
         and autoscale.enabled
         and graphics_protocol is not GraphicsProtocol.TEXT
@@ -168,7 +168,7 @@ def run(
                 cycle = [
                     p
                     for p in graphics_cycle
-                    if p is not GraphicsProtocol.TEXT or not terminal_name.startswith(_BAD_TEXT)
+                    if p is not GraphicsProtocol.TEXT or not terminal_name.startswith(BAD_TEXT)
                 ]
                 if cycle:
                     idx = cycle.index(graphics_protocol)
@@ -182,7 +182,7 @@ def run(
             elif key.key_name in ("FOCUS_IN", "FOCUS_OUT"):
                 if graphics_protocol is GraphicsProtocol.SIXEL and terminal_name.startswith("mlterm"):
                     if scaler is not None:
-                        scaler._sixel_baseline = None
+                        scaler.sixel_baseline = None
             elif key.key_name in ("KEY_GRAVE_ACCENT", "KEY_TILDE") or key in ("`", "~"):
                 show_status_bar = not show_status_bar
 
@@ -217,7 +217,7 @@ def run(
                     if (
                         new_width >= console.WIDTH
                         and new_height >= console.HEIGHT // 2
-                        and not terminal_name.startswith(_BAD_TEXT)
+                        and not terminal_name.startswith(BAD_TEXT)
                     ):
                         new_graphics_protocol = GraphicsProtocol.TEXT
                         changed = True
@@ -230,7 +230,7 @@ def run(
                         if (
                             text_fits
                             and graphics_protocol is not GraphicsProtocol.TEXT
-                            and not terminal_name.startswith(_BAD_TEXT)
+                            and not terminal_name.startswith(BAD_TEXT)
                         ):
                             new_graphics_protocol = GraphicsProtocol.TEXT
                         elif (
@@ -247,7 +247,7 @@ def run(
                         and autoscale is not None
                         and autoscale.enabled
                     ):
-                        auto_scale = AutoScale(_SCALE_CEILING, autoscale.seconds)
+                        auto_scale = AutoScale(SCALE_MAX, autoscale.seconds)
                     elif auto_scale is not None:
                         auto_scale.reset()
                     maybe_clear_sequence = b""
@@ -313,16 +313,16 @@ def run(
                     frame_data += maybe_clear_sequence
                     if graphics_protocol is GraphicsProtocol.SIXEL:
                         frame_data += scaler.blit_sixel(
-                            video, last_frame, width, height
+                            video, last_frame
                         )
                     elif graphics_protocol is GraphicsProtocol.BLITLESS_SIXEL:
                         frame_data += scaler.blit_sixel_blitless(video, width, height)
                     else:
                         frame_data += scaler.blit_kitty(
-                            video, last_frame, width, height
+                            video, last_frame
                         )
-                        if terminal_name.startswith(_FORCE_KITTY_BLITLESS):
-                            scaler._baseline = None
+                        if terminal_name.startswith(FORCE_KITTY_BLITLESS):
+                            scaler.baseline = None
                     if sync_end:
                         frame_data += sync_end
 

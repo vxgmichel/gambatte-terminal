@@ -14,7 +14,7 @@ from .run import run
 from .console import GameboyColor, Console
 from .audio import audio_player
 from .colors import detect_local_color_mode, ColorMode
-from .remote_terminal import GraphicsProtocol, _FORCE_SIXEL_BLITLESS, _BAD_TEXT, does_sixel
+from .remote_terminal import GraphicsProtocol, FORCE_SIXEL_BLITLESS, BAD_TEXT, does_sixel
 from .graphics_scaler import parse_autoscale
 from .keyboard_input import is_kitty_keyboard_protocol_supported
 from .input_getter import BaseInputGetter
@@ -185,7 +185,7 @@ def detect_graphics_local(
     available = [GraphicsProtocol.TEXT]
     if sv is None:
         sv = terminal.get_software_version(timeout=1.0)
-    blitless = sv is not None and sv.name.lower() in _FORCE_SIXEL_BLITLESS
+    blitless = sv is not None and sv.name.lower() in FORCE_SIXEL_BLITLESS
     if blitless:
         available.append(GraphicsProtocol.BLITLESS_SIXEL)
         return GraphicsProtocol.BLITLESS_SIXEL, available
@@ -245,7 +245,7 @@ def main(
         args.graphics_protocol = GraphicsProtocol[graphics_value.upper()]
         available_graphics = [GraphicsProtocol.TEXT, args.graphics_protocol]
 
-    # Unknown terminals may have broken sixel transparency — force blitless.
+    # Unknown terminals may have broken sixel transparency; force blitless.
     if not terminal_name and args.graphics_protocol is GraphicsProtocol.SIXEL:
         args.graphics_protocol = GraphicsProtocol.BLITLESS_SIXEL
 
@@ -256,7 +256,7 @@ def main(
     if (
         term_width >= console.WIDTH
         and term_height >= console.HEIGHT // 2
-        and not terminal_name.startswith(_BAD_TEXT)
+        and not terminal_name.startswith(BAD_TEXT)
     ):
         args.graphics_protocol = GraphicsProtocol.TEXT
 

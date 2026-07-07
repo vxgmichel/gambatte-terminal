@@ -119,7 +119,7 @@ def encode_sixel(float[:, :, ::1] colors, int max_colors=256, int scale=1,
     cdef int h = colors.shape[0]
     cdef int w = colors.shape[1]
 
-    # Compute scaled dimensions up front — needed even when using
+    # Compute scaled dimensions up front; needed even when using
     # precomputed indices (the overlay delta path avoids scaling colors).
     cdef int use_precomputed = indices is not None and palette is not None
     if scale > 1:
