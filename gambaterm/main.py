@@ -14,7 +14,7 @@ from .run import run
 from .console import GameboyColor, Console
 from .audio import audio_player
 from .colors import detect_local_color_mode, ColorMode
-from .remote_terminal import GraphicsProtocol, does_sixel
+from .remote_terminal import GraphicsProtocol, _FORCE_SIXEL_BLITLESS, does_sixel
 from .graphics_scaler import parse_autoscale
 from .keyboard_input import is_kitty_keyboard_protocol_supported
 from .input_getter import BaseInputGetter
@@ -171,9 +171,6 @@ def add_local_only_arguments(parser: argparse.ArgumentParser) -> None:
         default=None,
         help="Path to the save directory (default to the ROM directory)",
     )
-
-
-_FORCE_SIXEL_BLITLESS = ("contour", "tabby", "konsole", "mlterm")
 
 
 def detect_graphics_local(

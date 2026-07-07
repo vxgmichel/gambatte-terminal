@@ -172,7 +172,7 @@ class KeyboardSupportDetection:
         return KeyboardSupport.BASIC
 
 
-_FORCE_SIXEL_BLITLESS = ("contour", "tabby", "konsole", "mlterm")
+_FORCE_SIXEL_BLITLESS = ("contour", "tabby", "konsole", "mlterm", "iterm2")
 
 
 def detect_graphics_frontend(
