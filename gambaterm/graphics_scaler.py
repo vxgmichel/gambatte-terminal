@@ -26,6 +26,7 @@ BASELINE_ID = 1
 DELTA_ID = 2
 SIXEL_REBASELINE_THRESHOLD = 0.35
 _SCALE_CEILING = int(os.environ.get("GAMBATERM_SCALE_MAX", "32"))
+_FALLBACK_SCALE_MAX = 8
 
 
 class AutoScaleConfig(NamedTuple):
@@ -129,10 +130,9 @@ class AutoScale:
             return False
         if time.monotonic() > self._deadline:
             return False
-        if video_fps < threshold_fps:
-            if self.max_scale > 1:
-                self.max_scale -= 1
-                return True
+        if video_fps < threshold_fps and self.max_scale > 1:
+            self.max_scale = max(1, self.max_scale - 2)
+            return True
         return False
 
     def reset(self) -> None:
@@ -146,10 +146,9 @@ class AutoScale:
             return False
         if time.monotonic() > self._deadline:
             return False
-        if data_rate_kb_s > threshold_mbit_s * 125.0:
-            if self.max_scale > 1:
-                self.max_scale -= 1
-                return True
+        if data_rate_kb_s > threshold_mbit_s * 125.0 and self.max_scale > 1:
+            self.max_scale = max(1, self.max_scale - 2)
+            return True
         return False
 
 
@@ -260,6 +259,7 @@ class GraphicsScaler:
         height: int,
         width: int,
         auto_scale: AutoScale | None = None,
+        terminal_name: str = "",
     ) -> GraphicsScaler:
         """Query terminal pixel geometry and return a new GraphicsScaler."""
         pixel_h, pixel_w = term.get_sixel_height_and_width(force=True)
@@ -271,7 +271,7 @@ class GraphicsScaler:
                 auto_scale.max_scale = natural_scale
             effective_cap = auto_scale.max_scale
         else:
-            effective_cap = min(natural_scale, _SCALE_CEILING)
+            effective_cap = min(natural_scale, _FALLBACK_SCALE_MAX)
         floor = max(1, natural_scale // 2)
         graphics_scale = max(floor, effective_cap)
         cell_h = max(1, pixel_h // height)
@@ -280,6 +280,8 @@ class GraphicsScaler:
         # Reduce sixel scale if the image would fill the screen with less
         # than one cell of vertical margin, to avoid edge-to-edge crowding.
         sixel_scale = graphics_scale
+        if terminal_name.startswith("xterm"):
+            sixel_scale = min(sixel_scale, 6)  # xterm sixel capped at 1000x1000px
         if pixel_h - console.HEIGHT * sixel_scale < cell_h and sixel_scale > 1:
             sixel_scale -= 1
 
@@ -290,15 +292,24 @@ class GraphicsScaler:
         while sixel_scale > 1:
             img_h = console.HEIGHT * sixel_scale
             rows = (img_h + cell_h - 1) // cell_h
-            refx = max(1, (pixel_h - img_h) // 2 // cell_h + 1)
+            refx = max(2, (pixel_h - img_h) // 2 // cell_h + 1)
             if refx + rows <= height:
                 break
             sixel_scale -= 1
 
         kitty_scale = graphics_scale
 
+        # Ensure kitty image fits with at least one empty row above for
+        # the status bar.  Reduce scale until there is room.
+        while kitty_scale > 1:
+            img_h = console.HEIGHT * kitty_scale
+            rows = (img_h + cell_h - 1) // cell_h
+            if 2 + rows <= height:
+                break
+            kitty_scale -= 1
+
         def _pos(img_h, img_w):
-            rx = max(1, (pixel_h - img_h) // 2 // cell_h + 1)
+            rx = max(2, (pixel_h - img_h) // 2 // cell_h + 1)
             ry = max(1, (pixel_w - img_w) // 2 // cell_w + 1)
             return rx, ry
 
@@ -484,8 +495,10 @@ class GraphicsScaler:
                     np.repeat(rgba, self.kitty_scale, axis=0), self.kitty_scale, axis=1
                 )
             h, w = rgba.shape[:2]
+            rx = self.refx_kitty
+            ry = self.refy_kitty
             result = [
-                f"\033[{self.refx_kitty};{self.refy_kitty}H".encode(),
+                f"\033[{rx};{ry}H".encode(),
                 encode_fn(rgba.tobytes(), w, h, image_id=BASELINE_ID),
             ]
             result = b"".join(result)

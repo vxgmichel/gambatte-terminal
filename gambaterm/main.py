@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import time
 import argparse
+import os
 from pathlib import Path
 from typing import ContextManager, TYPE_CHECKING
 import dataclasses
@@ -25,6 +26,7 @@ from .file_input import console_input_from_file_context, write_input_context
 # `typing.Self` is not available in python 3.10
 if TYPE_CHECKING:
     from typing import Self
+    from blessed.terminal import SoftwareVersion
 
 
 @dataclass
@@ -130,15 +132,14 @@ def add_tuning_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--graphics-autoscale",
         type=str,
-        default="90s,55fps",
+        default="90s,50fps",
         help="Auto-scale graphics when frame rate or bandwidth triggers fire. "
         "Comma-separated tokens with suffixes: <N>s indicates number of seconds "
-        "after resize or game start that autoscaling is enabled. "
-        "use 'off' to disable, or 'always' to enable for entire process. "
-        "<N>fps indicates FPS threshold, graphics will scale smaller when "
-        "FPS drops below this value. <N>mb or <N>kb indicates "
-        "bandwidth limit, useful for network servers: E.g. "
-        "'always,20fps,2500kb'."
+        "after resize, mode switch, or game start that autoscaling is enabledi by "
+        "timer. use 'off' to disable autoscaling, or 'always' to enable for entire "
+        "process. <N>fps indicates FPS threshold, graphics will scale smaller when "
+        "FPS drops below this value. <N>mb or <N>kb indicates bandwidth limit, "
+        "useful for network servers: E.g. " "'always,30fps,2500kb'."
     )
 
 
@@ -159,6 +160,11 @@ def add_local_only_arguments(parser: argparse.ArgumentParser) -> None:
         help="Record inputs into a file",
     )
     parser.add_argument(
+        "--status",
+        action="store_true",
+        help="Enable the status bar (toggle with backtick/~ key)",
+    )
+    parser.add_argument(
         "--save-directory",
         "--sd",
         type=Path,
@@ -167,8 +173,12 @@ def add_local_only_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
+_FORCE_SIXEL_BLITLESS = ("contour", "tabby", "konsole", "mlterm")
+
+
 def detect_graphics_local(
     terminal: Terminal,
+    sv: "SoftwareVersion | None" = None,
 ) -> tuple[GraphicsProtocol, list[GraphicsProtocol]]:
     """Detect available graphics protocols on a local terminal.
 
@@ -176,15 +186,16 @@ def detect_graphics_local(
     and available lists all supported protocols.
     """
     available = [GraphicsProtocol.TEXT]
-    sv = terminal.get_software_version(timeout=1.0)
-    is_contour = sv is not None and sv.name == 'contour'
-    if is_contour:
+    if sv is None:
+        sv = terminal.get_software_version(timeout=1.0)
+    blitless = sv is not None and sv.name.lower() in _FORCE_SIXEL_BLITLESS
+    if blitless:
         available.append(GraphicsProtocol.BLITLESS_SIXEL)
         return GraphicsProtocol.BLITLESS_SIXEL, available
     has_kitty = is_kitty_keyboard_protocol_supported(terminal, timeout=1.0)
     if has_kitty:
         available.append(GraphicsProtocol.KITTY)
-    if does_sixel(terminal):
+    if does_sixel(terminal, sv=sv):
         available.append(GraphicsProtocol.SIXEL)
     # Prefer kitty, then sixel, then text
     return available[-1], available
@@ -209,6 +220,7 @@ def main(
     # Parse arguments
     namespace = parser.parse_args(parser_args)
     disable_audio = getattr(namespace, "disable_audio", False)
+    show_status = namespace.__dict__.pop("status")
     graphics_value: str = namespace.__dict__.pop("graphics")
     autoscale_value: str = namespace.__dict__.pop("graphics_autoscale")
     autoscale = parse_autoscale(autoscale_value)
@@ -221,14 +233,32 @@ def main(
     # Instantiate the console and terminal
     console = console_cls.from_app_config(args)
     terminal = Terminal()
+    sv = terminal.get_software_version(timeout=0.25)
+    terminal_name = sv.name.lower() if sv is not None else ""
 
     # Apply graphics protocol selection
     available_graphics: list[GraphicsProtocol] = [GraphicsProtocol.TEXT]
     if graphics_value == "auto":
-        args.graphics_protocol, available_graphics = detect_graphics_local(terminal)
+        args.graphics_protocol, available_graphics = detect_graphics_local(
+            terminal, sv=sv
+        )
     elif graphics_value != "text":
         args.graphics_protocol = GraphicsProtocol[graphics_value.upper()]
         available_graphics = [GraphicsProtocol.TEXT, args.graphics_protocol]
+
+    # Unknown terminals may have broken sixel transparency — force blitless.
+    if (not terminal_name
+            and args.graphics_protocol is GraphicsProtocol.SIXEL):
+        args.graphics_protocol = GraphicsProtocol.BLITLESS_SIXEL
+
+    # Prefer text mode when it fits the terminal, unless the terminal has
+    # poor unicode rendering (Rio, mlterm).
+    _bad_text = ("rio", "mlterm")  # corrupted unicode font rendering
+    term_height = terminal.height or 24
+    term_width = terminal.width or 80
+    if (term_width >= console.WIDTH and term_height >= console.HEIGHT // 2
+            and not terminal_name.startswith(_bad_text)):
+        args.graphics_protocol = GraphicsProtocol.TEXT
 
     # Prepare input context
     input_context: ContextManager[BaseInputGetter]
@@ -261,6 +291,7 @@ def main(
                     args.color_mode = ColorMode.HAS_8_BIT_COLOR
 
             # Prepare alternate screen
+            _t0 = time.perf_counter()
             terminal.stream.write(
                 terminal.enter_fullscreen + terminal.clear + terminal.hide_cursor
             )
@@ -268,7 +299,15 @@ def main(
 
             # Enter input and audio contexts
             with input_context as get_gb_input:
+                _t1 = time.perf_counter()
                 with audio_player(console, args.speed, disable_audio) as audio_out:
+                    _t2 = time.perf_counter()
+                    _profile_dir = os.environ.get("GAMBATERM_PROFILE_DIR", "/tmp")
+                    with open(f"{_profile_dir}/startup.log", "a") as _f:
+                        _f.write(
+                            f"fullscreen_to_input {_t1 - _t0:.3f}s  "
+                            f"input_to_audio {_t2 - _t1:.3f}s\n"
+                        )
                     # Run the emulator
                     run(
                         console,
@@ -283,6 +322,8 @@ def main(
                         graphics_protocol=args.graphics_protocol,
                         available_graphics_protocols=available_graphics,
                         autoscale=autoscale,
+                        terminal_name=terminal_name,
+                        show_status=show_status,
                     )
 
         # Deal with ctrl+c and ctrl+d exceptions
@@ -302,9 +343,10 @@ def main(
             # Wait for a possible CPR
             time.sleep(0.1)
             # Clear alternate screen
-            terminal.stream.write(
-                terminal.clear + terminal.exit_fullscreen + terminal.normal_cursor
-            )
+            restore = terminal.clear + terminal.exit_fullscreen + terminal.normal_cursor
+            if args.graphics_protocol is GraphicsProtocol.KITTY:
+                restore = b"\033_Ga=d,d=a\033\\".decode() + restore
+            terminal.stream.write(restore)
             terminal.stream.flush()
 
 

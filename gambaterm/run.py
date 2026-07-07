@@ -35,6 +35,12 @@ def get_ref(width: int, height: int, console: Console) -> tuple[int, int]:
     return refx, refy
 
 
+# Terminals with corrupted unicode font rendering — always prefer graphics.
+_BAD_TEXT = ("rio", "mlterm")
+# Terminals needing full frames every frame (no dirty-rect / overlay deltas).
+_FORCE_KITTY_BLITLESS = ("rio", "ghostty")
+
+
 def _is_mlterm(term: Terminal) -> bool:
     """Return True if the terminal is mlterm (loses sixel on focus-out)."""
     try:
@@ -68,6 +74,8 @@ def run(
     graphics_protocol: GraphicsProtocol = GraphicsProtocol.TEXT,
     available_graphics_protocols: list[GraphicsProtocol] | None = None,
     autoscale: AutoScaleConfig | None = None,
+    terminal_name: str = "",
+    show_status: bool = False,
 ) -> None:
     assert color_mode > 0
 
@@ -102,9 +110,13 @@ def run(
     screen_ready = True
     frame_start_time = None
     frame_data = bytearray()
-    current_title_sequence = b""
+    status_bar = b""
     scaler: GraphicsScaler | None = None
     force_clear = False
+    show_status_bar = show_status
+    force_status_update = False
+    first_frame = True
+    kitty_pending_delete = False
     auto_scale: AutoScale | None = (
         AutoScale(_SCALE_CEILING, autoscale.seconds)
         if autoscale is not None and autoscale.enabled
@@ -162,8 +174,13 @@ def run(
             # debug available graphics renders
             elif key.key_name and ("BACKSPACE" in key.key_name or "DELETE" in key.key_name):
                 step = -1 if key.key_name.startswith("KEY_SHIFT") else 1
-                idx = graphics_cycle.index(graphics_protocol)
-                new_graphics_protocol = graphics_cycle[(idx + step) % len(graphics_cycle)]
+                cycle = [
+                    p for p in graphics_cycle
+                    if p is not GraphicsProtocol.TEXT or terminal_name not in _BAD_TEXT
+                ]
+                if cycle:
+                    idx = cycle.index(graphics_protocol)
+                    new_graphics_protocol = cycle[(idx + step) % len(cycle)]
             # debug runtime adjustment of --speed by 10%
             elif key.key_name in ("KEY_PGUP", "KEY_PGDOWN"):
                 speed += 0.1 if key.key_name == "KEY_PGUP" else -0.1
@@ -174,6 +191,8 @@ def run(
                 if graphics_protocol is GraphicsProtocol.SIXEL and _is_mlterm(term):
                     if scaler is not None:
                         scaler._sixel_baseline = None
+            elif key.key_name in ("KEY_GRAVE_ACCENT", "KEY_TILDE") or key in ("`", "~"):
+                show_status_bar = not show_status_bar
 
         # Render video
         with timing(video_deltas):
@@ -201,21 +220,49 @@ def run(
                     or new_color_mode != color_mode
                     or new_graphics_protocol != graphics_protocol
                 )
+                if first_frame:
+                    first_frame = False
+                    if (new_width >= console.WIDTH
+                            and new_height >= console.HEIGHT // 2
+                            and not terminal_name.startswith(("rio", "mlterm"))):
+                        new_graphics_protocol = GraphicsProtocol.TEXT
+                        changed = True
                 if changed:
                     if resized:
-                        # Prefer text mode when it fits (160 cols x 72 rows)
-                        if (
+                        text_fits = (
                             new_width >= console.WIDTH
                             and new_height >= console.HEIGHT // 2
-                        ):
+                        )
+                        if (text_fits and graphics_protocol is not GraphicsProtocol.TEXT
+                                and terminal_name not in _BAD_TEXT):
                             new_graphics_protocol = GraphicsProtocol.TEXT
+                        elif not text_fits and graphics_protocol is GraphicsProtocol.TEXT:
+                            for gp in reversed(graphics_cycle):
+                                if gp is not GraphicsProtocol.TEXT:
+                                    new_graphics_protocol = gp
+                                    break
                     if new_graphics_protocol is GraphicsProtocol.TEXT:
                         auto_scale = None
                     elif auto_scale is None and autoscale is not None and autoscale.enabled:
                         auto_scale = AutoScale(_SCALE_CEILING, autoscale.seconds)
                     elif auto_scale is not None:
                         auto_scale.reset()
-                    maybe_clear_sequence = b"\033[H\033[2J"
+                    maybe_clear_sequence = b""
+                    if (new_graphics_protocol != graphics_protocol
+                            or new_color_mode != color_mode
+                            or (resized and new_graphics_protocol is GraphicsProtocol.TEXT)):
+                        maybe_clear_sequence = b"\033[H\033[2J"
+                    if graphics_protocol is GraphicsProtocol.KITTY:
+                        if terminal_name == "ghostty":
+                            maybe_clear_sequence = (
+                                b"\033_Ga=d,d=i,i=1\033\\"
+                                b"\033_Ga=d,d=i,i=2\033\\"
+                                + maybe_clear_sequence
+                            )
+                        else:
+                            maybe_clear_sequence = (
+                                b"\033_Ga=d,d=a\033\\" + maybe_clear_sequence
+                            )
                     height, width = new_height, new_width
                     refx, refy = get_ref(width, height, console)
                     color_mode = new_color_mode
@@ -223,6 +270,7 @@ def run(
                     term.number_of_colors = new_color_mode.number_of_colors
                     last_frame.fill(0)
                     scaler = None
+                    force_status_update = True
 
                 # Render frame
                 if graphics_protocol is GraphicsProtocol.TEXT:
@@ -233,14 +281,27 @@ def run(
                     )
                     frame_data += b"\033[?2026l"
                 else:
+                    sync_start = b""
+                    sync_end = b""
+                    if kitty_pending_delete:
+                        sync_start = b"\033[?2026h"
+                        frame_data[:0] = (
+                            b"\033_Ga=d,d=i,i=1\033\\"
+                            b"\033_Ga=d,d=i,i=2\033\\"
+                        )
+                        sync_end = b"\033[?2026l"
+                        kitty_pending_delete = False
                     if scaler is None:
                         scaler = GraphicsScaler.recompute(
-                            term, console, height, width, auto_scale
+                            term, console, height, width, auto_scale,
+                            terminal_name=terminal_name,
                         )
                         maybe_clear_sequence = b"\033[H\033[2J"
-                    if force_clear:
+                    if force_clear and graphics_protocol in (
+                        GraphicsProtocol.SIXEL, GraphicsProtocol.BLITLESS_SIXEL
+                    ):
                         maybe_clear_sequence = b"\033[H\033[2J"
-                        force_clear = False
+                    force_clear = False
                     frame_data += maybe_clear_sequence
                     if graphics_protocol is GraphicsProtocol.SIXEL:
                         frame_data += scaler.blit_sixel(
@@ -254,6 +315,10 @@ def run(
                         frame_data += scaler.blit_kitty(
                             video, last_frame, width, height, color_mode
                         )
+                        if terminal_name in _FORCE_KITTY_BLITLESS:
+                            scaler._baseline = None
+                    if sync_end:
+                        frame_data += sync_end
 
                 video, last_frame = last_frame, video
 
@@ -271,7 +336,7 @@ def run(
             data_rate_kb_s = sum(data_length) / len(data_length) * fps / 1000
             if auto_scale.feed_bandwidth(data_rate_kb_s, autoscale.bandwidth_mbits):
                 scaler = GraphicsScaler.recompute(
-                    term, console, height, width, auto_scale
+                    term, console, height, width, auto_scale,
                 )
                 force_clear = True
 
@@ -283,8 +348,9 @@ def run(
                 if use_cpr_sync:
                     frame_data += b"\033[1;1H\033[6n"
                     screen_ready = False
-                # Add the current title
-                frame_data += current_title_sequence
+                # Prepend status bar when enabled
+                if show_status_bar and status_bar:
+                    frame_data[:0] = status_bar
                 # Write the entire frame in one go to avoid fragmentation
                 write_frame(term, frame_data)
             # Timing sync
@@ -297,39 +363,52 @@ def run(
             shifting.append(time.time() - deadline)
             start = deadline
 
-        # Prepare title for the next frame
-        if i % average_over == 1:
+        # Prepare status bar for the next frame
+        if i % average_over == 1 or force_status_update:
+            force_status_update = False
             tps = fps * console.TICKS_IN_FRAME
             emu_fps = tps * len(ticks) / sum(ticks)
             video_fps = emu_fps * sum(shown_frames) / len(shown_frames)
             total_fps = len(total_deltas) / sum(total_deltas)
 
             # Feed auto-scale with video FPS; reduce cap if too slow.
-            if auto_scale is not None and autoscale is not None:
+            # Wait until deques have enough data for a meaningful FPS reading.
+            if auto_scale is not None and autoscale is not None and len(shown_frames) >= average_over // 2:
                 if auto_scale.feed_fps(video_fps, autoscale.fps):
+                    if (terminal_name == "ghostty"
+                            and graphics_protocol is GraphicsProtocol.KITTY):
+                        kitty_pending_delete = True
                     scaler = GraphicsScaler.recompute(
-                        term, console, height, width, auto_scale
+                        term, console, height, width, auto_scale,
                     )
-                    force_clear = True
+                    if graphics_protocol is not GraphicsProtocol.KITTY:
+                        force_clear = True
 
             emu_percent = sum(emu_deltas) / len(emu_deltas) * total_fps * 100
             audio_percent = sum(audio_deltas) / len(audio_deltas) * total_fps * 100
             video_percent = sum(video_deltas) / len(video_deltas) * total_fps * 100
             data_rate = sum(data_length) / len(data_length) * total_fps / 1000
-            title = f"Gambaterm - {total_fps:.0f} FPS | "
-            title += f"{os.path.basename(console.romfile)} | "
-            title += (
-                f"Emu: {speed:.2f}x - {emu_fps:.0f} FPS - {emu_percent:.0f}% CPU | "
+            status = f" {terminal_name} " if terminal_name else " "
+            status += f" {total_fps:.0f} FPS | "
+            status += f"{os.path.basename(console.romfile)} | "
+            status += (
+                f"Emu {speed:.2f}x {emu_fps:.0f} FPS {emu_percent:.0f}% CPU | "
             )
-            title += f"Video: {video_fps:.0f} FPS - {video_percent:.0f}% CPU - "
-            title += f"{data_rate:.0f} KB/s | "
-            title += f"Audio: {audio_percent:.0f}% CPU | "
+            status += f"Video {video_fps:.0f} FPS {video_percent:.0f}% CPU "
+            status += f"{data_rate:.0f} KB/s | "
+            status += f"Audio {audio_percent:.0f}% CPU | "
             if graphics_protocol is GraphicsProtocol.TEXT:
-                title += f"{color_mode.report()} textmode"
+                status += f"{color_mode.report()} textmode "
             elif graphics_protocol is GraphicsProtocol.SIXEL:
-                title += "sixel graphics"
+                status += "sixel "
             elif graphics_protocol is GraphicsProtocol.BLITLESS_SIXEL:
-                title += "sixel graphics (blitless)"
+                status += "sixel-blitless "
             else:
-                title += "kitty graphics"
-            current_title_sequence = term.set_window_title(title).encode("utf-8")
+                status += "kitty "
+            if auto_scale is not None:
+                status += f"scale{scaler.scale if scaler else '?'}"
+            status_bar = (
+                f"\033[1;1H\033[48;2;132;94;167m\033[38;2;216;208;200m"
+                f"{term.center(status[:width])}"
+                f"\033[0m"
+            ).encode()

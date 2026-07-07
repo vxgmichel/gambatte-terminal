@@ -57,8 +57,6 @@ def test_gambaterm(interactive: bool, color_arg: str) -> None:
         capture_output=True,
     )
     assert result.stderr == ""
-    if interactive:
-        assert "| test_rom.gb |" in result.stdout
     if sys.platform == "linux":
         assert "▀ ▄▄ ▀" in result.stdout
 
@@ -111,7 +109,6 @@ def test_gambaterm_ssh(
                 return result.stdout
 
         client_stdout = asyncio.run(ssh_client())
-        assert "| test_rom.gb |" in client_stdout
         assert "▀ ▄▄ ▀" in client_stdout
     finally:
         server.send_signal(signal.SIGINT)
@@ -171,7 +168,6 @@ def test_gambaterm_telnet(color_arg: str) -> None:
             return output.decode("utf-8", errors="replace")
 
         result = asyncio.run(telnet_client())
-        assert "| test_rom.gb |" in result
         assert "\u2580" in result or "\u2584" in result
     finally:
         server.send_signal(signal.SIGINT)
@@ -236,7 +232,6 @@ def test_gambaterm_telnet_unknown_term() -> None:
             return output.decode("utf-8", errors="replace")
 
         result = asyncio.run(telnet_client())
-        assert "| test_rom.gb |" in result
         assert "\u2580" in result or "\u2584" in result
     finally:
         server.send_signal(signal.SIGINT)
@@ -292,7 +287,6 @@ def test_gambaterm_ssh_frontend(ssh_config: Path, gambaterm_config: Path) -> Non
 
         client_stdout = asyncio.run(ssh_client())
         assert "TEST_FRONTEND_ACTIVE" in client_stdout
-        assert "test_rom.gb" in client_stdout
     finally:
         server.send_signal(signal.SIGINT)
         server.wait()
@@ -354,7 +348,6 @@ def test_gambaterm_telnet_frontend(gambaterm_config: Path) -> None:
 
         result = asyncio.run(telnet_client())
         assert "TEST_FRONTEND_ACTIVE" in result
-        assert "test_rom.gb" in result
     finally:
         server.send_signal(signal.SIGINT)
         server.wait()

@@ -16,6 +16,7 @@ from blessed.terminal import WINSZ
 
 if TYPE_CHECKING:
     from .main import AppConfig
+    from blessed.terminal import SoftwareVersion
 
 
 class RemoteTerminal(BlessedTerminal):
@@ -105,17 +106,19 @@ class GraphicsProtocol(Enum):
     BLITLESS_SIXEL = auto()
 
 
-def does_sixel(term: BlessedTerminal, timeout: float = 1.0) -> bool:
+def does_sixel(term: BlessedTerminal, timeout: float = 1.0,
+               sv: SoftwareVersion | None = None) -> bool:
     """Check if the terminal supports sixel graphics.
 
     Includes workarounds for terminals that report sixel support in error.
     """
     if not term.does_sixel(timeout=timeout):
         return False
-    sv = term.get_software_version(timeout=timeout)
+    if sv is None:
+        sv = term.get_software_version(timeout=timeout)
     if sv is None:
         return True
-    if sv.name == 'rio' and _version_in_range(sv.version, '0.3', '0.4.9'):
+    if sv.name.lower() == 'rio' and _version_in_range(sv.version, '0.3', '0.4.9'):
         # rio supported sixel, then broke it in 0.4 release (still reports
         # support via DA/XTGETTCAP), fixed in 0.4.9+.
         return False
@@ -168,6 +171,9 @@ class KeyboardSupportDetection:
         return KeyboardSupport.BASIC
 
 
+_FORCE_SIXEL_BLITLESS = ("contour", "tabby", "konsole", "mlterm")
+
+
 def detect_graphics_frontend(
     terminal: RemoteTerminal,
     config: "AppConfig",
@@ -183,10 +189,9 @@ def detect_graphics_frontend(
     has_sixel = does_sixel(terminal)
 
     sv = terminal.get_software_version(timeout=1.0)
-    is_contour = sv is not None and sv.name == 'contour'
-
+    blitless = sv is not None and sv.name.lower() in _FORCE_SIXEL_BLITLESS
     config.available_graphics = [GraphicsProtocol.TEXT]
-    if is_contour:
+    if blitless:
         config.available_graphics.append(GraphicsProtocol.BLITLESS_SIXEL)
         config.graphics_protocol = GraphicsProtocol.TEXT
         return config

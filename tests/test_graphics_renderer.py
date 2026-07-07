@@ -210,7 +210,7 @@ class TestAutoScale:
         as_ = AutoScale(8, -1)
         result = as_.feed_fps(30.0, 40.0)
         assert result is True
-        assert as_.max_scale == 7
+        assert as_.max_scale == 6
 
     @staticmethod
     def test_fps_above_threshold_no_reduction():
@@ -239,7 +239,7 @@ class TestAutoScale:
     def test_reduces_to_floor_of_one():
         from gambaterm.graphics_scaler import AutoScale
 
-        as_ = AutoScale(3, -1)
+        as_ = AutoScale(4, -1)
         result = as_.feed_fps(30.0, 40.0)
         assert result is True
         assert as_.max_scale == 2
@@ -256,7 +256,7 @@ class TestAutoScale:
 
         as_ = AutoScale(8, -1)
         as_.feed_fps(30.0, 40.0)
-        assert as_.max_scale == 7
+        assert as_.max_scale == 6
         as_.reset()
         assert as_.max_scale == 8
 
@@ -279,7 +279,7 @@ class TestAutoScale:
         as_ = AutoScale(8, -1)
         result = as_.feed_bandwidth(300.0, 2.0)
         assert result is True
-        assert as_.max_scale == 7
+        assert as_.max_scale == 6
 
     @staticmethod
     def test_bandwidth_below_threshold_no_reduction():

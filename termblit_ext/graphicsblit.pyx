@@ -74,14 +74,21 @@ def quantize_colors(float[:, :, ::1] colors, int n_colors):
     cdef int y, x, i
     cdef int ri, gi, bi
     cdef int n_actual = levels * levels * levels
-    cdef float scale = <float>(levels - 0.001)
+    cdef float lf = <float>levels
+    cdef int levels_minus_1 = levels - 1
 
     cdef uint8_t[:, ::1] indices = np.empty((h, w), dtype=np.uint8)
     for y in range(h):
         for x in range(w):
-            ri = <int>(colors[y, x, 0] * scale)
-            gi = <int>(colors[y, x, 1] * scale)
-            bi = <int>(colors[y, x, 2] * scale)
+            ri = <int>(colors[y, x, 0] * lf)
+            gi = <int>(colors[y, x, 1] * lf)
+            bi = <int>(colors[y, x, 2] * lf)
+            if ri >= levels:
+                ri = levels_minus_1
+            if gi >= levels:
+                gi = levels_minus_1
+            if bi >= levels:
+                bi = levels_minus_1
             indices[y, x] = <uint8_t>(ri * levels * levels + gi * levels + bi)
 
     cdef float[:, ::1] palette = np.zeros((n_actual, 3), dtype=np.float32)
@@ -89,9 +96,9 @@ def quantize_colors(float[:, :, ::1] colors, int n_colors):
         ri = i // (levels * levels)
         gi = (i // levels) % levels
         bi = i % levels
-        palette[i, 0] = <float>ri / <float>(levels - 1) if levels > 1 else 0.0
-        palette[i, 1] = <float>gi / <float>(levels - 1) if levels > 1 else 0.0
-        palette[i, 2] = <float>bi / <float>(levels - 1) if levels > 1 else 0.0
+        palette[i, 0] = (ri + 0.5) / lf
+        palette[i, 1] = (gi + 0.5) / lf
+        palette[i, 2] = (bi + 0.5) / lf
 
     return np.asarray(indices), np.asarray(palette)
 
