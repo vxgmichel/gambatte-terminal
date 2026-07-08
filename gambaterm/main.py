@@ -227,7 +227,7 @@ def main(
     show_status = namespace.__dict__.pop("status")
     graphics_value: str = namespace.__dict__.pop("graphics")
     autoscale_value: str = namespace.__dict__.pop("graphics_autoscale")
-    autoscale = parse_autoscale(autoscale_value)
+    autoscale_config = parse_autoscale(autoscale_value)
     args = LocalAppConfig.from_namespace(namespace)
 
     # Check that the ROM file exists
@@ -316,7 +316,7 @@ def main(
                         use_cpr_sync=args.cpr_sync,
                         graphics_protocol=args.graphics_protocol,
                         available_graphics_protocols=available_graphics,
-                        autoscale=autoscale,
+                        autoscale_config=autoscale_config,
                         terminal_name=terminal_name,
                         show_status=show_status,
                     )

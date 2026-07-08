@@ -9,4 +9,5 @@ def blit(
     width: int,
     height: int,
     color_mode: int,
+    blitter_vis: bool = False,
 ) -> bytes: ...

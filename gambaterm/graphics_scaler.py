@@ -17,6 +17,13 @@ from .graphicsblit import (
     encode_kitty_rgba,
     quantize_colors,
 )
+from .remote_terminal import (
+    GraphicsProtocol,
+    FORCE_KITTY_BLITLESS,
+    KITTY_GFX_CLEAR,
+    KITTY_GFX_GHOSTTY_CLEAR,
+    TEXT_HOME_CLEAR,
+)
 
 if TYPE_CHECKING:
     from blessed import Terminal
@@ -192,6 +199,7 @@ class GraphicsScaler:
         "kitty_frame_no",
         "dump_dir",
         "stats_fh",
+        "blitter_vis",
     )
 
     def __init__(
@@ -219,6 +227,7 @@ class GraphicsScaler:
         self.profile = Profile()
         self.kitty_frame_no = 0
         self.sixel_frame_no = 0
+        self.blitter_vis = False
         self.dump_dir: str | None = os.environ.get("GAMBATERM_DUMP_FRAMES")
         if self.dump_dir:
             os.makedirs(self.dump_dir, exist_ok=True)
@@ -266,7 +275,7 @@ class GraphicsScaler:
         console: Console,
         height: int,
         width: int,
-        auto_scale: AutoScale | None = None,
+        autoscale: AutoScale | None = None,
         terminal_name: str = "",
     ) -> GraphicsScaler:
         """Query terminal pixel geometry and return a new GraphicsScaler."""
@@ -274,10 +283,10 @@ class GraphicsScaler:
         if pixel_h <= 0 or pixel_w <= 0:
             return cls(1, 1, 1, 1, 1, 1, 1, 1)
         natural_scale = max(1, min(pixel_w // console.WIDTH, pixel_h // console.HEIGHT))
-        if auto_scale is not None:
-            if auto_scale.max_scale > natural_scale:
-                auto_scale.max_scale = natural_scale
-            effective_cap = auto_scale.max_scale
+        if autoscale is not None:
+            if autoscale.max_scale > natural_scale:
+                autoscale.max_scale = natural_scale
+            effective_cap = autoscale.max_scale
         else:
             effective_cap = min(natural_scale, SCALE_MAX)
         floor = max(1, natural_scale // 2)
@@ -416,6 +425,8 @@ class GraphicsScaler:
         max_colors = min(256, changed_colors.shape[0])
         indices_delta, palette = quantize_colors(changed_colors, max_colors)
         palette = np.asarray(palette)
+        if self.blitter_vis:
+            palette = 1.0 - palette
         indices = np.full(video.shape, 255, dtype=np.uint8)
         indices[diff] = np.asarray(indices_delta).ravel()
 
@@ -586,6 +597,10 @@ class GraphicsScaler:
         off_x = px % self.cell_w
         padded[off_y : off_y + scaled_h, off_x : off_x + scaled_w] = rect_rgba
 
+        if self.blitter_vis:
+            mask = padded[:, :, 3] != 0
+            padded[mask, :3] = 255 - padded[mask, :3]
+
         result_parts = [
             f"\033[{row};{col}H".encode(),
             encode_fn(
@@ -633,3 +648,225 @@ class GraphicsScaler:
         result = self.encode_kitty_frame(video, encode_kitty_rgba)
         self.profile.bytes_out += len(result)
         return result
+
+
+class GraphicsRenderer:
+    """Owns runtime graphics state: scaler lifecycle, autoscale, frame encoding.
+
+    Instantiated once per ``run()`` session.  ``on_state_change``, ``render``,
+    ``feed_bandwidth``, and ``feed_fps`` are called from the main loop.
+    """
+
+    def __init__(
+        self,
+        term: Terminal,
+        console: Console,
+        autoscale_config: AutoScaleConfig | None,
+        terminal_name: str,
+        protocol: GraphicsProtocol,
+    ) -> None:
+        self._term = term
+        self._console = console
+        self._autoscale_config = autoscale_config
+        self._terminal_name = terminal_name
+
+        self.scaler: GraphicsScaler | None = None
+        self.autoscale: AutoScale | None = (
+            AutoScale(SCALE_MAX, autoscale_config.seconds)
+            if autoscale_config is not None
+            and autoscale_config.enabled
+            and protocol is not GraphicsProtocol.TEXT
+            else None
+        )
+        self._blitter_vis = False
+        self._force_clear = False
+        self._force_keyframe = False
+        self._kitty_pending_delete = False
+
+    @property
+    def blitter_vis(self) -> bool:
+        return self._blitter_vis
+
+    @blitter_vis.setter
+    def blitter_vis(self, vis: bool) -> None:
+        self._blitter_vis = vis
+        if self.scaler is not None:
+            self.scaler.blitter_vis = vis
+
+    @property
+    def has_autoscale(self) -> bool:
+        return self.autoscale is not None
+
+    @property
+    def scale(self) -> int | None:
+        if self.scaler is None:
+            return None
+        return self.scaler.scale
+
+    def request_keyframe(self) -> None:
+        self._force_keyframe = True
+
+    def on_state_change(
+        self,
+        old_protocol: GraphicsProtocol,
+        new_protocol: GraphicsProtocol,
+        old_color: object,
+        new_color: object,
+        resized: bool,
+    ) -> bytes:
+        """Handle protocol/color/resize change.
+
+        Tears down the current scaler, manages the autoscale lifecycle,
+        and returns the clear/delete escape sequence to emit before the
+        next frame.
+        """
+        # Autoscale lifecycle
+        if new_protocol is GraphicsProtocol.TEXT:
+            self.autoscale = None
+        elif (
+            self.autoscale is None
+            and self._autoscale_config is not None
+            and self._autoscale_config.enabled
+        ):
+            self.autoscale = AutoScale(
+                SCALE_MAX, self._autoscale_config.seconds
+            )
+        elif self.autoscale is not None:
+            self.autoscale.reset()
+
+        # Scaler teardown
+        if self.scaler is not None:
+            self.scaler.close()
+        self.scaler = None
+
+        # Clear / delete sequence
+        clear = b""
+        if (
+            new_protocol != old_protocol
+            or new_color != old_color
+            or (resized and new_protocol is GraphicsProtocol.TEXT)
+        ):
+            clear = TEXT_HOME_CLEAR
+        if old_protocol is GraphicsProtocol.KITTY:
+            if self._terminal_name == "ghostty":
+                clear = KITTY_GFX_GHOSTTY_CLEAR + clear
+            else:
+                clear = KITTY_GFX_CLEAR + clear
+        return clear
+
+    def render(
+        self,
+        video: np.ndarray,
+        last_frame: np.ndarray | None,
+        protocol: GraphicsProtocol,
+        height: int,
+        width: int,
+    ) -> bytes:
+        """Encode *video* as a graphics frame.
+
+        Handles pending kitty deletions, forced keyframes, lazy scaler
+        creation, force-clear after autoscale reductions, and terminal-
+        specific workarounds.
+
+        Returns empty bytes when the frame is identical to *last_frame*.
+        """
+        prefix = b""
+        suffix = b""
+
+        if self._kitty_pending_delete:
+            prefix = (
+                b"\033[?2026h"
+                b"\033_Ga=d,d=i,i=1\033\\"
+                b"\033_Ga=d,d=i,i=2\033\\"
+            )
+            suffix = b"\033[?2026l"
+            self._kitty_pending_delete = False
+
+        if self._force_keyframe:
+            if self.scaler is not None:
+                self.scaler.close()
+            self.scaler = None
+            self._force_keyframe = False
+
+        if self.scaler is None:
+            self.scaler = GraphicsScaler.recompute(
+                self._term,
+                self._console,
+                height,
+                width,
+                self.autoscale,
+                terminal_name=self._terminal_name,
+            )
+            self.scaler.blitter_vis = self._blitter_vis
+
+        if self._force_clear and protocol in (
+            GraphicsProtocol.SIXEL,
+            GraphicsProtocol.BLITLESS_SIXEL,
+        ):
+            prefix = b"\033[H\033[2J" + prefix
+        self._force_clear = False
+
+        if protocol is GraphicsProtocol.SIXEL:
+            result = self.scaler.blit_sixel(video, last_frame)
+        elif protocol is GraphicsProtocol.BLITLESS_SIXEL:
+            result = self.scaler.blit_sixel_blitless(video, width, height)
+        else:
+            result = self.scaler.blit_kitty(video, last_frame)
+            if self._terminal_name.startswith(FORCE_KITTY_BLITLESS):
+                self.scaler.baseline = None
+
+        if not result:
+            return b""
+        return prefix + result + suffix
+
+    def feed_bandwidth(
+        self,
+        data_rate_kb_s: float,
+        height: int,
+        width: int,
+    ) -> None:
+        """Feed autoscale with output bandwidth; reduce scale cap if too high."""
+        if self.autoscale is None or self._autoscale_config is None:
+            return
+        if self.autoscale.feed_bandwidth(
+            data_rate_kb_s, self._autoscale_config.bandwidth_mbits
+        ):
+            self._rescale(height, width)
+            self._force_clear = True
+
+    def feed_fps(
+        self,
+        video_fps: float,
+        protocol: GraphicsProtocol,
+        height: int,
+        width: int,
+    ) -> None:
+        """Feed autoscale with video FPS; reduce scale cap if too slow."""
+        if self.autoscale is None or self._autoscale_config is None:
+            return
+        if self.autoscale.feed_fps(video_fps, self._autoscale_config.fps):
+            if (
+                self._terminal_name == "ghostty"
+                and protocol is GraphicsProtocol.KITTY
+            ):
+                self._kitty_pending_delete = True
+            self._rescale(height, width)
+            if protocol is not GraphicsProtocol.KITTY:
+                self._force_clear = True
+
+    def _rescale(self, height: int, width: int) -> None:
+        """Recreate the scaler after an autoscale reduction."""
+        if self.scaler is not None:
+            self.scaler.close()
+        self.scaler = GraphicsScaler.recompute(
+            self._term,
+            self._console,
+            height,
+            width,
+            self.autoscale,
+        )
+        self.scaler.blitter_vis = self._blitter_vis
+
+    def close(self) -> None:
+        if self.scaler is not None:
+            self.scaler.close()

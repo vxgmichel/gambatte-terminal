@@ -149,6 +149,7 @@ cdef char* _blit(
     uint32_t[:, ::1] last,
     int refx, int refy, int width, int height,
     int color_mode,
+    bint blitter_vis,
     char* base,
 ) noexcept nogil:
 
@@ -176,6 +177,10 @@ cdef char* _blit(
             # Extract colors
             color1 = image[2 * row_index + 0, column_index]
             color2 = image[2 * row_index + 1, column_index]
+
+            if blitter_vis:
+                color1 = color1 ^ 0x00FFFFFF
+                color2 = color2 ^ 0x00FFFFFF
 
             # Skip if identical to last printed frame
             if (
@@ -240,12 +245,13 @@ def blit(
     uint32_t[:, ::1] last,
     int refx, int refy, int width, int height,
     int color_mode,
+    bint blitter_vis=False,
 ):
     cdef char* base
 
     with nogil:
         base = <char *> malloc(image.shape[0] * image.shape[1] * 30)
-        result = _blit(image, last, refx, refy, width, height, color_mode, base)
+        result = _blit(image, last, refx, refy, width, height, color_mode, blitter_vis, base)
 
     try:
         return base[:result - base]

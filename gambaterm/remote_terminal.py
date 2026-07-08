@@ -180,6 +180,11 @@ FORCE_KITTY_BLITLESS = ("rio", "ghostty")
 # Terminals with corrupted unicode font rendering; always prefer graphics.
 BAD_TEXT = ("rio", "mlterm")
 
+# TODO: codify that ghostty has broken kitty support atm, investigate and maybe bugfix it
+KITTY_GFX_CLEAR = b"\033_Ga=d,d=a\033\\"
+KITTY_GFX_GHOSTTY_CLEAR = (b"\033_Ga=d,d=i,i=1\033\\" +
+                           b"\033_Ga=d,d=i,i=2\033\\")
+TEXT_HOME_CLEAR = b"\033[H\033[2J"
 
 def detect_graphics_frontend(
     terminal: RemoteTerminal,
@@ -256,3 +261,68 @@ def user_directory_name(username: str | None) -> str:
     if username is None:
         return "_anonymous"
     return hashlib.sha256(username.encode("utf-8")).hexdigest()[:16]
+
+
+def cycle_graphics_protocol(
+    current: GraphicsProtocol,
+    available: list[GraphicsProtocol],
+    step: int,
+    terminal_name: str,
+) -> GraphicsProtocol:
+    """Cycle *current* through *available* graphics protocols by *step*.
+
+    Terminals whose name starts with a ``BAD_TEXT`` prefix skip the
+    ``TEXT`` entry.
+    """
+    cycle = [
+        p
+        for p in available
+        if p is not GraphicsProtocol.TEXT
+        or not terminal_name.startswith(BAD_TEXT)
+    ]
+    if not cycle:
+        return current
+    idx = cycle.index(current)
+    return cycle[(idx + step) % len(cycle)]
+
+
+def resolve_graphics_protocol(
+    resized: bool,
+    current: GraphicsProtocol,
+    new_height: int,
+    new_width: int,
+    console_width: int,
+    console_height: int,
+    available: list[GraphicsProtocol],
+    terminal_name: str,
+    is_first_frame: bool = False,
+) -> GraphicsProtocol:
+    """Return the best graphics protocol for the current terminal size.
+
+    On first frame, downgrade from graphics to text when the terminal
+    is large enough to render in text mode.  On resize, switch between
+    text and the best available graphics protocol.
+    """
+    if is_first_frame:
+        if (
+            new_width >= console_width
+            and new_height >= console_height // 2
+            and not terminal_name.startswith(BAD_TEXT)
+        ):
+            return GraphicsProtocol.TEXT
+
+    if not resized:
+        return current
+
+    text_fits = new_width >= console_width and new_height >= console_height // 2
+    if (
+        text_fits
+        and current is not GraphicsProtocol.TEXT
+        and not terminal_name.startswith(BAD_TEXT)
+    ):
+        return GraphicsProtocol.TEXT
+    if not text_fits and current is GraphicsProtocol.TEXT:
+        for gp in reversed(available):
+            if gp is not GraphicsProtocol.TEXT:
+                return gp
+    return current

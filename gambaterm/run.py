@@ -16,8 +16,8 @@ from .audio import MaybeAudioOut, DISABLED_AUDIO_OUT
 from .console import Console
 from .input_getter import BaseInputGetter
 from .colors import ColorMode
-from .graphics_scaler import GraphicsScaler, AutoScale, AutoScaleConfig, SCALE_MAX
-from .remote_terminal import GraphicsProtocol, BAD_TEXT, FORCE_KITTY_BLITLESS
+from .graphics_scaler import AutoScaleConfig, GraphicsRenderer
+from .remote_terminal import GraphicsProtocol, cycle_graphics_protocol, resolve_graphics_protocol
 
 
 @contextlib.contextmanager
@@ -46,6 +46,70 @@ def write_frame(term: Terminal, frame_data: bytes | bytearray) -> None:
         os.write(term.stream.fileno(), frame_data)
 
 
+class StatusBar:
+    """Terminal status bar: toggle, force-update, and ANSI encoding."""
+
+    def __init__(self, term: Terminal, show: bool = False) -> None:
+        self._term = term
+        self.show = show
+        self.force_update = False
+        self.bar: bytes = b""
+
+    def toggle(self) -> None:
+        self.show = not self.show
+
+    def encode(self, text: str, width: int) -> bytes:
+        return (
+            f"\033[1;1H\033[48;2;132;94;167m\033[38;2;216;208;200m"
+            f"{self._term.center(text[:width])}"
+            f"\033[0m"
+        ).encode()
+
+
+def format_status(
+    *,
+    total_fps: float,
+    romfile: str,
+    speed: float,
+    emu_fps: float,
+    emu_percent: float,
+    video_fps: float,
+    video_percent: float,
+    data_rate: float,
+    audio_percent: float,
+    graphics_protocol: GraphicsProtocol,
+    color_mode: ColorMode,
+    blitter_vis: bool,
+    autoscale_scale: int | None,
+    terminal_name: str,
+) -> str:
+    """Build the human-readable status line."""
+    parts = [f" {terminal_name} " if terminal_name else " "]
+    parts.append(f" {total_fps:.0f} FPS | ")
+    parts.append(f"{os.path.basename(romfile)} | ")
+    parts.append(
+        f"Emu {speed:.2f}x {emu_fps:.0f} FPS {emu_percent:.0f}% CPU | "
+    )
+    parts.append(
+        f"Video {video_fps:.0f} FPS {video_percent:.0f}% CPU "
+        f"{data_rate:.0f} KB/s | "
+    )
+    parts.append(f"Audio {audio_percent:.0f}% CPU | ")
+    if graphics_protocol is GraphicsProtocol.TEXT:
+        parts.append(f"{color_mode.report()} textmode ")
+    elif graphics_protocol is GraphicsProtocol.SIXEL:
+        parts.append("sixel ")
+    elif graphics_protocol is GraphicsProtocol.BLITLESS_SIXEL:
+        parts.append("sixel-blitless ")
+    else:
+        parts.append("kitty ")
+    if blitter_vis:
+        parts.append("(vis) ")
+    if autoscale_scale is not None:
+        parts.append(f"scale{autoscale_scale}")
+    return "".join(parts)
+
+
 def run(
     console: Console,
     input_getter: BaseInputGetter,
@@ -58,7 +122,7 @@ def run(
     use_cpr_sync: bool = False,
     graphics_protocol: GraphicsProtocol = GraphicsProtocol.TEXT,
     available_graphics_protocols: list[GraphicsProtocol] | None = None,
-    autoscale: AutoScaleConfig | None = None,
+    autoscale_config: AutoScaleConfig | None = None,
     terminal_name: str = "",
     show_status: bool = False,
 ) -> None:
@@ -95,20 +159,16 @@ def run(
     screen_ready = True
     frame_start_time = None
     frame_data = bytearray()
-    status_bar = b""
-    scaler: GraphicsScaler | None = None
-    force_clear = False
-    show_status_bar = show_status
-    force_status_update = False
     first_frame = True
-    kitty_pending_delete = False
-    auto_scale: AutoScale | None = (
-        AutoScale(SCALE_MAX, autoscale.seconds)
-        if autoscale is not None
-        and autoscale.enabled
-        and graphics_protocol is not GraphicsProtocol.TEXT
-        else None
+    blitter_vis = False
+
+    # Graphics renderer (owns scaler, autoscale, kitty workarounds)
+    renderer = GraphicsRenderer(
+        term, console, autoscale_config, terminal_name, graphics_protocol,
     )
+
+    # Status bar
+    status_bar = StatusBar(term, show=show_status)
 
     # Build cycle list from available protocols (detected before entering run).
     if available_graphics_protocols is None:
@@ -124,6 +184,7 @@ def run(
 
         # Break when frame limit is reach
         if break_after is not None and i >= break_after:
+            renderer.close()
             return
 
         # Tick the emulator
@@ -162,15 +223,9 @@ def run(
                 "BACKSPACE" in key.key_name or "DELETE" in key.key_name
             ):
                 step = -1 if key.key_name.startswith("KEY_SHIFT") else 1
-                cycle = [
-                    p
-                    for p in graphics_cycle
-                    if p is not GraphicsProtocol.TEXT
-                    or not terminal_name.startswith(BAD_TEXT)
-                ]
-                if cycle:
-                    idx = cycle.index(graphics_protocol)
-                    new_graphics_protocol = cycle[(idx + step) % len(cycle)]
+                new_graphics_protocol = cycle_graphics_protocol(
+                    graphics_protocol, graphics_cycle, step, terminal_name,
+                )
             # debug runtime adjustment of --speed by 10%
             elif key.key_name in ("KEY_PGUP", "KEY_PGDOWN"):
                 speed += 0.1 if key.key_name == "KEY_PGUP" else -0.1
@@ -181,11 +236,16 @@ def run(
                 if (
                     graphics_protocol is GraphicsProtocol.SIXEL
                     and terminal_name.startswith("mlterm")
+                    and renderer.scaler is not None
                 ):
-                    if scaler is not None:
-                        scaler.sixel_baseline = None
+                    renderer.scaler.sixel_baseline = None
             elif key.key_name in ("KEY_GRAVE_ACCENT", "KEY_TILDE") or key in ("`", "~"):
-                show_status_bar = not show_status_bar
+                status_bar.toggle()
+            elif key.key_name == "KEY_F12":
+                blitter_vis = not blitter_vis
+                renderer.blitter_vis = blitter_vis
+            elif key.key_name == "KEY_CTRL_L" or key in ("\x0c",):
+                renderer.request_keyframe()
 
         # Render video
         with timing(video_deltas):
@@ -206,122 +266,60 @@ def run(
                 # Detect terminal resize, color mode, or graphics protocol change
                 new_height = term.height or 24
                 new_width = term.width or 80
-                maybe_clear_sequence = b""
                 resized = (new_height, new_width) != (height, width)
+
+                # Resolve protocol for resize / first frame
+                new_graphics_protocol = resolve_graphics_protocol(
+                    resized=resized,
+                    current=graphics_protocol,
+                    new_height=new_height,
+                    new_width=new_width,
+                    console_width=console.WIDTH,
+                    console_height=console.HEIGHT,
+                    available=graphics_cycle,
+                    terminal_name=terminal_name,
+                    is_first_frame=first_frame,
+                )
+                if first_frame:
+                    first_frame = False
+
                 changed = (
                     resized
                     or new_color_mode != color_mode
                     or new_graphics_protocol != graphics_protocol
                 )
-                if first_frame:
-                    first_frame = False
-                    if (
-                        new_width >= console.WIDTH
-                        and new_height >= console.HEIGHT // 2
-                        and not terminal_name.startswith(BAD_TEXT)
-                    ):
-                        new_graphics_protocol = GraphicsProtocol.TEXT
-                        changed = True
+
+                clear_seq = b""
                 if changed:
-                    if resized:
-                        text_fits = (
-                            new_width >= console.WIDTH
-                            and new_height >= console.HEIGHT // 2
-                        )
-                        if (
-                            text_fits
-                            and graphics_protocol is not GraphicsProtocol.TEXT
-                            and not terminal_name.startswith(BAD_TEXT)
-                        ):
-                            new_graphics_protocol = GraphicsProtocol.TEXT
-                        elif (
-                            not text_fits and graphics_protocol is GraphicsProtocol.TEXT
-                        ):
-                            for gp in reversed(graphics_cycle):
-                                if gp is not GraphicsProtocol.TEXT:
-                                    new_graphics_protocol = gp
-                                    break
-                    if new_graphics_protocol is GraphicsProtocol.TEXT:
-                        auto_scale = None
-                    elif (
-                        auto_scale is None
-                        and autoscale is not None
-                        and autoscale.enabled
-                    ):
-                        auto_scale = AutoScale(SCALE_MAX, autoscale.seconds)
-                    elif auto_scale is not None:
-                        auto_scale.reset()
-                    maybe_clear_sequence = b""
-                    if (
-                        new_graphics_protocol != graphics_protocol
-                        or new_color_mode != color_mode
-                        or (resized and new_graphics_protocol is GraphicsProtocol.TEXT)
-                    ):
-                        maybe_clear_sequence = b"\033[H\033[2J"
-                    if graphics_protocol is GraphicsProtocol.KITTY:
-                        if terminal_name == "ghostty":
-                            maybe_clear_sequence = (
-                                b"\033_Ga=d,d=i,i=1\033\\"
-                                b"\033_Ga=d,d=i,i=2\033\\" + maybe_clear_sequence
-                            )
-                        else:
-                            maybe_clear_sequence = (
-                                b"\033_Ga=d,d=a\033\\" + maybe_clear_sequence
-                            )
+                    clear_seq = renderer.on_state_change(
+                        old_protocol=graphics_protocol,
+                        new_protocol=new_graphics_protocol,
+                        old_color=color_mode,
+                        new_color=new_color_mode,
+                        resized=resized,
+                    )
                     height, width = new_height, new_width
                     refx, refy = get_ref(width, height, console)
                     color_mode = new_color_mode
                     graphics_protocol = new_graphics_protocol
                     term.number_of_colors = new_color_mode.number_of_colors
                     last_frame.fill(0)
-                    if scaler is not None:
-                        scaler.close()
-                    scaler = None
-                    force_status_update = True
+                    status_bar.force_update = True
 
                 # Render frame
                 if graphics_protocol is GraphicsProtocol.TEXT:
+                    frame_data += clear_seq
                     frame_data += b"\033[?2026h"
-                    frame_data += maybe_clear_sequence
                     frame_data += blit(
-                        video, last_frame, refx, refy, width - 1, height, color_mode
+                        video, last_frame, refx, refy, width - 1, height, color_mode,
+                        blitter_vis,
                     )
                     frame_data += b"\033[?2026l"
                 else:
-                    sync_end = b""
-                    if kitty_pending_delete:
-                        frame_data[:0] = (
-                            b"\033[?2026h\033_Ga=d,d=i,i=1\033\\\033_Ga=d,d=i,i=2\033\\"
-                        )
-                        sync_end = b"\033[?2026l"
-                        kitty_pending_delete = False
-                    if scaler is None:
-                        scaler = GraphicsScaler.recompute(
-                            term,
-                            console,
-                            height,
-                            width,
-                            auto_scale,
-                            terminal_name=terminal_name,
-                        )
-                        maybe_clear_sequence = b"\033[H\033[2J"
-                    if force_clear and graphics_protocol in (
-                        GraphicsProtocol.SIXEL,
-                        GraphicsProtocol.BLITLESS_SIXEL,
-                    ):
-                        maybe_clear_sequence = b"\033[H\033[2J"
-                    force_clear = False
-                    frame_data += maybe_clear_sequence
-                    if graphics_protocol is GraphicsProtocol.SIXEL:
-                        frame_data += scaler.blit_sixel(video, last_frame)
-                    elif graphics_protocol is GraphicsProtocol.BLITLESS_SIXEL:
-                        frame_data += scaler.blit_sixel_blitless(video, width, height)
-                    else:
-                        frame_data += scaler.blit_kitty(video, last_frame)
-                        if terminal_name.startswith(FORCE_KITTY_BLITLESS):
-                            scaler.baseline = None
-                    if sync_end:
-                        frame_data += sync_end
+                    frame_data += clear_seq
+                    frame_data += renderer.render(
+                        video, last_frame, graphics_protocol, height, width,
+                    )
 
                 video, last_frame = last_frame, video
 
@@ -335,19 +333,9 @@ def run(
                 shown_frames.append(False)
 
         # Feed auto-scale with output bandwidth; reduce cap if too high.
-        if data_length and auto_scale is not None and autoscale is not None:
+        if data_length:
             data_rate_kb_s = sum(data_length) / len(data_length) * fps / 1000
-            if auto_scale.feed_bandwidth(data_rate_kb_s, autoscale.bandwidth_mbits):
-                if scaler is not None:
-                    scaler.close()
-                scaler = GraphicsScaler.recompute(
-                    term,
-                    console,
-                    height,
-                    width,
-                    auto_scale,
-                )
-                force_clear = True
+            renderer.feed_bandwidth(data_rate_kb_s, height, width)
 
         # Pacing and synchronization
         with timing(sync_deltas):
@@ -358,8 +346,8 @@ def run(
                     frame_data += b"\033[1;1H\033[6n"
                     screen_ready = False
                 # Prepend status bar when enabled
-                if show_status_bar and status_bar:
-                    frame_data[:0] = status_bar
+                if status_bar.show and status_bar.bar:
+                    frame_data[:0] = status_bar.bar
                 # Write the entire frame in one go to avoid fragmentation
                 write_frame(term, frame_data)
             # Timing sync
@@ -373,8 +361,8 @@ def run(
             start = deadline
 
         # Prepare status bar for the next frame
-        if i % average_over == 1 or force_status_update:
-            force_status_update = False
+        if i % average_over == 1 or status_bar.force_update:
+            status_bar.force_update = False
             tps = fps * console.TICKS_IN_FRAME
             emu_fps = tps * len(ticks) / sum(ticks)
             video_fps = emu_fps * sum(shown_frames) / len(shown_frames)
@@ -382,52 +370,30 @@ def run(
 
             # Feed auto-scale with video FPS; reduce cap if too slow.
             # Wait until deques have enough data for a meaningful FPS reading.
-            if (
-                auto_scale is not None
-                and autoscale is not None
-                and len(shown_frames) >= average_over // 2
-            ):
-                if auto_scale.feed_fps(video_fps, autoscale.fps):
-                    if (
-                        terminal_name == "ghostty"
-                        and graphics_protocol is GraphicsProtocol.KITTY
-                    ):
-                        kitty_pending_delete = True
-                    if scaler is not None:
-                        scaler.close()
-                    scaler = GraphicsScaler.recompute(
-                        term,
-                        console,
-                        height,
-                        width,
-                        auto_scale,
-                    )
-                    if graphics_protocol is not GraphicsProtocol.KITTY:
-                        force_clear = True
+            if len(shown_frames) >= average_over // 2:
+                renderer.feed_fps(video_fps, graphics_protocol, height, width)
 
             emu_percent = sum(emu_deltas) / len(emu_deltas) * total_fps * 100
             audio_percent = sum(audio_deltas) / len(audio_deltas) * total_fps * 100
             video_percent = sum(video_deltas) / len(video_deltas) * total_fps * 100
             data_rate = sum(data_length) / len(data_length) * total_fps / 1000
-            status = f" {terminal_name} " if terminal_name else " "
-            status += f" {total_fps:.0f} FPS | "
-            status += f"{os.path.basename(console.romfile)} | "
-            status += f"Emu {speed:.2f}x {emu_fps:.0f} FPS {emu_percent:.0f}% CPU | "
-            status += f"Video {video_fps:.0f} FPS {video_percent:.0f}% CPU "
-            status += f"{data_rate:.0f} KB/s | "
-            status += f"Audio {audio_percent:.0f}% CPU | "
-            if graphics_protocol is GraphicsProtocol.TEXT:
-                status += f"{color_mode.report()} textmode "
-            elif graphics_protocol is GraphicsProtocol.SIXEL:
-                status += "sixel "
-            elif graphics_protocol is GraphicsProtocol.BLITLESS_SIXEL:
-                status += "sixel-blitless "
-            else:
-                status += "kitty "
-            if auto_scale is not None:
-                status += f"scale{scaler.scale if scaler else '?'}"
-            status_bar = (
-                f"\033[1;1H\033[48;2;132;94;167m\033[38;2;216;208;200m"
-                f"{term.center(status[:width])}"
-                f"\033[0m"
-            ).encode()
+
+            status_bar.bar = status_bar.encode(
+                format_status(
+                    total_fps=total_fps,
+                    romfile=str(console.romfile),
+                    speed=speed,
+                    emu_fps=emu_fps,
+                    emu_percent=emu_percent,
+                    video_fps=video_fps,
+                    video_percent=video_percent,
+                    data_rate=data_rate,
+                    audio_percent=audio_percent,
+                    graphics_protocol=graphics_protocol,
+                    color_mode=color_mode,
+                    blitter_vis=blitter_vis,
+                    autoscale_scale=renderer.scale if renderer.has_autoscale else None,
+                    terminal_name=terminal_name,
+                ),
+                width,
+            )

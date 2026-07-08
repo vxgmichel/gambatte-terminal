@@ -30,15 +30,15 @@ wheels = [
 
 [[package]]
 name = "blessed"
-version = "1.44.0"
+version = "1.46.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "jinxed" },
     { name = "wcwidth" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/7b/73/445c4ef32565d2f5af49f18c4163a32850c9328774ee0af74ed081d4ba15/blessed-1.44.0.tar.gz", hash = "sha256:d3b5037f0143eb7c80b2000be5bcdf86161af68aed231b91deadbce4e7379785", size = 14031337, upload-time = "2026-05-24T02:06:30.832Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/04/ad/ff81f81dc9ed2efbeab4cdecda9f551834429d737ac40c3847b2b1200002/blessed-1.46.0.tar.gz", hash = "sha256:171ee6775a9be86bb000f2e22034c08f76851feb60934a2922feeaff43d0fa60", size = 14034378, upload-time = "2026-07-03T23:43:09.944Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/7e/c3/e8effb323af40a5d8e85ab557da2f0475f12a31f3266f28d91d0bf406963/blessed-1.44.0-py3-none-any.whl", hash = "sha256:e1d2ed93d3d90d0a1494a8b134d188c83fb89ae25590af638b921e8c1c8fa223", size = 130232, upload-time = "2026-05-24T02:06:26.458Z" },
+    { url = "https://files.pythonhosted.org/packages/65/8f/c10d44ba50d5d298699c3c5698ce4e89b397ec72e2139381b9964f87356c/blessed-1.46.0-py3-none-any.whl", hash = "sha256:558334e2456300332cff9f2b211656cd3eecd3f56a5b1ee5f6110ed83c28e25d", size = 130757, upload-time = "2026-07-03T23:43:07.598Z" },
 ]
 
 [[package]]
@@ -254,7 +254,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "asyncssh", specifier = ">=2.9,<3.0.0" },
-    { name = "blessed", specifier = ">=1.43.0,<2" },
+    { name = "blessed", specifier = ">=1.46.0,<2" },
     { name = "miniaudio", specifier = ">=1.2" },
     { name = "numpy", specifier = ">=2.0.0,<3.0.0" },
     { name = "pygame", marker = "extra == 'controller-support'", specifier = ">=1.9.5,<2.0.0" },
@@ -283,14 +283,14 @@ wheels = [
 
 [[package]]
 name = "jinxed"
-version = "2.0.0"
+version = "2.1.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "ansicon", marker = "sys_platform == 'win32'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/cb/eb/8821ce6e7386e96355f2c6be83944925b4a0870572896fd33a4e61b8aa5a/jinxed-2.0.0.tar.gz", hash = "sha256:64b960b8f8d9966e1b2e7cb57ea2b1aa0a8d7e68045b96dc7ef58201e43a1209", size = 127118, upload-time = "2026-05-08T21:25:25.917Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/39/d7/6e6d474ec5eaeca6a61acc17766bb19563b3a372b4b9d92910078f5fe49f/jinxed-2.1.0.tar.gz", hash = "sha256:7e755b831faa2443d44fb4ce7c0202eb9c3ed39bd5bf1193365888f4f6092b54", size = 61287, upload-time = "2026-07-03T15:46:48.153Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b3/00/b61668fd3b1e43b445979ec9a9e0af4781bf06884937d1e906f6a1be6dff/jinxed-2.0.0-py2.py3-none-any.whl", hash = "sha256:b3df1be5262a37145ef42875a8bbf918f1a563fbd035359650dd9fc0bb2b9294", size = 95364, upload-time = "2026-05-08T21:25:24.536Z" },
+    { url = "https://files.pythonhosted.org/packages/f1/1d/0a6be99b69bb448448403a45a241aff0dca751832ae54f027ed940d2eb52/jinxed-2.1.0-py2.py3-none-any.whl", hash = "sha256:43b802d18b70e405d410fb66eb2837d1101e7e5ea922e666507bb43f34d11d09", size = 104999, upload-time = "2026-07-03T15:46:47.114Z" },
 ]
 
 [[package]]
@@ -808,9 +808,9 @@ wheels = [
 
 [[package]]
 name = "wcwidth"
-version = "0.7.0"
+version = "0.8.2"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/2c/ee/afaf0f85a9a18fe47a67f1e4422ed6cf1fe642f0ae0a2f81166231303c52/wcwidth-0.7.0.tar.gz", hash = "sha256:90e3a7ea092341c44b99562e75d09e4d5160fe7a3974c6fb842a101a95e7eed0", size = 182132, upload-time = "2026-05-02T16:04:12.653Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/34/74/c6428f875774288bec1396f5bfcbc2d925700a4dad61727fd5f2b12f249d/wcwidth-0.8.2.tar.gz", hash = "sha256:91fbef97204b96a3d4d421609b80340b760cf33e26da123ff243d76b1fda8dda", size = 1466253, upload-time = "2026-06-29T18:11:11.601Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/41/52/e465037f5375f43533d1a80b6923955201596a99142ed524d77b571a1418/wcwidth-0.7.0-py3-none-any.whl", hash = "sha256:5d69154c429a82910e241c738cd0e2976fac8a2dd47a1a805f4afed1c0f136f2", size = 110825, upload-time = "2026-05-02T16:04:11.033Z" },
+    { url = "https://files.pythonhosted.org/packages/96/42/3e5985a0a7e57de470b320c6d6a1a67c844f6737a587f3d44dd13d1819e7/wcwidth-0.8.2-py3-none-any.whl", hash = "sha256:d63947694a0539a1d51e01eda7caf800c291020e6cdd7e28ad7b14dd33ad4f85", size = 323166, upload-time = "2026-06-29T18:11:09.888Z" },
 ]
