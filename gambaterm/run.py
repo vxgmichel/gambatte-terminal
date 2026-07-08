@@ -54,9 +54,12 @@ class StatusBar:
         self.show = show
         self.force_update = False
         self.bar: bytes = b""
+        self.needs_clear = False
 
     def toggle(self) -> None:
         self.show = not self.show
+        if not self.show:
+            self.needs_clear = True
 
     def encode(self, text: str, width: int) -> bytes:
         return (
@@ -125,6 +128,7 @@ def run(
     autoscale_config: AutoScaleConfig | None = None,
     terminal_name: str = "",
     show_status: bool = False,
+    blit_visualizer: bool = False,
 ) -> None:
     assert color_mode > 0
 
@@ -160,7 +164,7 @@ def run(
     frame_start_time = None
     frame_data = bytearray()
     first_frame = True
-    blitter_vis = False
+    blitter_vis = 1 if blit_visualizer else 0
 
     # Graphics renderer (owns scaler, autoscale, kitty workarounds)
     renderer = GraphicsRenderer(
@@ -233,16 +237,11 @@ def run(
                 average_over = int(round(fps))  # frames
                 audio_out.update_speed(console, speed)
             elif key.key_name in ("FOCUS_IN", "FOCUS_OUT"):
-                if (
-                    graphics_protocol is GraphicsProtocol.SIXEL
-                    and terminal_name.startswith("mlterm")
-                    and renderer.scaler is not None
-                ):
-                    renderer.scaler.sixel_baseline = None
+                renderer.on_focus_change(graphics_protocol)
             elif key.key_name in ("KEY_GRAVE_ACCENT", "KEY_TILDE") or key in ("`", "~"):
                 status_bar.toggle()
             elif key.key_name == "KEY_F12":
-                blitter_vis = not blitter_vis
+                blitter_vis = 0 if blitter_vis else 1
                 renderer.blitter_vis = blitter_vis
             elif key.key_name == "KEY_CTRL_L" or key in ("\x0c",):
                 renderer.request_keyframe()
@@ -323,6 +322,11 @@ def run(
 
                 video, last_frame = last_frame, video
 
+                # Cycle blitter vis mode 1/2 on each rendered frame
+                if blitter_vis and frame_data:
+                    blitter_vis = 3 - blitter_vis
+                    renderer.blitter_vis = blitter_vis
+
                 # Update reporting
                 data_length.append(len(frame_data))
                 shown_frames.append(True)
@@ -348,6 +352,10 @@ def run(
                 # Prepend status bar when enabled
                 if status_bar.show and status_bar.bar:
                     frame_data[:0] = status_bar.bar
+                # Clear status bar line when just hidden
+                if status_bar.needs_clear:
+                    status_bar.needs_clear = False
+                    frame_data[:0] = b"\033[1;1H\033[K"
                 # Write the entire frame in one go to avoid fragmentation
                 write_frame(term, frame_data)
             # Timing sync

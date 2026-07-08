@@ -170,6 +170,11 @@ def add_local_only_arguments(parser: argparse.ArgumentParser) -> None:
         help="Enable the status bar (toggle with backtick/~ key)",
     )
     parser.add_argument(
+        "--blit-visualizer",
+        action="store_true",
+        help="Enable blit visualizer (toggle with F12 key)",
+    )
+    parser.add_argument(
         "--save-directory",
         "--sd",
         type=Path,
@@ -225,6 +230,7 @@ def main(
     namespace = parser.parse_args(parser_args)
     disable_audio = getattr(namespace, "disable_audio", False)
     show_status = namespace.__dict__.pop("status")
+    blit_visualizer = namespace.__dict__.pop("blit_visualizer")
     graphics_value: str = namespace.__dict__.pop("graphics")
     autoscale_value: str = namespace.__dict__.pop("graphics_autoscale")
     autoscale_config = parse_autoscale(autoscale_value)
@@ -319,6 +325,7 @@ def main(
                         autoscale_config=autoscale_config,
                         terminal_name=terminal_name,
                         show_status=show_status,
+                        blit_visualizer=blit_visualizer,
                     )
 
         # Deal with ctrl+c and ctrl+d exceptions

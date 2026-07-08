@@ -34,6 +34,7 @@ DELTA_ID = 2
 SIXEL_REBASELINE_THRESHOLD = float(os.environ.get("GAMBATERM_SIXEL_REBASELINE", "0.35"))
 KITTY_REBASELINE_THRESHOLD = float(os.environ.get("GAMBATERM_KITTY_REBASELINE", "0.35"))
 SCALE_MAX = int(os.environ.get("GAMBATERM_SCALE_MAX", "12"))
+SIXEL_FORCE_REFRESH_ON_FOCUS = ("mlterm", "xterm")
 
 
 class AutoScaleConfig(NamedTuple):
@@ -171,6 +172,15 @@ class Profile:
             )
 
 
+def blit_vis_channels(rgb: np.ndarray, mode: int) -> np.ndarray:
+    """Apply channel permutation for blit visualization."""
+    if mode == 1:
+        return np.ascontiguousarray(rgb[..., [2, 1, 0]])
+    if mode == 2:
+        return np.ascontiguousarray(rgb[..., [1, 0, 2]])
+    return rgb
+
+
 class GraphicsScaler:
     """Pixel-dimension-aware scaler for sixel and kitty frame output.
 
@@ -227,7 +237,7 @@ class GraphicsScaler:
         self.profile = Profile()
         self.kitty_frame_no = 0
         self.sixel_frame_no = 0
-        self.blitter_vis = False
+        self.blitter_vis = 0
         self.dump_dir: str | None = os.environ.get("GAMBATERM_DUMP_FRAMES")
         if self.dump_dir:
             os.makedirs(self.dump_dir, exist_ok=True)
@@ -425,8 +435,7 @@ class GraphicsScaler:
         max_colors = min(256, changed_colors.shape[0])
         indices_delta, palette = quantize_colors(changed_colors, max_colors)
         palette = np.asarray(palette)
-        if self.blitter_vis:
-            palette = 1.0 - palette
+        palette = blit_vis_channels(palette, self.blitter_vis)
         indices = np.full(video.shape, 255, dtype=np.uint8)
         indices[diff] = np.asarray(indices_delta).ravel()
 
@@ -538,11 +547,14 @@ class GraphicsScaler:
         x2 = int(cols.shape[0] - cols[::-1].argmax())
         rect_w = x2 - x1
         rect_h = y2 - y1
-        rect_area = rect_w * rect_h
 
+        # If the dirty rect covers most of the screen the delta payload
+        # is as large as a keyframe (cell-snapped padding amplifies
+        # scattered pixels).  Do a rebaseline instead to reset the
+        # accumulation baseline.
         if (
             changed_pct > KITTY_REBASELINE_THRESHOLD
-            or rect_area > total_pixels * KITTY_REBASELINE_THRESHOLD
+            or rect_w * rect_h > total_pixels * 0.80
         ):
             self.profile.keyframes += 1
             self.baseline = video.copy()
@@ -599,7 +611,7 @@ class GraphicsScaler:
 
         if self.blitter_vis:
             mask = padded[:, :, 3] != 0
-            padded[mask, :3] = 255 - padded[mask, :3]
+            padded[mask, :3] = blit_vis_channels(padded[mask, :3], self.blitter_vis)
 
         result_parts = [
             f"\033[{row};{col}H".encode(),
@@ -678,17 +690,17 @@ class GraphicsRenderer:
             and protocol is not GraphicsProtocol.TEXT
             else None
         )
-        self._blitter_vis = False
+        self._blitter_vis = 0
         self._force_clear = False
         self._force_keyframe = False
         self._kitty_pending_delete = False
 
     @property
-    def blitter_vis(self) -> bool:
+    def blitter_vis(self) -> int:
         return self._blitter_vis
 
     @blitter_vis.setter
-    def blitter_vis(self, vis: bool) -> None:
+    def blitter_vis(self, vis: int) -> None:
         self._blitter_vis = vis
         if self.scaler is not None:
             self.scaler.blitter_vis = vis
@@ -705,6 +717,18 @@ class GraphicsRenderer:
 
     def request_keyframe(self) -> None:
         self._force_keyframe = True
+
+    def on_focus_change(self, protocol: GraphicsProtocol) -> None:
+        """Force a keyframe when terminal regains focus.
+
+        mlterm and xterm drop sixel content on focus loss; a keyframe
+        redraws the full image without relying on stale baseline data.
+        """
+        if (
+            protocol is GraphicsProtocol.SIXEL
+            and self._terminal_name.startswith(SIXEL_FORCE_REFRESH_ON_FOCUS)
+        ):
+            self.request_keyframe()
 
     def on_state_change(
         self,
