@@ -54,12 +54,15 @@ def write_frame(term: Terminal, frame_data: bytes | bytearray) -> None:
 class StatusBar:
     """Terminal status bar: toggle, force-update, and ANSI encoding."""
 
+    IDLE_INTERVAL = 0.25
+
     def __init__(self, term: Terminal, show: bool = False) -> None:
         self._term = term
         self.show = show
         self.force_update = False
         self.bar: bytes = b""
         self.needs_clear = False
+        self.last_sent = 0.0
 
     def toggle(self) -> None:
         self.show = not self.show
@@ -354,6 +357,13 @@ def run(
                     frame_data[:0] = b"\033[1;1H\033[K"
                 # Write the entire frame in one go to avoid fragmentation
                 write_frame(term, frame_data)
+                if status_bar.show:
+                    status_bar.last_sent = time.monotonic()
+            elif status_bar.show and status_bar.bar:
+                now = time.monotonic()
+                if now - status_bar.last_sent >= StatusBar.IDLE_INTERVAL:
+                    write_frame(term, status_bar.bar)
+                    status_bar.last_sent = now
             # Timing sync
             increment = samples / console.TICKS_IN_FRAME
             deadline = start + increment / fps

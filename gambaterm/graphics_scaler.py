@@ -43,7 +43,7 @@ DELTA_ID = 100
 # Fraction of changed pixels that triggers a full keyframe instead of a delta.
 REBASELINE_THRESHOLD = float(os.environ.get("GAMBATERM_REBASELINE_THRESHOLD", "0.385"))
 # Fraction of bounding-box area (vs total frame) that triggers a kitty keyframe.
-KITTY_REBASELINE_RECT = float(os.environ.get("GAMBATERM_KITTY_REBASELINE_RECT", "0.60"))
+KITTY_REBASELINE_RECT = float(os.environ.get("GAMBATERM_KITTY_REBASELINE_RECT", "0.40"))
 
 
 def blit_vis_channels(rgb: np.ndarray, mode: int) -> np.ndarray:
@@ -53,6 +53,14 @@ def blit_vis_channels(rgb: np.ndarray, mode: int) -> np.ndarray:
     if mode == 2:
         return np.ascontiguousarray(rgb[..., [1, 0, 2]])
     return rgb
+
+
+def _permute_rgba_channels(rgba: np.ndarray, mode: int) -> None:
+    """In-place RGBA channel permutation matching *blit_vis_channels*."""
+    if mode == 1:
+        rgba[:, :, [0, 1, 2]] = rgba[:, :, [2, 1, 0]]
+    elif mode == 2:
+        rgba[:, :, [0, 1, 2]] = rgba[:, :, [1, 0, 2]]
 
 
 class GraphicsScaler:
@@ -325,11 +333,9 @@ class FrameEncoder:
         self._keyframes += 1
         self.sixel_baseline = video.copy()
         colors = to_rgb(video)
-        if self._flash_pending:
-            self._flash_pending = False
-        elif self.blitter_vis:
-            colors[:, :, :] = 1.0
-            self._flash_pending = True
+        if self.blitter_vis:
+            colors[:, :, :] = blit_vis_channels(colors, self.blitter_vis)
+            self._flash_pending = not self._flash_pending
         result = encode_sixel(colors, max_colors=256, scale=self.scale)
         self._bytes_out += len(result)
         elapsed_us = int((time.perf_counter() - t0) * 1e6)
@@ -489,8 +495,8 @@ class FrameEncoder:
             rgba = self._upscale_rgba(video)
             h, w = rgba.shape[:2]
             if self.blitter_vis:
-                rgba[:, :, :3] = 255
-                self._flash_pending = True
+                _permute_rgba_channels(rgba, self.blitter_vis)
+                self._flash_pending = not self._flash_pending
             parts: list[bytes] = [
                 f"\033[{self.refx_kitty};{self.refy_kitty}H".encode(),
                 encode_fn(rgba.ravel(), w, h, image_id=BASELINE_ID),
@@ -554,11 +560,9 @@ class FrameEncoder:
 
             rgba = self._upscale_rgba(video)
             h, w = rgba.shape[:2]
-            if self._flash_pending:
-                self._flash_pending = False
-            elif self.blitter_vis:
-                rgba[:, :, :3] = 255
-                self._flash_pending = True
+            if self.blitter_vis:
+                _permute_rgba_channels(rgba, self.blitter_vis)
+                self._flash_pending = not self._flash_pending
             prefix = b""
             if self._delta_is_placed:
                 prefix = f"\033_Ga=d,d=i,i={DELTA_ID}\033\\".encode()
@@ -798,7 +802,7 @@ class GraphicsRenderer:
     ) -> bytes:
         prefix, suffix = b"", b""
 
-        if self._ghostty_kitty_gfx_clear:
+        if self._ghostty_kitty_gfx_clear and protocol is GraphicsProtocol.KITTY:
             clear_cmd = KITTY_GFX_GHOSTTY_CLEAR
             prefix = b"\033[?2026h" + clear_cmd
             suffix = b"\033[?2026l"
@@ -839,6 +843,8 @@ class GraphicsRenderer:
                 self.encoder.baseline = None
 
         if not result:
+            if prefix or suffix:
+                return prefix + suffix
             return b""
         return prefix + result + suffix
 
@@ -855,6 +861,8 @@ class GraphicsRenderer:
         )
         self._make_encoder()
         self._force_clear = True
+        if self._terminal_name.startswith(FORCE_KITTY_INDIVIDUAL_DELETES):
+            self._ghostty_kitty_gfx_clear = True
 
     def feed_bandwidth(
         self,
@@ -881,13 +889,6 @@ class GraphicsRenderer:
         if self.autoscale is None or self._autoscale_config is None:
             return
         if self.autoscale.feed_fps(video_fps, self._autoscale_config.fps):
-            if (
-                self._terminal_name.startswith(FORCE_KITTY_INDIVIDUAL_DELETES)
-                and protocol is GraphicsProtocol.KITTY
-            ):
-                # WIP: Verifying that, ghostty has trouble "clearing" graphics correctly,
-                # it doesn't allow us to "clear all", so, we clear by individual ID
-                self._ghostty_kitty_gfx_clear = True
             self._rebuild_scaler(height, width)
 
     def close(self) -> None:
