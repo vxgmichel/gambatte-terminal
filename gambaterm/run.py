@@ -17,7 +17,7 @@ from .console import Console
 from .input_getter import BaseInputGetter
 from .colors import ColorMode
 from .graphics_scaler import AutoScaleConfig, GraphicsRenderer
-from .remote_terminal import GraphicsProtocol, cycle_graphics_protocol, resolve_graphics_protocol
+from .remote_terminal import GraphicsProtocol, resolve_graphics_protocol
 
 
 @contextlib.contextmanager
@@ -163,7 +163,6 @@ def run(
     screen_ready = True
     frame_start_time = None
     frame_data = bytearray()
-    first_frame = True
     blitter_vis = 1 if blit_visualizer else 0
 
     # Graphics renderer (owns scaler, autoscale, kitty workarounds)
@@ -174,10 +173,9 @@ def run(
     # Status bar
     status_bar = StatusBar(term, show=show_status)
 
-    # Build cycle list from available protocols (detected before entering run).
+    # Guard against missing available-protocols list.
     if available_graphics_protocols is None:
         available_graphics_protocols = [GraphicsProtocol.TEXT]
-    graphics_cycle = available_graphics_protocols
 
     # Loop over emulator frames
     for i in count():
@@ -222,14 +220,6 @@ def run(
                     new_color_mode = color_mode.cycle_back()
                 else:
                     new_color_mode = color_mode.cycle()
-            # debug available graphics renders
-            elif key.key_name and (
-                "BACKSPACE" in key.key_name or "DELETE" in key.key_name
-            ):
-                step = -1 if key.key_name.startswith("KEY_SHIFT") else 1
-                new_graphics_protocol = cycle_graphics_protocol(
-                    graphics_protocol, graphics_cycle, step, terminal_name,
-                )
             # debug runtime adjustment of --speed by 10%
             elif key.key_name in ("KEY_PGUP", "KEY_PGDOWN"):
                 speed += 0.1 if key.key_name == "KEY_PGUP" else -0.1
@@ -267,7 +257,7 @@ def run(
                 new_width = term.width or 80
                 resized = (new_height, new_width) != (height, width)
 
-                # Resolve protocol for resize / first frame
+                # Resolve protocol for resize
                 new_graphics_protocol = resolve_graphics_protocol(
                     resized=resized,
                     current=graphics_protocol,
@@ -275,12 +265,9 @@ def run(
                     new_width=new_width,
                     console_width=console.WIDTH,
                     console_height=console.HEIGHT,
-                    available=graphics_cycle,
+                    available=available_graphics_protocols,
                     terminal_name=terminal_name,
-                    is_first_frame=first_frame,
                 )
-                if first_frame:
-                    first_frame = False
 
                 changed = (
                     resized

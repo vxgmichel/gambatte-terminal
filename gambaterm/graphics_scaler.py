@@ -238,11 +238,11 @@ class GraphicsScaler:
         self.kitty_frame_no = 0
         self.sixel_frame_no = 0
         self.blitter_vis = 0
-        self.dump_dir: str | None = os.environ.get("GAMBATERM_DUMP_FRAMES")
-        if self.dump_dir:
+        if self.dump_dir := os.environ.get("GAMBATERM_DUMP_FRAMES") is not None:
             os.makedirs(self.dump_dir, exist_ok=True)
-        profile_dir = os.environ.get("GAMBATERM_PROFILE_DIR")
-        if profile_dir is not None:
+        if profile_dir := os.environ.get("GAMBATERM_PROFILE_DIR") is None:
+            self.stats_fh = open(os.devnull, "w")
+        else:
             os.makedirs(profile_dir, exist_ok=True)
             csv_path = f"{profile_dir}/gambatterm-frame-stats.csv"
             is_new = not os.path.exists(csv_path) or os.path.getsize(csv_path) == 0
@@ -255,8 +255,6 @@ class GraphicsScaler:
                     "refx_kitty,refy_kitty,scale\n"
                 )
             atexit.register(self.profile.dump, f"{profile_dir}/gambaterm-profile.txt")
-        else:
-            self.stats_fh = open(os.devnull, "w")
 
     @property
     def position(self) -> tuple[int, int]:
@@ -771,11 +769,10 @@ class GraphicsRenderer:
             or (resized and new_protocol is GraphicsProtocol.TEXT)
         ):
             clear = TEXT_HOME_CLEAR
-        if old_protocol is GraphicsProtocol.KITTY:
+        if GraphicsProtocol.KITTY in (old_protocol, new_protocol):
+            clear += KITTY_GFX_CLEAR
             if self._terminal_name == "ghostty":
-                clear = KITTY_GFX_GHOSTTY_CLEAR + clear
-            else:
-                clear = KITTY_GFX_CLEAR + clear
+                clear += KITTY_GFX_GHOSTTY_CLEAR
         return clear
 
     def render(
