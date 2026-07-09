@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import atexit
+import hashlib
 import os
 import time
 import json
@@ -39,8 +40,9 @@ if TYPE_CHECKING:
 
 BASELINE_ID = 1
 DELTA_ID = 100
-SIXEL_REBASELINE_THRESHOLD = float(os.environ.get("GAMBATERM_SIXEL_REBASELINE", "0.35"))
-KITTY_REBASELINE_THRESHOLD = float(os.environ.get("GAMBATERM_KITTY_REBASELINE", "0.35"))
+# Fraction of changed pixels that triggers a full keyframe instead of a delta.
+REBASELINE_THRESHOLD = float(os.environ.get("GAMBATERM_REBASELINE_THRESHOLD", "0.385"))
+# Fraction of bounding-box area (vs total frame) that triggers a kitty keyframe.
 KITTY_REBASELINE_RECT = float(os.environ.get("GAMBATERM_KITTY_REBASELINE_RECT", "0.60"))
 
 
@@ -234,7 +236,7 @@ class FrameEncoder:
         self._skipped = 0
         self._bytes_out = 0
         self._t0 = time.monotonic()
-        self._last_keyframe_hash: int | None = None
+        self._last_keyframe_hash: bytes | None = None
         self._cached_hits = 0
         self._flash_pending = False
         self._frames_since_rebaseline = 0
@@ -350,7 +352,7 @@ class FrameEncoder:
 
         Uses a baseline frame with overlay delta updates for bandwidth
         savings, falling back to a full keyframe when more than
-        ``SIXEL_REBASELINE_THRESHOLD`` of pixels change.
+        ``REBASELINE_THRESHOLD`` of pixels change.
 
         Returns empty bytes if the frame is unchanged from *last_frame*.
         """
@@ -386,7 +388,7 @@ class FrameEncoder:
         changed = diff.sum()
         changed_pct = changed / total_pixels
 
-        if self._flash_pending or changed_pct > SIXEL_REBASELINE_THRESHOLD:
+        if self._flash_pending or changed_pct > REBASELINE_THRESHOLD:
             return self._encode_sixel_keyframe(
                 video, t0, n, f"{changed_pct:.2f}", "rebaseline",
             )
@@ -405,13 +407,16 @@ class FrameEncoder:
         indices = np.full(video.shape, 255, dtype=np.uint8)
         indices[diff] = np.asarray(indices_delta).ravel()
 
+        h, w = video.shape
         result = encode_sixel(
-            to_rgb(video),
+            np.empty((0, 0, 3), dtype=np.float32),  # unused when h/w given
             max_colors=256,
             scale=self.scale,
             indices=indices,
             palette=palette,
             skip_index=255,
+            h=h * self.scale,
+            w=w * self.scale,
         )
         # Baseline updated every overlay: sixel P2=1 transparency requires
         # frame-to-frame diffs so unchanged pixels aren't double-rendered.
@@ -480,7 +485,7 @@ class FrameEncoder:
         if self.baseline is None:
             self._keyframes += 1
             self.baseline = video.copy()
-            self._last_keyframe_hash = hash(video.tobytes())
+            self._last_keyframe_hash = hashlib.md5(video.data).digest()
             rgba = self._upscale_rgba(video)
             h, w = rgba.shape[:2]
             if self.blitter_vis:
@@ -488,7 +493,7 @@ class FrameEncoder:
                 self._flash_pending = True
             parts: list[bytes] = [
                 f"\033[{self.refx_kitty};{self.refy_kitty}H".encode(),
-                encode_fn(rgba.tobytes(), w, h, image_id=BASELINE_ID),
+                encode_fn(rgba.ravel(), w, h, image_id=BASELINE_ID),
             ]
             self._delta_is_placed = False
             result = b"".join(parts)
@@ -522,14 +527,14 @@ class FrameEncoder:
         )
         if (
             force
-            or changed_pct > KITTY_REBASELINE_THRESHOLD
+            or changed_pct > REBASELINE_THRESHOLD
             or rect_w * rect_h > total_pixels * KITTY_REBASELINE_RECT
         ):
             self._keyframes += 1
             self._frames_since_rebaseline = 0
             self.baseline = video.copy()
 
-            khash = hash(video.tobytes())
+            khash = hashlib.md5(video.data).digest()
             if self._last_keyframe_hash == khash:
                 self._cached_hits += 1
                 self._delta_is_placed = False
@@ -560,7 +565,7 @@ class FrameEncoder:
             rebase_parts: list[bytes] = [
                 prefix,
                 f"\033[{self.refx_kitty};{self.refy_kitty}H".encode(),
-                encode_fn(rgba.tobytes(), w, h, image_id=BASELINE_ID),
+                encode_fn(rgba.ravel(), w, h, image_id=BASELINE_ID),
             ]
             self._delta_is_placed = False
             result = b"".join(rebase_parts)
@@ -609,7 +614,7 @@ class FrameEncoder:
         result_parts: list[bytes] = [
             f"\033[{row};{col}H".encode(),
             encode_fn(
-                padded.tobytes(),
+                padded.ravel(),
                 padded_w,
                 padded_h,
                 image_id=DELTA_ID,

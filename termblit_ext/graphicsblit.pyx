@@ -106,7 +106,7 @@ def quantize_colors(float[:, :, ::1] colors, int n_colors):
 @boundscheck(False)
 def encode_sixel(float[:, :, ::1] colors, int max_colors=256, int scale=1,
                  uint8_t[:, ::1] indices=None, float[:, ::1] palette=None,
-                 int skip_index=-1):
+                 int skip_index=-1, int h=0, int w=0):
     """Encode an RGB image as a sixel escape sequence.
 
     Returns bytes (the full escape sequence).
@@ -115,43 +115,51 @@ def encode_sixel(float[:, :, ::1] colors, int max_colors=256, int scale=1,
     skipped and the pre-computed values are used.  *skip_index* is a
     colour index that is never emitted to the sixel stream, producing
     transparent pixels when P2=1.
+
+    When *indices*+*palette* are precomputed, *h*/*w* may be passed
+    directly; the *colors* array is then ignored (not read for pixel
+    values) and only the dimensional information is used.
     """
-    cdef int h = colors.shape[0]
-    cdef int w = colors.shape[1]
-
-    # Compute scaled dimensions up front; needed even when using
-    # precomputed indices (the overlay delta path avoids scaling colors).
     cdef int use_precomputed = indices is not None and palette is not None
-    if scale > 1:
-        h *= scale
-        w *= scale
-
-    # Scale via numpy (already fast C)
-    cdef float[:, :, ::1] scaled_colors
-    if scale > 1:
-        if not use_precomputed:
-            arr = np.asarray(colors)
-            arr = np.repeat(np.repeat(arr, scale, axis=0), scale, axis=1)
-            scaled_colors = arr
-        if use_precomputed:
-            indices = np.ascontiguousarray(
-                np.repeat(np.repeat(np.asarray(indices), scale, axis=0),
-                          scale, axis=1),
-                dtype=np.uint8)
+    if use_precomputed and h > 0 and w > 0:
+        pass  # dimensions provided directly
     else:
+        h = colors.shape[0]
+        w = colors.shape[1]
+        if scale > 1:
+            h *= scale
+            w *= scale
+
+    # Scale indices when precomputed and not already handled
+    if use_precomputed and scale > 1:
+        indices = np.ascontiguousarray(
+            np.repeat(np.repeat(np.asarray(indices), scale, axis=0),
+                      scale, axis=1),
+            dtype=np.uint8)
+        h = colors.shape[0] * scale
+        w = colors.shape[1] * scale
+
+    # Scale colors (non-precomputed path)
+    cdef float[:, :, ::1] scaled_colors
+    if not use_precomputed and scale > 1:
+        arr = np.asarray(colors)
+        arr = np.repeat(np.repeat(arr, scale, axis=0), scale, axis=1)
+        scaled_colors = arr
+    elif not use_precomputed:
         scaled_colors = colors
 
-    # Pad to multiple of 6
+    # Pad indices to multiple of 6 rows
     cdef int pad_h = (6 - h % 6) % 6
-    if pad_h > 0:
+    if pad_h > 0 and use_precomputed:
+        indices_padded = np.full((h + pad_h, w), skip_index, dtype=np.uint8)
+        indices_padded[:indices.shape[0], :] = np.asarray(indices)
+        indices = indices_padded
+        h = h + pad_h
+    elif pad_h > 0:
         arr = np.asarray(scaled_colors)
         arr = np.pad(arr, ((0, pad_h), (0, 0), (0, 0)), constant_values=0)
         scaled_colors = arr
         h = scaled_colors.shape[0]
-        if use_precomputed:
-            indices_padded = np.full((h, w), skip_index, dtype=np.uint8)
-            indices_padded[:indices.shape[0], :] = np.asarray(indices)
-            indices = indices_padded
 
     cdef uint8_t[:, ::1] _indices
     cdef float[:, ::1] _palette
@@ -164,10 +172,7 @@ def encode_sixel(float[:, :, ::1] colors, int max_colors=256, int scale=1,
         _palette = palette
 
     cdef int n_colors = _palette.shape[0]
-    cdef int i, band_y, x, start, length
-    cdef int color_idx
-    cdef uint8_t pat_byte
-    cdef int found
+    cdef int i, band_y
 
     parts = []
 
@@ -182,40 +187,34 @@ def encode_sixel(float[:, :, ::1] colors, int max_colors=256, int scale=1,
             f"{<int>(_palette[i, 1] * 100)};{<int>(_palette[i, 2] * 100)}".encode()
         )
 
-    # Encode bands
+    # Encode bands — single-pass sixel pattern computation per band
     cdef uint8_t[:, ::1] band
     cdef uint8_t[:] sixel_bits = SIXEL_BITS
-    cdef uint8_t[:] row_patterns
-    cdef int[256] seen
+    cdef uint8_t[:, ::1] patterns
+    cdef int y, x
+    cdef uint8_t c
 
     for band_y in range(0, h, 6):
         band = _indices[band_y:band_y + 6, :]
-        for i in range(256):
-            seen[i] = 0
+        patterns = np.zeros((256, w), dtype=np.uint8)
+
+        # Single pass: compute sixel patterns for all colors at once
         for y in range(band.shape[0]):
             for x in range(w):
-                seen[band[y, x]] = 1
+                c = band[y, x]
+                if c != skip_index:
+                    patterns[c, x] |= sixel_bits[y]
 
-        for color_idx in range(256):
+        unique_colors = np.unique(np.asarray(band))
+        for color_idx in unique_colors:
             if color_idx == skip_index:
-                continue
-            if seen[color_idx] == 0:
                 continue
             parts.append(f"#{color_idx}".encode())
 
             if w == 0:
                 continue
 
-            # Compute sixel patterns for this color
-            row_patterns = np.zeros(w, dtype=np.uint8)
-            for y in range(band.shape[0]):
-                for x in range(w):
-                    if band[y, x] == color_idx:
-                        row_patterns[x] |= sixel_bits[y]
-
-            # Run-length encode
-            parts.append(_sixel_rle(row_patterns, w))
-
+            parts.append(_sixel_rle(patterns[<uint8_t>color_idx], w))
             parts.append(b"$")
         parts.append(b"-")
 
@@ -223,28 +222,49 @@ def encode_sixel(float[:, :, ::1] colors, int max_colors=256, int scale=1,
     return b"".join(parts)
 
 
+cdef int _sixel_rle_emit(unsigned char[:] buf, int pos, uint8_t pat, int length):
+    """Emit a single sixel RLE run into *buf* starting at *pos*.  Returns new position."""
+    cdef int n, ndigits
+    cdef unsigned char digits[4]
+    cdef unsigned char ch = <unsigned char>(0x3F + pat)
+
+    if length <= 3:
+        for n in range(length):
+            buf[pos] = ch
+            pos += 1
+    else:
+        buf[pos] = 0x21  # '!'
+        pos += 1
+        ndigits = 0
+        n = length
+        while n > 0:
+            digits[ndigits] = 0x30 + <unsigned char>(n % 10)
+            ndigits += 1
+            n //= 10
+        for n in range(ndigits - 1, -1, -1):
+            buf[pos] = digits[n]
+            pos += 1
+        buf[pos] = ch
+        pos += 1
+    return pos
+
+
 cdef bytes _sixel_rle(uint8_t[:] patterns, int w):
     """Run-length encode a row of sixel patterns."""
-    cdef list runs = []
     cdef int start = 0
     cdef int i
     cdef uint8_t cur = patterns[0]
+    cdef unsigned char[:] buf = bytearray(w * 4)
+    cdef int pos = 0
 
     for i in range(1, w):
         if patterns[i] != cur:
-            runs.append((cur, i - start))
+            pos = _sixel_rle_emit(buf, pos, cur, i - start)
             cur = patterns[i]
             start = i
-    runs.append((cur, w - start))
+    pos = _sixel_rle_emit(buf, pos, cur, w - start)
 
-    parts = []
-    for pat, length in runs:
-        char = chr(0x3F + pat)
-        if length > 3:
-            parts.append(f"!{length}{char}".encode())
-        else:
-            parts.append(char.encode() * length)
-    return b"".join(parts)
+    return bytes(buf[:pos])
 
 
 def encode_kitty_rgba(const unsigned char[:] rgba_data, int w, int h,
