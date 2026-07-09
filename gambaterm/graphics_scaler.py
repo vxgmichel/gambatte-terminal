@@ -123,15 +123,13 @@ class GraphicsScaler:
             self.stats_fh = open(os.devnull, "w")
         else:
             os.makedirs(os.path.dirname(csv_path) or ".", exist_ok=True)
-            is_new = not os.path.exists(csv_path) or os.path.getsize(csv_path) == 0
-            self.stats_fh = open(csv_path, "a")
-            if is_new:
-                self.stats_fh.write(
-                    "frame_no,changed_pct,action,bytes,time_us,"
-                    "row,col,cell_h,cell_w,padded_w,padded_h,"
-                    "x1,y1,rect_w,rect_h,"
-                    "refx_kitty,refy_kitty,scale\n"
-                )
+            self.stats_fh = open(csv_path, "w")
+            self.stats_fh.write(
+                "frame_no,changed_pct,action,bytes,time_us,"
+                "row,col,cell_h,cell_w,padded_w,padded_h,"
+                "x1,y1,rect_w,rect_h,"
+                "refx_kitty,refy_kitty,scale\n"
+            )
             stem, _ = os.path.splitext(csv_path)
             atexit.register(self._dump_profile, f"{stem}-summary.txt")
 
