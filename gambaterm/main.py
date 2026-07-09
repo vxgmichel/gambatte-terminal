@@ -20,7 +20,7 @@ from .remote_terminal import (
     BAD_TEXT,
     does_sixel,
 )
-from .graphics_scaler import parse_autoscale
+from .graphics_autoscaler import parse_autoscale
 from .keyboard_input import is_kitty_keyboard_protocol_supported
 from .input_getter import BaseInputGetter
 from .keyboard_input import console_input_from_keyboard_context

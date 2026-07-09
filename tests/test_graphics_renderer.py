@@ -3,10 +3,11 @@
 # - kitty-x?.golden: converted to kitty at integer scale
 # - sixel-x?.golden: converted to sixel graphics at integer scale
 #
-# "cat" these files to see their graphics in a terminal.  These mostly help reduce regressions in
-# either graphics renderer, especially the individual byte colors, the RGB ordering is a bit tricky
-# between the native emulator screen and the two graphics renderers, ensuring byte-for-byte accuracy
-# helps.
+# "cat" these files to see their graphics in a terminal that supports them.
+#
+# These mostly help reduce regressions in either graphics renderer, especially the individual byte
+# colors, the RGB ordering is a bit tricky between the native emulator screen and the two graphics
+# renderers, or any other misfiring, or as confirmation of adjustments to blitters.
 from pathlib import Path
 
 import numpy as np
@@ -308,7 +309,7 @@ class TestAutoScale:
 class TestParseAutoscale:
     @pytest.mark.parametrize("value", ["off", "no", "disabled", ""])
     def test_disabled(self, value):
-        from gambaterm.graphics_scaler import parse_autoscale
+        from gambaterm.graphics_autoscaler import parse_autoscale
 
         assert parse_autoscale(value).enabled is False
 
@@ -322,7 +323,7 @@ class TestParseAutoscale:
         ],
     )
     def test_parse(self, value, seconds, fps, mbits):
-        from gambaterm.graphics_scaler import parse_autoscale
+        from gambaterm.graphics_autoscaler import parse_autoscale
 
         cfg = parse_autoscale(value)
         assert cfg.enabled is True
@@ -339,7 +340,7 @@ class TestParseAutoscale:
         ],
     )
     def test_mutually_exclusive_errors(self, value):
-        from gambaterm.graphics_scaler import parse_autoscale
+        from gambaterm.graphics_autoscaler import parse_autoscale
 
         with pytest.raises(ValueError):
             parse_autoscale(value)

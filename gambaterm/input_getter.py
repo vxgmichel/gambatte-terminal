@@ -1,19 +1,9 @@
 from __future__ import annotations
 
-import os
 from blessed.keyboard import Keystroke
 from blessed.terminal import Terminal
 
 from .console import Console
-
-_INKEY_LOG = os.environ.get("GAMBATERM_LOG_INKEY")
-
-
-def _log_inkey(key: Keystroke) -> None:
-    if _INKEY_LOG is None:
-        return
-    with open(_INKEY_LOG, "a") as f:
-        f.write(f"{key!r}\n")
 
 
 def pop_keystrokes_from_terminal(terminal: Terminal) -> list[Keystroke]:
@@ -22,7 +12,6 @@ def pop_keystrokes_from_terminal(terminal: Terminal) -> list[Keystroke]:
         key = terminal.inkey(timeout=0)
         if not key:
             break
-        _log_inkey(key)
         result.append(key)
     return result
 

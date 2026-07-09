@@ -6,7 +6,7 @@ import atexit
 import os
 import time
 import json
-from typing import TYPE_CHECKING, Callable, NamedTuple
+from typing import TYPE_CHECKING, Callable
 
 import numpy as np
 
@@ -16,6 +16,11 @@ from .graphicsblit import (
     encode_sixel,
     encode_kitty_rgba,
     quantize_colors,
+)
+from .graphics_autoscaler import (
+    AutoScale,
+    AutoScaleConfig,
+    SCALE_MAX,
 )
 from .remote_terminal import (
     GraphicsProtocol,
@@ -33,143 +38,7 @@ BASELINE_ID = 1
 DELTA_ID = 2
 SIXEL_REBASELINE_THRESHOLD = float(os.environ.get("GAMBATERM_SIXEL_REBASELINE", "0.35"))
 KITTY_REBASELINE_THRESHOLD = float(os.environ.get("GAMBATERM_KITTY_REBASELINE", "0.35"))
-SCALE_MAX = int(os.environ.get("GAMBATERM_SCALE_MAX", "12"))
 SIXEL_FORCE_REFRESH_ON_FOCUS = ("mlterm", "xterm")
-
-
-class AutoScaleConfig(NamedTuple):
-    """Parsed ``--graphics-autoscale`` configuration."""
-
-    enabled: bool
-    seconds: int
-    fps: float
-    bandwidth_mbits: float
-
-
-def parse_autoscale(value: str) -> AutoScaleConfig:
-    value = value.strip().lower()
-    if value in ("off", "no", "disabled", ""):
-        return AutoScaleConfig(enabled=False, seconds=0, fps=40.0, bandwidth_mbits=0.0)
-
-    seconds = -1
-    fps = 40.0
-    bandwidth_mbits = 0.0
-    saw_always = False
-    saw_seconds = False
-    saw_disable = False
-
-    for token in value.split(","):
-        token = token.strip()
-        if token in ("off", "no", "disabled"):
-            saw_disable = True
-        elif token == "always":
-            saw_always = True
-        elif token.endswith("fps"):
-            fps = float(token[:-3])
-        elif token.endswith("kb"):
-            bandwidth_mbits = float(token[:-2]) / 125.0
-        elif token.endswith("mb"):
-            bandwidth_mbits = float(token[:-2]) * 8.0
-        elif token.endswith("s"):
-            seconds = int(token[:-1])
-            saw_seconds = True
-        else:
-            raise ValueError(f"Unknown autoscale token: {token!r}")
-
-    if saw_disable:
-        raise ValueError(
-            "'off'/'no'/'disabled' is mutually exclusive with other tokens"
-        )
-    if saw_always and saw_seconds:
-        raise ValueError("'always' is mutually exclusive with 'Ns'")
-
-    return AutoScaleConfig(
-        enabled=True, seconds=seconds, fps=fps, bandwidth_mbits=bandwidth_mbits
-    )
-
-
-class AutoScale:
-    """Dynamic scale cap that decreases when rendering can't keep up.
-
-    Starts at *ceiling* and only ever decreases.  The floor (50% of
-    natural screen scale) is enforced by :meth:`GraphicsScaler.recompute`,
-    not by this class.
-
-    Two independent reduction triggers:
-
-    * :meth:`feed_fps` reduces when ``video_fps`` drops below a threshold.
-    * :meth:`feed_bandwidth` reduces when output data rate exceeds a cap.
-
-    Reductions are only allowed within *window_s* seconds of construction
-    or the most recent :meth:`reset` call.
-    """
-
-    def __init__(self, ceiling: int, window_s: int) -> None:
-        self._ceiling = ceiling
-        self.window_s = window_s
-        self.max_scale = ceiling
-        self.deadline = self.compute_deadline()
-
-    def compute_deadline(self) -> float:
-        if self.window_s == 0:
-            return 0.0
-        if self.window_s == -1:
-            return float("inf")
-        return time.monotonic() + self.window_s
-
-    def feed_fps(self, video_fps: float, threshold_fps: float) -> bool:
-        """Return True if *max_scale* was reduced."""
-        if threshold_fps <= 0:
-            return False
-        if time.monotonic() > self.deadline:
-            return False
-        if video_fps < threshold_fps and self.max_scale > 1:
-            self.max_scale = max(1, self.max_scale - 2)
-            return True
-        return False
-
-    def reset(self) -> None:
-        """Restore *max_scale* to ceiling, reset deadline."""
-        self.max_scale = self._ceiling
-        self.deadline = self.compute_deadline()
-
-    def feed_bandwidth(self, data_rate_kb_s: float, threshold_mbit_s: float) -> bool:
-        """Return True if *max_scale* was reduced due to bandwidth."""
-        if threshold_mbit_s <= 0:
-            return False
-        if time.monotonic() > self.deadline:
-            return False
-        if data_rate_kb_s > threshold_mbit_s * 125.0 and self.max_scale > 1:
-            self.max_scale = max(1, self.max_scale - 2)
-            return True
-        return False
-
-
-class Profile:
-    """Collect frame-type counts and byte totals for bandwidth diagnosis."""
-
-    __slots__ = ("keyframes", "deltas", "skipped", "bytes_out", "t0")
-
-    def __init__(self) -> None:
-        self.keyframes = 0
-        self.deltas = 0
-        self.skipped = 0
-        self.bytes_out = 0
-        self.t0 = time.monotonic()
-
-    def dump(self, path: str) -> None:
-        elapsed = time.monotonic() - self.t0
-        if elapsed <= 0:
-            return
-        with open(path, "w") as f:
-            f.write(
-                f"elapsed_s={elapsed:.1f}\n"
-                f"keyframes={self.keyframes}\n"
-                f"deltas={self.deltas}\n"
-                f"skipped={self.skipped}\n"
-                f"total_bytes={self.bytes_out}\n"
-                f"KB_s={self.bytes_out / elapsed / 1000:.0f}\n"
-            )
 
 
 def blit_vis_channels(rgb: np.ndarray, mode: int) -> np.ndarray:
@@ -205,11 +74,15 @@ class GraphicsScaler:
         "sixel_baseline",
         "sixel_frame_no",
         "had_delta",
-        "profile",
         "kitty_frame_no",
         "dump_dir",
         "stats_fh",
         "blitter_vis",
+        "_keyframes",
+        "_deltas",
+        "_skipped",
+        "_bytes_out",
+        "_t0",
     )
 
     def __init__(
@@ -234,17 +107,22 @@ class GraphicsScaler:
         self.baseline: np.ndarray | None = None
         self.sixel_baseline: np.ndarray | None = None
         self.had_delta = False
-        self.profile = Profile()
         self.kitty_frame_no = 0
         self.sixel_frame_no = 0
         self.blitter_vis = 0
-        if self.dump_dir := os.environ.get("GAMBATERM_DUMP_FRAMES") is not None:
+        self._keyframes = 0
+        self._deltas = 0
+        self._skipped = 0
+        self._bytes_out = 0
+        self._t0 = time.monotonic()
+        self.dump_dir = os.environ.get("GAMBATERM_DUMP_FRAMES")
+        if self.dump_dir is not None:
             os.makedirs(self.dump_dir, exist_ok=True)
-        if profile_dir := os.environ.get("GAMBATERM_PROFILE_DIR") is None:
+        csv_path = os.environ.get("GAMBATERM_PROFILE")
+        if csv_path is None:
             self.stats_fh = open(os.devnull, "w")
         else:
-            os.makedirs(profile_dir, exist_ok=True)
-            csv_path = f"{profile_dir}/gambatterm-frame-stats.csv"
+            os.makedirs(os.path.dirname(csv_path) or ".", exist_ok=True)
             is_new = not os.path.exists(csv_path) or os.path.getsize(csv_path) == 0
             self.stats_fh = open(csv_path, "a")
             if is_new:
@@ -254,7 +132,22 @@ class GraphicsScaler:
                     "x1,y1,rect_w,rect_h,"
                     "refx_kitty,refy_kitty,scale\n"
                 )
-            atexit.register(self.profile.dump, f"{profile_dir}/gambaterm-profile.txt")
+            stem, _ = os.path.splitext(csv_path)
+            atexit.register(self._dump_profile, f"{stem}-summary.txt")
+
+    def _dump_profile(self, path: str) -> None:
+        elapsed = time.monotonic() - self._t0
+        if elapsed <= 0:
+            return
+        with open(path, "w") as f:
+            f.write(
+                f"elapsed_s={elapsed:.1f}\n"
+                f"keyframes={self._keyframes}\n"
+                f"deltas={self._deltas}\n"
+                f"skipped={self._skipped}\n"
+                f"total_bytes={self._bytes_out}\n"
+                f"KB_s={self._bytes_out / elapsed / 1000:.0f}\n"
+            )
 
     @property
     def position(self) -> tuple[int, int]:
@@ -354,6 +247,30 @@ class GraphicsScaler:
             cell_w,
         )
 
+    def _skip_if_identical(
+        self, video: np.ndarray, last_frame: np.ndarray | None, frame_no_attr: str
+    ) -> bool:
+        """Return True (and log skip) if *video* is identical to *last_frame*."""
+        if last_frame is None or video.shape != last_frame.shape:
+            return False
+        if not np.array_equal(video, last_frame):
+            return False
+        self._skipped += 1
+        n = getattr(self, frame_no_attr) + 1
+        setattr(self, frame_no_attr, n)
+        self.stats_fh.write(f"{n},0.0,skip,0,0,,,,,,,,,,,,,\n")
+        self.stats_fh.flush()
+        return True
+
+    def _upscale_rgba(self, video: np.ndarray) -> np.ndarray:
+        """Convert *video* (uint32) to upscaled RGBA uint8 array."""
+        rgba = to_rgba_u8(video)
+        if self.kitty_scale > 1:
+            rgba = np.repeat(
+                np.repeat(rgba, self.kitty_scale, axis=0), self.kitty_scale, axis=1
+            )
+        return rgba
+
     def blit_sixel(
         self,
         video: np.ndarray,
@@ -367,14 +284,8 @@ class GraphicsScaler:
 
         Returns empty bytes if the frame is unchanged from *last_frame*.
         """
-        if last_frame is not None and video.shape == last_frame.shape:
-            if np.array_equal(video, last_frame):
-                self.profile.skipped += 1
-                self.sixel_frame_no += 1
-                n = self.sixel_frame_no
-                self.stats_fh.write(f"{n},0.0,skip,0,0,,,,,,,,,,,,,\n")
-                self.stats_fh.flush()
-                return b""
+        if self._skip_if_identical(video, last_frame, "sixel_frame_no"):
+            return b""
 
         self.sixel_frame_no += 1
         n = self.sixel_frame_no
@@ -391,11 +302,11 @@ class GraphicsScaler:
         )
 
         if self.sixel_baseline is None:
-            self.profile.keyframes += 1
+            self._keyframes += 1
             self.sixel_baseline = video.copy()
             colors = to_rgb(video)
             result = encode_sixel(colors, max_colors=256, scale=self.scale)
-            self.profile.bytes_out += len(result)
+            self._bytes_out += len(result)
             elapsed_us = int((time.perf_counter() - t0) * 1e6)
             self.stats_fh.write(
                 f"{n},0.0,first_keyframe,{len(result)},{elapsed_us},"
@@ -410,11 +321,11 @@ class GraphicsScaler:
         changed_pct = changed / total_pixels
 
         if changed_pct > SIXEL_REBASELINE_THRESHOLD:
-            self.profile.keyframes += 1
+            self._keyframes += 1
             self.sixel_baseline = video.copy()
             colors = to_rgb(video)
             result = encode_sixel(colors, max_colors=256, scale=self.scale)
-            self.profile.bytes_out += len(result)
+            self._bytes_out += len(result)
             elapsed_us = int((time.perf_counter() - t0) * 1e6)
             self.stats_fh.write(
                 f"{n},{changed_pct:.2f},rebaseline,{len(result)},{elapsed_us},"
@@ -423,7 +334,7 @@ class GraphicsScaler:
             self.stats_fh.flush()
             return f"\033[{self.refx};{self.refy}H\033[0m".encode() + result  # type: ignore[no-any-return]
 
-        self.profile.deltas += 1
+        self._deltas += 1
 
         # Quantize only changed pixels for the overlay delta; unchanged
         # pixels are transparent (skip_index=255) and already on screen
@@ -448,7 +359,7 @@ class GraphicsScaler:
         # Baseline updated every overlay: sixel P2=1 transparency requires
         # frame-to-frame diffs so unchanged pixels aren't double-rendered.
         self.sixel_baseline = video.copy()
-        self.profile.bytes_out += len(result)
+        self._bytes_out += len(result)
         elapsed_us = int((time.perf_counter() - t0) * 1e6)
 
         self.stats_fh.write(
@@ -475,8 +386,8 @@ class GraphicsScaler:
         t0 = time.perf_counter()
         colors = to_rgb(video)
         result = encode_sixel(colors, max_colors=256, scale=self.scale)
-        self.profile.keyframes += 1
-        self.profile.bytes_out += len(result)
+        self._keyframes += 1
+        self._bytes_out += len(result)
         elapsed_us = int((time.perf_counter() - t0) * 1e6)
         self.stats_fh.write(
             f"{self.sixel_frame_no},0.0,blitless_keyframe,{len(result)},{elapsed_us},"
@@ -487,8 +398,8 @@ class GraphicsScaler:
 
     def encode_kitty_frame(
         self,
-        video: "np.ndarray",
-        encode_fn: "Callable[..., bytes]",
+        video: np.ndarray,
+        encode_fn: Callable[..., bytes],
     ) -> bytes:
         """Encode kitty frame: keyframe on first call, dirty-rect delta otherwise.
 
@@ -513,13 +424,9 @@ class GraphicsScaler:
             refy_kitty=self.refy_kitty,
         )
         if self.baseline is None:
-            self.profile.keyframes += 1
+            self._keyframes += 1
             self.baseline = video.copy()
-            rgba = to_rgba_u8(video)
-            if self.kitty_scale > 1:
-                rgba = np.repeat(
-                    np.repeat(rgba, self.kitty_scale, axis=0), self.kitty_scale, axis=1
-                )
+            rgba = self._upscale_rgba(video)
             h, w = rgba.shape[:2]
             parts: list[bytes] = [
                 f"\033[{self.refx_kitty};{self.refy_kitty}H".encode(),
@@ -554,13 +461,9 @@ class GraphicsScaler:
             changed_pct > KITTY_REBASELINE_THRESHOLD
             or rect_w * rect_h > total_pixels * 0.80
         ):
-            self.profile.keyframes += 1
+            self._keyframes += 1
             self.baseline = video.copy()
-            rgba = to_rgba_u8(video)
-            if self.kitty_scale > 1:
-                rgba = np.repeat(
-                    np.repeat(rgba, self.kitty_scale, axis=0), self.kitty_scale, axis=1
-                )
+            rgba = self._upscale_rgba(video)
             h, w = rgba.shape[:2]
             rebase_parts: list[bytes] = [
                 f"\033[{self.refx_kitty};{self.refy_kitty}H".encode(),
@@ -577,7 +480,7 @@ class GraphicsScaler:
             self.stats_fh.flush()
             return result
 
-        self.profile.deltas += 1
+        self._deltas += 1
 
         rect_video = np.ascontiguousarray(video[y1:y2, x1:x2])
         rect_rgba = to_rgba_u8(rect_video)
@@ -647,16 +550,10 @@ class GraphicsScaler:
         Uses a baseline image (i=1) with dirty-rect delta updates (i=2)
         via p=1 placement replacement.  Returns empty bytes when unchanged.
         """
-        if last_frame is not None and video.shape == last_frame.shape:
-            if np.array_equal(video, last_frame):
-                self.profile.skipped += 1
-                self.kitty_frame_no += 1
-                n = self.kitty_frame_no
-                self.stats_fh.write(f"{n},0.0,skip,0,0,,,,,,,,,,,,,\n")
-                self.stats_fh.flush()
-                return b""
+        if self._skip_if_identical(video, last_frame, "kitty_frame_no"):
+            return b""
         result = self.encode_kitty_frame(video, encode_kitty_rgba)
-        self.profile.bytes_out += len(result)
+        self._bytes_out += len(result)
         return result
 
 
@@ -691,7 +588,7 @@ class GraphicsRenderer:
         self._blitter_vis = 0
         self._force_clear = False
         self._force_keyframe = False
-        self._kitty_pending_delete = False
+        self._ghostty_kitty_gfx_clear = False
 
     @property
     def blitter_vis(self) -> int:
@@ -766,7 +663,7 @@ class GraphicsRenderer:
         if (
             new_protocol != old_protocol
             or new_color != old_color
-            or (resized and new_protocol is GraphicsProtocol.TEXT)
+            or resized
         ):
             clear = TEXT_HOME_CLEAR
         if GraphicsProtocol.KITTY in (old_protocol, new_protocol):
@@ -783,25 +680,12 @@ class GraphicsRenderer:
         height: int,
         width: int,
     ) -> bytes:
-        """Encode *video* as a graphics frame.
+        prefix, suffix = b"", b""
 
-        Handles pending kitty deletions, forced keyframes, lazy scaler
-        creation, force-clear after autoscale reductions, and terminal-
-        specific workarounds.
-
-        Returns empty bytes when the frame is identical to *last_frame*.
-        """
-        prefix = b""
-        suffix = b""
-
-        if self._kitty_pending_delete:
-            prefix = (
-                b"\033[?2026h"
-                b"\033_Ga=d,d=i,i=1\033\\"
-                b"\033_Ga=d,d=i,i=2\033\\"
-            )
+        if self._ghostty_kitty_gfx_clear:
+            prefix = b"\033[?2026h" + KITTY_GFX_GHOSTTY_CLEAR
             suffix = b"\033[?2026l"
-            self._kitty_pending_delete = False
+            self._ghostty_kitty_gfx_clear = False
 
         if self._force_keyframe:
             if self.scaler is not None:
@@ -852,7 +736,16 @@ class GraphicsRenderer:
         if self.autoscale.feed_bandwidth(
             data_rate_kb_s, self._autoscale_config.bandwidth_mbits
         ):
-            self._rescale(height, width)
+            if self.scaler is not None:
+                self.scaler.close()
+            self.scaler = GraphicsScaler.recompute(
+                self._term,
+                self._console,
+                height,
+                width,
+                self.autoscale,
+            )
+            self.scaler.blitter_vis = self._blitter_vis
             self._force_clear = True
 
     def feed_fps(
@@ -870,23 +763,21 @@ class GraphicsRenderer:
                 self._terminal_name == "ghostty"
                 and protocol is GraphicsProtocol.KITTY
             ):
-                self._kitty_pending_delete = True
-            self._rescale(height, width)
+                # WIP: Verifying that, ghostty has trouble "clearing" graphics correctly,
+                # it doesn't allow us to "clear all", so, we clear by individual ID
+                self._ghostty_kitty_gfx_clear = True
+            if self.scaler is not None:
+                self.scaler.close()
+            self.scaler = GraphicsScaler.recompute(
+                self._term,
+                self._console,
+                height,
+                width,
+                self.autoscale,
+            )
+            self.scaler.blitter_vis = self._blitter_vis
             if protocol is not GraphicsProtocol.KITTY:
                 self._force_clear = True
-
-    def _rescale(self, height: int, width: int) -> None:
-        """Recreate the scaler after an autoscale reduction."""
-        if self.scaler is not None:
-            self.scaler.close()
-        self.scaler = GraphicsScaler.recompute(
-            self._term,
-            self._console,
-            height,
-            width,
-            self.autoscale,
-        )
-        self.scaler.blitter_vis = self._blitter_vis
 
     def close(self) -> None:
         if self.scaler is not None:

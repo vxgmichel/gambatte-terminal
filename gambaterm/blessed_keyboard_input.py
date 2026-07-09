@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from contextlib import contextmanager
 from typing import Callable, Iterator
 
@@ -9,15 +8,6 @@ from blessed.keyboard import Keystroke
 
 from .dom_codes import DomCode
 from .keys import ASCII_PRINTABLE_TO_DOM_CODE
-
-_INKEY_LOG = os.environ.get("GAMBATERM_LOG_INKEY")
-
-
-def _log_inkey(key: Keystroke) -> None:
-    if _INKEY_LOG is None:
-        return
-    with open(_INKEY_LOG, "a") as f:
-        f.write(f"{key!r}\n")
 
 
 # Blessed synthesizes key_name as "KEY_{char}" for A-Z and 0-9 on release
@@ -83,7 +73,6 @@ def blessed_key_pressed_context(
                 key = term.inkey(timeout=0)
                 if not key:
                     break
-                _log_inkey(key)
                 if not key.released:
                     keystrokes.append(key)
                 dom_code = keystroke_to_dom_code(key)
