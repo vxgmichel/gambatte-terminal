@@ -8,6 +8,7 @@ import codecs
 from concurrent.futures import ThreadPoolExecutor, CancelledError
 from enum import Enum, auto
 import hashlib
+import os
 import contextlib
 from typing import IO, Callable, Generator, TypeAlias, TYPE_CHECKING
 
@@ -174,14 +175,26 @@ class KeyboardSupportDetection:
         return KeyboardSupport.BASIC
 
 
-FORCE_SIXEL_BLITLESS = ("contour", "tabby", "konsole", "mlterm", "iterm2")
-# ghostty has problems with multiple images ???
-FORCE_KITTY_BLITLESS = ("rio",) # ghostty ?
-
-# Terminals with corrupted unicode font rendering; always prefer graphics.
+# many terminals do not support multiple overlaying images or ID's, like used with kitty, or don't
+# support the "transparent pixels" used with sixel. Other terminals, like 'rio' and 'mlterm' have
+# common font alignment issues, where the "full unicode block" do not touch completely, and so they
+# are "banned" from using text mode, preferring their graphics modes for all scales, instead.
+FORCE_SIXEL_BLITLESS = ("contour", "tabby", "konsole", "mlterm", "iterm2", "wezterm")
+FORCE_KITTY_BLITLESS = ("rio",)
 BAD_TEXT = ("rio", "mlterm")
 
-# TODO: codify that ghostty has broken kitty support, not clearing -- investigate and maybe bugfix it
+# I think these sixel terminals draw directly to the X11 window without any memory, and so when they
+# lose focus or get occluded by another window, their image contents are lost. Lucky for us, they
+# support the DEC Private Mode for detecting FOCUS_IN and FOCUS_OUT events as a workaround to detect
+# and force full keyframe refresh.
+SIXEL_FORCE_REFRESH_ON_FOCUS = ("mlterm", "xterm")
+
+# xterm has a 1,000 x 1,000 image size (it begins to get cropped), an approximate scale cap is enforced.
+XTERM_SIXEL_SCALE_CAP = ("xterm",)
+
+# Ghostty does not support the bulk a=d,d=a delete action; we emit individual
+# a=d,d=i delete commands per ID instead.
+FORCE_KITTY_INDIVIDUAL_DELETES = ("ghostty",)
 KITTY_GFX_CLEAR = b"\033_Ga=d,d=a\033\\"
 KITTY_GFX_GHOSTTY_CLEAR = (b"\033_Ga=d,d=i,i=1\033\\" +
                            b"\033_Ga=d,d=i,i=2\033\\")
@@ -193,11 +206,16 @@ def detect_graphics_frontend(
     config: "AppConfig",
     keyboard_detection: KeyboardSupportDetection,
 ) -> "AppConfig":
-    """Probe terminal graphics capabilities and set config.graphics_protocol.
+    """Probe terminal graphics capabilities and set config.graphics_protocol."""
+    if os.environ.get("GAMBATERM_FORCE_SIXEL"):
+        config.available_graphics = [GraphicsProtocol.TEXT, GraphicsProtocol.SIXEL]
+        config.graphics_protocol = GraphicsProtocol.SIXEL
+        return config
+    if os.environ.get("GAMBATERM_FORCE_KITTY"):
+        config.available_graphics = [GraphicsProtocol.TEXT, GraphicsProtocol.KITTY]
+        config.graphics_protocol = GraphicsProtocol.KITTY
+        return config
 
-    Detects both kitty and sixel support, preferring kitty for the
-    initial protocol.
-    """
     has_kitty = keyboard_detection.get() == KeyboardSupport.KEYBOARD_PROTOCOL
     has_sixel = does_sixel(terminal)
 
@@ -208,11 +226,12 @@ def detect_graphics_frontend(
         config.available_graphics.append(GraphicsProtocol.BLITLESS_SIXEL)
         config.graphics_protocol = GraphicsProtocol.TEXT
         return config
-    if has_kitty:
-        config.available_graphics.append(GraphicsProtocol.KITTY)
     if has_sixel:
         config.available_graphics.append(GraphicsProtocol.SIXEL)
+    if has_kitty:
+        config.available_graphics.append(GraphicsProtocol.KITTY)
 
+    # Prefer sixel, then kitty, then text
     if has_sixel:
         config.graphics_protocol = GraphicsProtocol.SIXEL
     elif has_kitty:

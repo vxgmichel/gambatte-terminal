@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import time
+import os
 import argparse
 from pathlib import Path
 from typing import ContextManager, TYPE_CHECKING
@@ -136,7 +137,7 @@ def add_tuning_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--graphics-autoscale",
         type=str,
-        default="90s,50fps",
+        default="90s,54fps",
         help="Auto-scale graphics when frame rate or bandwidth triggers fire. "
         "Comma-separated tokens with suffixes: <N>s indicates number of seconds "
         "after resize, mode switch, or game start that autoscaling is enabledi by "
@@ -192,6 +193,11 @@ def detect_graphics_local(
     Returns (selected, available) where selected is the preferred protocol
     and available lists all supported protocols.
     """
+    if os.environ.get("GAMBATERM_FORCE_SIXEL"):
+        return GraphicsProtocol.SIXEL, [GraphicsProtocol.TEXT, GraphicsProtocol.SIXEL]
+    if os.environ.get("GAMBATERM_FORCE_KITTY"):
+        return GraphicsProtocol.KITTY, [GraphicsProtocol.TEXT, GraphicsProtocol.KITTY]
+
     available = [GraphicsProtocol.TEXT]
     if sv is None:
         sv = terminal.get_software_version(timeout=1.0)
@@ -199,14 +205,14 @@ def detect_graphics_local(
     if blitless:
         available.append(GraphicsProtocol.BLITLESS_SIXEL)
         return GraphicsProtocol.BLITLESS_SIXEL, available
+    if does_sixel(terminal, sv=sv):
+        available.append(GraphicsProtocol.SIXEL)
     has_kitty = is_kitty_keyboard_protocol_supported(terminal, timeout=1.0)
     if has_kitty:
         available.append(GraphicsProtocol.KITTY)
-    if does_sixel(terminal, sv=sv):
-        available.append(GraphicsProtocol.SIXEL)
-    # Prefer kitty, then sixel, then text
-    if GraphicsProtocol.KITTY in available:
-        return GraphicsProtocol.KITTY, available
+    # Prefer sixel, then kitty, then text
+    if GraphicsProtocol.SIXEL in available:
+        return GraphicsProtocol.SIXEL, available
     return available[-1], available
 
 

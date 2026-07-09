@@ -8,6 +8,7 @@
 # These mostly help reduce regressions in either graphics renderer, especially the individual byte
 # colors, the RGB ordering is a bit tricky between the native emulator screen and the two graphics
 # renderers, or any other misfiring, or as confirmation of adjustments to blitters.
+import time
 from pathlib import Path
 
 import numpy as np
@@ -65,15 +66,15 @@ def test_encode_kitty_rgba_positioned():
     rgba[:, :, 3] = 255
     result = encode_kitty_rgba(rgba.tobytes(), 4, 4, image_id=2, X=3, Y=5, z=1)
     text = result.decode("latin-1")
-    assert text.startswith("\033_Ga=T,i=2,q=2,f=32,s=4,v=4,o=z,z=1,X=3,Y=5;")
+    assert text.startswith("\033_Ga=T,i=2,q=1,f=32,s=4,v=4,o=z,N=1,z=1,X=3,Y=5;")
     assert text.endswith("\033\\")
 
 
 def test_kitty_dirty_rect_delta():
     """Dirty-rect delta uses p=1 placement with cell-snapped cursor position."""
-    from gambaterm.graphics_scaler import GraphicsScaler
+    from gambaterm.graphics_scaler import FrameEncoder
 
-    scaler = GraphicsScaler(
+    scaler = FrameEncoder(
         scale=1,
         kitty_scale=1,
         refx=1,
@@ -85,24 +86,24 @@ def test_kitty_dirty_rect_delta():
     )
 
     baseline = np.full((10, 10), 0xFF00FF00, dtype=np.uint32)
-    scaler.blit_kitty(baseline, None)
+    scaler.encode_kitty(baseline, None)
 
     changed = baseline.copy()
     changed[3, 4] = 0xFFFF0000
-    result = scaler.blit_kitty(changed, baseline)
+    result = scaler.encode_kitty(changed, baseline)
 
     text = result.decode("latin-1")
-    assert "i=2" in text
     assert "p=1" in text
-    assert "z=" not in text
-    assert "i=1" not in text
+    assert "a=T" in text
+    assert "f=32" in text
+    assert ",i=1," not in text
 
 
 def test_kitty_rebaseline_deletes_delta():
-    """A rebaseline sends a new i=1 and explicitly deletes i=2."""
-    from gambaterm.graphics_scaler import GraphicsScaler
+    """A rebaseline deletes the old delta (i=100) and sends a new keyframe (i=1)."""
+    from gambaterm.graphics_scaler import FrameEncoder
 
-    scaler = GraphicsScaler(
+    scaler = FrameEncoder(
         scale=1,
         kitty_scale=1,
         refx=1,
@@ -114,25 +115,26 @@ def test_kitty_rebaseline_deletes_delta():
     )
 
     baseline = np.full((10, 10), 0xFF00FF00, dtype=np.uint32)
-    scaler.blit_kitty(baseline, None)
+    scaler.encode_kitty(baseline, None)
 
     changed = baseline.copy()
     changed[0, 0] = 0xFFFF0000
-    scaler.blit_kitty(changed, baseline)
+    scaler.encode_kitty(changed, baseline)
 
     big_change = np.full((10, 10), 0xFF0000FF, dtype=np.uint32)
-    result = scaler.blit_kitty(big_change, changed)
+    result = scaler.encode_kitty(big_change, changed)
     text = result.decode("latin-1")
-    assert "i=1" in text
-    assert "a=d,d=i,i=2" in text
-    assert "z=1" not in text
+    assert "a=d,d=i,i=100" in text
+    assert "a=T" in text
+    assert "f=32" in text
+    assert ",i=1," in text
 
 
 def test_sixel_overlay_delta():
     """A small change produces a full-frame sixel overlay at refx,refy."""
-    from gambaterm.graphics_scaler import GraphicsScaler
+    from gambaterm.graphics_scaler import FrameEncoder
 
-    scaler = GraphicsScaler(
+    scaler = FrameEncoder(
         scale=1,
         kitty_scale=1,
         refx=5,
@@ -144,11 +146,11 @@ def test_sixel_overlay_delta():
     )
 
     baseline = np.full((10, 10), 0xFF00FF00, dtype=np.uint32)
-    scaler.blit_sixel(baseline, None)
+    scaler.encode_sixel(baseline, None)
 
     changed = baseline.copy()
     changed[3, 4] = 0xFFFF0000
-    result = scaler.blit_sixel(changed, baseline)
+    result = scaler.encode_sixel(changed, baseline)
 
     text = result.decode("latin-1")
     assert text.startswith("\033[5;10H\033[0m")
@@ -158,9 +160,9 @@ def test_sixel_overlay_delta():
 
 def test_sixel_skip_identical():
     """Identical frames return empty bytes."""
-    from gambaterm.graphics_scaler import GraphicsScaler
+    from gambaterm.graphics_scaler import FrameEncoder
 
-    scaler = GraphicsScaler(
+    scaler = FrameEncoder(
         scale=1,
         kitty_scale=1,
         refx=1,
@@ -172,16 +174,16 @@ def test_sixel_skip_identical():
     )
 
     frame = np.full((10, 10), 0xFF00FF00, dtype=np.uint32)
-    scaler.blit_sixel(frame, None)
-    result = scaler.blit_sixel(frame, frame)
+    scaler.encode_sixel(frame, None)
+    result = scaler.encode_sixel(frame, frame)
     assert result == b""
 
 
 def test_sixel_rebaseline_on_large_change():
     """A change exceeding the threshold produces a full-frame sixel at refx,refy."""
-    from gambaterm.graphics_scaler import GraphicsScaler
+    from gambaterm.graphics_scaler import FrameEncoder
 
-    scaler = GraphicsScaler(
+    scaler = FrameEncoder(
         scale=1,
         kitty_scale=1,
         refx=2,
@@ -193,10 +195,10 @@ def test_sixel_rebaseline_on_large_change():
     )
 
     baseline = np.full((10, 10), 0xFF00FF00, dtype=np.uint32)
-    scaler.blit_sixel(baseline, None)
+    scaler.encode_sixel(baseline, None)
 
     changed = np.full((10, 10), 0xFF0000FF, dtype=np.uint32)
-    result = scaler.blit_sixel(changed, baseline)
+    result = scaler.encode_sixel(changed, baseline)
 
     text = result.decode("latin-1")
     assert text.startswith("\033[2;3H\033[0m")
@@ -241,10 +243,19 @@ class TestAutoScale:
     def test_reduces_to_floor_of_one():
         from gambaterm.graphics_scaler import AutoScale
 
-        autoscale = AutoScale(4, -1)
+        autoscale = AutoScale(8, -1)
+        result = autoscale.feed_fps(30.0, 40.0)
+        assert result is True
+        assert autoscale.max_scale == 6
+        autoscale._next_allow = 0.0
+        result = autoscale.feed_fps(30.0, 40.0)
+        assert result is True
+        assert autoscale.max_scale == 4
+        autoscale._next_allow = 0.0
         result = autoscale.feed_fps(30.0, 40.0)
         assert result is True
         assert autoscale.max_scale == 2
+        autoscale._next_allow = 0.0
         result = autoscale.feed_fps(30.0, 40.0)
         assert result is True
         assert autoscale.max_scale == 1
@@ -261,6 +272,15 @@ class TestAutoScale:
         assert autoscale.max_scale == 6
         autoscale.reset()
         assert autoscale.max_scale == 8
+
+    @staticmethod
+    def test_reset_deadline_at_least_1s_cooldown():
+        from gambaterm.graphics_scaler import AutoScale
+
+        autoscale = AutoScale(8, 0)
+        autoscale.reset()
+        min_deadline = time.monotonic() + 0.99
+        assert autoscale.deadline >= min_deadline
 
     @pytest.mark.parametrize("window_s", [0, -1])
     def test_window_modes(self, window_s):
@@ -344,3 +364,69 @@ class TestParseAutoscale:
 
         with pytest.raises(ValueError):
             parse_autoscale(value)
+
+
+class TestKittyFrameCache:
+    @staticmethod
+    def test_keyframe_cache_hit():
+        """Single-slot cache replays an identical rebaseline via a=p."""
+        import os
+        from gambaterm.graphics_scaler import FrameEncoder
+
+        os.environ["GAMBATERM_FORCE_REBASELINE"] = "1"
+        try:
+            scaler = FrameEncoder(1, 1, 1, 1, 1, 1, 24, 12)
+            frame_a = np.full((10, 10), 0xFF00FF00, dtype=np.uint32)
+            scaler.encode_kitty_frame(
+                frame_a, lambda d, w, h, **kw: b"\033_Ga=T")
+            result = scaler.encode_kitty_frame(
+                frame_a, lambda d, w, h, **kw: b"\033_Ga=T")
+            text = result.decode("latin-1")
+            assert "a=p" in text
+            assert "a=T" not in text
+        finally:
+            os.environ.pop("GAMBATERM_FORCE_REBASELINE", None)
+
+    @staticmethod
+    def test_keyframe_cache_eviction():
+        """Single-slot cache: only the most recent keyframe is cached."""
+        import os
+        from gambaterm.graphics_scaler import FrameEncoder
+
+        os.environ["GAMBATERM_FORCE_REBASELINE"] = "1"
+        try:
+            scaler = FrameEncoder(1, 1, 1, 1, 1, 1, 24, 12)
+
+            frame_a = np.full((10, 10), 0xFF00FF00, dtype=np.uint32)
+            frame_b = np.full((10, 10), 0xFF0000FF, dtype=np.uint32)
+
+            scaler.encode_kitty_frame(
+                frame_a, lambda d, w, h, **kw: b"\033_Ga=T")
+            scaler.encode_kitty_frame(
+                frame_b, lambda d, w, h, **kw: b"\033_Ga=T")
+
+            result = scaler.encode_kitty_frame(
+                frame_a, lambda d, w, h, **kw: b"\033_Ga=T")
+            text = result.decode("latin-1")
+            assert "a=T" in text
+            assert "a=p" not in text
+        finally:
+            os.environ.pop("GAMBATERM_FORCE_REBASELINE", None)
+
+    @staticmethod
+    def test_delta_after_cache_hit_keyframe():
+        """Delta after a cache-hit keyframe uses DELTA_ID=100 with p=1."""
+        from gambaterm.graphics_scaler import FrameEncoder
+
+        scaler = FrameEncoder(1, 1, 1, 1, 1, 1, 2, 2)
+
+        frame_a = np.full((10, 10), 0xFF00FF00, dtype=np.uint32)
+        scaler.encode_kitty(frame_a, None)
+
+        changed = frame_a.copy()
+        changed[3, 4] = 0xFFFF0000
+        result_delta = scaler.encode_kitty(changed, frame_a)
+        text_delta = result_delta.decode("latin-1")
+        assert "p=1" in text_delta
+        assert "a=T" in text_delta
+        assert "i=100" in text_delta

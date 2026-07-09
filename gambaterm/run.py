@@ -19,6 +19,11 @@ from .colors import ColorMode
 from .graphics_scaler import AutoScaleConfig, GraphicsRenderer
 from .remote_terminal import GraphicsProtocol, resolve_graphics_protocol
 
+debug_input_fh = None
+debug_input_path = os.environ.get("GAMBATERM_DEBUG_INPUT")
+if debug_input_path:
+    debug_input_fh = open(debug_input_path, "w")
+
 
 @contextlib.contextmanager
 def timing(deltas: Deque[float]) -> Iterator[None]:
@@ -208,6 +213,10 @@ def run(
         new_color_mode = color_mode
         new_graphics_protocol = graphics_protocol
         for key in input_getter.pop_keystrokes():
+            if debug_input_fh is not None:
+                debug_input_fh.write(
+                    f"{time.monotonic():.4f} {key.key_name or key} {key!r}\n"
+                )
             if key.key_name == "CPR_RESPONSE":
                 screen_ready = True
             elif key.key_name == "KEY_CTRL_C":

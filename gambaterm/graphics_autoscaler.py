@@ -71,7 +71,8 @@ class AutoScale:
     * :meth:`feed_bandwidth` reduces when output data rate exceeds a cap.
 
     Reductions are only allowed within *window_s* seconds of construction
-    or the most recent :meth:`reset` call.
+    or the most recent :meth:`reset` call.  After each scale-down there
+    is a 1-second cooldown before another reduction is allowed.
     """
 
     def __init__(self, ceiling: int, window_s: int) -> None:
@@ -79,6 +80,11 @@ class AutoScale:
         self.window_s = window_s
         self.max_scale = ceiling
         self.deadline = self.compute_deadline()
+        self._next_allow = 0.0
+
+    def _reduce(self) -> None:
+        self.max_scale = max(1, self.max_scale - 2)
+        self._next_allow = time.monotonic() + 1.0
 
     def compute_deadline(self) -> float:
         if self.window_s == 0:
@@ -87,21 +93,28 @@ class AutoScale:
             return float("inf")
         return time.monotonic() + self.window_s
 
+    def compute_deadline_with_cooldown(self) -> float:
+        deadline = self.compute_deadline()
+        cooldown_deadline = time.monotonic() + 1.0
+        return max(deadline, cooldown_deadline)
+
     def feed_fps(self, video_fps: float, threshold_fps: float) -> bool:
         """Return True if *max_scale* was reduced."""
         if threshold_fps <= 0:
             return False
         if time.monotonic() > self.deadline:
             return False
+        if time.monotonic() < self._next_allow:
+            return False
         if video_fps < threshold_fps and self.max_scale > 1:
-            self.max_scale = max(1, self.max_scale - 2)
+            self._reduce()
             return True
         return False
 
     def reset(self) -> None:
-        """Restore *max_scale* to ceiling, reset deadline."""
+        """Restore *max_scale* to ceiling, reset deadline with 1s cooldown."""
         self.max_scale = self._ceiling
-        self.deadline = self.compute_deadline()
+        self.deadline = self.compute_deadline_with_cooldown()
 
     def feed_bandwidth(self, data_rate_kb_s: float, threshold_mbit_s: float) -> bool:
         """Return True if *max_scale* was reduced due to bandwidth."""
@@ -109,7 +122,9 @@ class AutoScale:
             return False
         if time.monotonic() > self.deadline:
             return False
+        if time.monotonic() < self._next_allow:
+            return False
         if data_rate_kb_s > threshold_mbit_s * 125.0 and self.max_scale > 1:
-            self.max_scale = max(1, self.max_scale - 2)
+            self._reduce()
             return True
         return False
