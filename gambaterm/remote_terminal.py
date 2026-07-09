@@ -197,7 +197,7 @@ XTERM_SIXEL_SCALE_CAP = ("xterm",)
 FORCE_KITTY_INDIVIDUAL_DELETES = ("ghostty",)
 KITTY_GFX_CLEAR = b"\033_Ga=d,d=a\033\\"
 KITTY_GFX_GHOSTTY_CLEAR = (b"\033_Ga=d,d=i,i=1\033\\" +
-                           b"\033_Ga=d,d=i,i=2\033\\")
+                           b"\033_Ga=d,d=i,i=100\033\\")
 TEXT_HOME_CLEAR = b"\033[H\033[2J"
 
 

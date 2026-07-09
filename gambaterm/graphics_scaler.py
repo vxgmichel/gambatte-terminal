@@ -199,6 +199,7 @@ class FrameEncoder:
         "_t0",
         "_last_keyframe_hash",
         "_cached_hits",
+        "_flash_pending",
         "_frames_since_rebaseline",
         "_force_rebaseline_every",
     )
@@ -235,6 +236,7 @@ class FrameEncoder:
         self._t0 = time.monotonic()
         self._last_keyframe_hash: int | None = None
         self._cached_hits = 0
+        self._flash_pending = False
         self._frames_since_rebaseline = 0
         self._force_rebaseline_every = int(os.environ.get(
             "GAMBATERM_FORCE_REBASELINE", "0"
@@ -321,6 +323,11 @@ class FrameEncoder:
         self._keyframes += 1
         self.sixel_baseline = video.copy()
         colors = to_rgb(video)
+        if self._flash_pending:
+            self._flash_pending = False
+        elif self.blitter_vis:
+            colors[:, :, :] = 1.0
+            self._flash_pending = True
         result = encode_sixel(colors, max_colors=256, scale=self.scale)
         self._bytes_out += len(result)
         elapsed_us = int((time.perf_counter() - t0) * 1e6)
@@ -328,7 +335,11 @@ class FrameEncoder:
             n, pct_str, action, len(result), elapsed_us,
             f"{self.refx},{self.refy},,,,,",
         )
-        return f"\033[{self.refx};{self.refy}H\033[0m".encode() + result
+        return self._sixel_prefix + result
+
+    @property
+    def _sixel_prefix(self) -> bytes:
+        return f"\033[{self.refx};{self.refy}H\033[0m".encode()
 
     def encode_sixel(
         self,
@@ -375,7 +386,7 @@ class FrameEncoder:
         changed = diff.sum()
         changed_pct = changed / total_pixels
 
-        if changed_pct > SIXEL_REBASELINE_THRESHOLD:
+        if self._flash_pending or changed_pct > SIXEL_REBASELINE_THRESHOLD:
             return self._encode_sixel_keyframe(
                 video, t0, n, f"{changed_pct:.2f}", "rebaseline",
             )
@@ -413,7 +424,7 @@ class FrameEncoder:
             f"{self.refx},{self.refy},,,,,",
         )
 
-        return f"\033[{self.refx};{self.refy}H\033[0m".encode() + result  # type: ignore[no-any-return]
+        return self._sixel_prefix + result
 
     def encode_sixel_full(
         self,
@@ -436,7 +447,7 @@ class FrameEncoder:
             self.sixel_frame_no, "0.0", "blitless_keyframe", len(result), elapsed_us,
             f"{self.refx},{self.refy},,,,,",
         )
-        return f"\033[{self.refx};{self.refy}H\033[0m".encode() + result  # type: ignore[no-any-return]
+        return self._sixel_prefix + result
 
     def encode_kitty_frame(
         self,
@@ -472,6 +483,9 @@ class FrameEncoder:
             self._last_keyframe_hash = hash(video.tobytes())
             rgba = self._upscale_rgba(video)
             h, w = rgba.shape[:2]
+            if self.blitter_vis:
+                rgba[:, :, :3] = 255
+                self._flash_pending = True
             parts: list[bytes] = [
                 f"\033[{self.refx_kitty};{self.refy_kitty}H".encode(),
                 encode_fn(rgba.tobytes(), w, h, image_id=BASELINE_ID),
@@ -500,8 +514,11 @@ class FrameEncoder:
 
         self._frames_since_rebaseline += 1
         force = (
-            self._force_rebaseline_every > 0
-            and self._frames_since_rebaseline >= self._force_rebaseline_every
+            self._flash_pending
+            or (
+                self._force_rebaseline_every > 0
+                and self._frames_since_rebaseline >= self._force_rebaseline_every
+            )
         )
         if (
             force
@@ -532,6 +549,11 @@ class FrameEncoder:
 
             rgba = self._upscale_rgba(video)
             h, w = rgba.shape[:2]
+            if self._flash_pending:
+                self._flash_pending = False
+            elif self.blitter_vis:
+                rgba[:, :, :3] = 255
+                self._flash_pending = True
             prefix = b""
             if self._delta_is_placed:
                 prefix = f"\033_Ga=d,d=i,i={DELTA_ID}\033\\".encode()
@@ -815,6 +837,20 @@ class GraphicsRenderer:
             return b""
         return prefix + result + suffix
 
+    def _rebuild_scaler(self, height: int, width: int) -> None:
+        if self.encoder is not None:
+            self.encoder.close()
+        self.scaler = GraphicsScaler.recompute(
+            self._term,
+            self._console,
+            height,
+            width,
+            self.autoscale,
+            terminal_name=self._terminal_name,
+        )
+        self._make_encoder()
+        self._force_clear = True
+
     def feed_bandwidth(
         self,
         data_rate_kb_s: float,
@@ -827,18 +863,7 @@ class GraphicsRenderer:
         if self.autoscale.feed_bandwidth(
             data_rate_kb_s, self._autoscale_config.bandwidth_mbits
         ):
-            if self.encoder is not None:
-                self.encoder.close()
-            self.scaler = GraphicsScaler.recompute(
-                self._term,
-                self._console,
-                height,
-                width,
-                self.autoscale,
-                terminal_name=self._terminal_name,
-            )
-            self._make_encoder()
-            self._force_clear = True
+            self._rebuild_scaler(height, width)
 
     def feed_fps(
         self,
@@ -858,18 +883,7 @@ class GraphicsRenderer:
                 # WIP: Verifying that, ghostty has trouble "clearing" graphics correctly,
                 # it doesn't allow us to "clear all", so, we clear by individual ID
                 self._ghostty_kitty_gfx_clear = True
-            if self.encoder is not None:
-                self.encoder.close()
-            self.scaler = GraphicsScaler.recompute(
-                self._term,
-                self._console,
-                height,
-                width,
-                self.autoscale,
-                terminal_name=self._terminal_name,
-            )
-            self._make_encoder()
-            self._force_clear = True
+            self._rebuild_scaler(height, width)
 
     def close(self) -> None:
         if self.encoder is not None:
