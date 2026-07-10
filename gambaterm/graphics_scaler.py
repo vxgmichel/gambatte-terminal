@@ -42,8 +42,9 @@ BASELINE_ID = 1
 DELTA_ID = 100
 # Fraction of changed pixels that triggers a full keyframe instead of a delta.
 REBASELINE_THRESHOLD = float(os.environ.get("GAMBATERM_REBASELINE_THRESHOLD", "0.385"))
-# Fraction of bounding-box area (vs total frame) that triggers a kitty keyframe.
-KITTY_REBASELINE_RECT = float(os.environ.get("GAMBATERM_KITTY_REBASELINE_RECT", "0.40"))
+# Fraction of bounding-box area (vs total frame) that triggers a kitty keyframe,
+# regardless of how few pixels changed — catches sparse but widely-spread changes.
+KITTY_REBASELINE_SPREAD = float(os.environ.get("GAMBATERM_KITTY_REBASELINE_SPREAD", "0.30"))
 
 
 def blit_vis_channels(rgb: np.ndarray, mode: int) -> np.ndarray:
@@ -534,7 +535,7 @@ class FrameEncoder:
         if (
             force
             or changed_pct > REBASELINE_THRESHOLD
-            or rect_w * rect_h > total_pixels * KITTY_REBASELINE_RECT
+            or rect_w * rect_h > total_pixels * KITTY_REBASELINE_SPREAD
         ):
             self._keyframes += 1
             self._frames_since_rebaseline = 0
@@ -598,31 +599,28 @@ class FrameEncoder:
         py = y1 * self.kitty_scale
         row = self.refx_kitty + py // self.cell_h
         col = self.refy_kitty + px // self.cell_w
-
-        px2 = px + scaled_w
-        py2 = py + scaled_h
-        col2 = self.refy_kitty + (px2 - 1) // self.cell_w + 1
-        row2 = self.refx_kitty + (py2 - 1) // self.cell_h + 1
-        padded_w = (col2 - col) * self.cell_w
-        padded_h = (row2 - row) * self.cell_h
-
-        padded = np.zeros((padded_h, padded_w, 4), dtype=np.uint8)
         off_y = py % self.cell_h
         off_x = px % self.cell_w
-        padded[off_y : off_y + scaled_h, off_x : off_x + scaled_w] = rect_rgba
 
         if self.blitter_vis:
-            mask = padded[:, :, 3] != 0
-            padded[mask, :3] = blit_vis_channels(padded[mask, :3], self.blitter_vis)
+            mask = rect_rgba[:, :, 3] != 0
+            rect_rgba[mask, :3] = blit_vis_channels(rect_rgba[mask, :3], self.blitter_vis)
 
+        delete_old = (
+            f"\033_Ga=d,d=i,i={DELTA_ID}\033\\".encode()
+            if self._delta_is_placed
+            else b""
+        )
         result_parts: list[bytes] = [
+            delete_old,
             f"\033[{row};{col}H".encode(),
             encode_fn(
-                padded.ravel(),
-                padded_w,
-                padded_h,
+                rect_rgba.ravel(),
+                scaled_w,
+                scaled_h,
                 image_id=DELTA_ID,
-                placement_id=1,
+                X=off_x,
+                Y=off_y,
             ),
         ]
         self._delta_is_placed = True
@@ -631,7 +629,7 @@ class FrameEncoder:
         self._log_frame(
             n, f"{changed_pct:.2f}", "dirty_rect",
             len(result), elapsed_us,
-            f"{row},{col},{self.cell_h},{self.cell_w},{padded_w},{padded_h},"
+            f"{row},{col},{self.cell_h},{self.cell_w},{scaled_w},{scaled_h},"
             f"{x1},{y1},{rect_w},{rect_h},"
             f"{self.refx_kitty},{self.refy_kitty},{self.kitty_scale}",
         )

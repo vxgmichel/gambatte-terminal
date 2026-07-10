@@ -202,14 +202,14 @@ The table below sums up my findings when I tried the most common terminal emulat
 
 | Linux            | Status     | Graphics      | Colors        | Unicode rendering      | Kitty keyboard protocol | Performance | Comments                                                    |
 |------------------|------------|---------------|---------------|------------------------|-------------------------|-------------|-------------------------------------------------------------|
-| Ghostty          | Excellent  | kitty         | 24-bit colors | Good                   | Yes                     | 60 FPS      |                                                             |
-| Kitty            | Excellent  | kitty         | 24-bit colors | Good                   | Yes                     | 60 FPS      |                                                             |
-| foot             | Excellent  | sixel         | 24-bit colors | Good                   | Yes                     | 60 FPS      |                                                             |
-| Rio              | Excellent  | kitty*, Sixel*| 24-bit colors | Good                   | Yes                     | 60 FPS      | \*suggest changing (render strategy)[https://rioterm.com/docs/config#rendererstrategy] to `game` |
-| Contour          | Excellent  | Sixel*        | 24-bit colors | Good                   | Yes                     | 60 FPS\*    | \*does not support transparent sixel pixels, uses more CPU  |
-| XTerm            | Good       | Sixel*        | 24-bit colors | Good                   | No                      | 60 FPS      | \*Launch using `xterm -ti vt340` problems at some resolutions? |
-| Konsole          | Good       | Sixel*        | 24-bit colors | Good                   | No                      | 60 FPS      | \*does not support transparent sixel pixels, uses more CPU  |
-| Tabby            | Good       | Sixel*        | 24-bit colors | Good                   | No                      | 60 FPS\*    | \*does not support transparent sixel pixels, uses more CPU  |
+| Ghostty          | Excellent  | Kitty         | 24-bit colors | Good                   | Yes                     | 60 FPS      |                                                             |
+| Kitty            | Excellent  | Kitty         | 24-bit colors | Good                   | Yes                     | 60 FPS      |                                                             |
+| foot             | Excellent  | Sixel         | 24-bit colors | Good                   | Yes                     | 60 FPS      |                                                             |
+| Rio              | Excellent  | Kitty         | 24-bit colors | Good                   | Yes                     | 60 FPS      | \*suggest changing (render strategy)[https://rioterm.com/docs/config#rendererstrategy] to `game` |
+| Contour          | Excellent  | Sixel         | 24-bit colors | Good                   | Yes                     | 60 FPS      |                                                             |
+| XTerm            | Good       | Sixel*        | 24-bit colors | Good                   | No                      | 60 FPS      | \*Launch using `xterm -ti vt340`                            |
+| Konsole          | Good       | Sixel         | 24-bit colors | Good                   | No                      | 60 FPS      |                                                             |
+| Tabby            | Good       | Sixel         | 24-bit colors | Good                   | No                      | 60 FPS      |                                                             |
 | Alacritty        | Good       |               | 24-bit colors | Good                   | No*                     | 60 FPS      |                                                             |
 | Gnome terminal   | Good       |               | 24-bit colors | Good                   | No                      | 60 FPS      |                                                             |
 | Terminator       | Good       |               | 24-bit colors | Good                   | No                      | 60 FPS      |                                                             |

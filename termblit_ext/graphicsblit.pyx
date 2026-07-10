@@ -14,7 +14,7 @@ import os
 
 cnp.import_array()
 
-ZLIB_LEVEL = int(os.environ.get("GAMBATERM_ZLIB_LEVEL", "3"))
+ZLIB_LEVEL = int(os.environ.get("GAMBATERM_ZLIB_LEVEL", "1"))
 
 
 SIXEL_BITS = np.array([1, 2, 4, 8, 16, 32], dtype=np.uint8)

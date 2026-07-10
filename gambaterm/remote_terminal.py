@@ -179,7 +179,7 @@ class KeyboardSupportDetection:
 # support the "transparent pixels" used with sixel. Other terminals, like 'rio' and 'mlterm' have
 # common font alignment issues, where the "full unicode block" do not touch completely, and so they
 # are "banned" from using text mode, preferring their graphics modes for all scales, instead.
-FORCE_SIXEL_BLITLESS = ("contour", "tabby", "konsole", "mlterm", "iterm2", "wezterm")
+FORCE_SIXEL_BLITLESS = ("contour", "tabby", "konsole", "mlterm", "iterm2", "wezterm", "foot")
 FORCE_KITTY_BLITLESS = ("rio",)
 BAD_TEXT = ("rio", "mlterm")
 

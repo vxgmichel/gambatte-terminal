@@ -71,7 +71,7 @@ def test_encode_kitty_rgba_positioned():
 
 
 def test_kitty_dirty_rect_delta():
-    """Dirty-rect delta uses p=1 placement with cell-snapped cursor position."""
+    """Dirty-rect delta uses pixel-precise X/Y placement with cell-snapped cursor."""
     from gambaterm.graphics_scaler import FrameEncoder
 
     scaler = FrameEncoder(
@@ -93,7 +93,8 @@ def test_kitty_dirty_rect_delta():
     result = scaler.encode_kitty(changed, baseline)
 
     text = result.decode("latin-1")
-    assert "p=1" in text
+    assert "X=4" in text
+    assert "Y=3" in text
     assert "a=T" in text
     assert "f=32" in text
     assert ",i=1," not in text
@@ -415,7 +416,7 @@ class TestKittyFrameCache:
 
     @staticmethod
     def test_delta_after_cache_hit_keyframe():
-        """Delta after a cache-hit keyframe uses DELTA_ID=100 with p=1."""
+        """Delta after a cache-hit keyframe uses DELTA_ID=100 with pixel-precise X/Y."""
         from gambaterm.graphics_scaler import FrameEncoder
 
         scaler = FrameEncoder(1, 1, 1, 1, 1, 1, 2, 2)
@@ -427,6 +428,6 @@ class TestKittyFrameCache:
         changed[3, 4] = 0xFFFF0000
         result_delta = scaler.encode_kitty(changed, frame_a)
         text_delta = result_delta.decode("latin-1")
-        assert "p=1" in text_delta
+        assert "Y=1" in text_delta
         assert "a=T" in text_delta
         assert "i=100" in text_delta
