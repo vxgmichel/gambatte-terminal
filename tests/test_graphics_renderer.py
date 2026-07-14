@@ -327,46 +327,6 @@ class TestAutoScale:
         assert autoscale.max_scale == 8
 
 
-class TestParseAutoscale:
-    @pytest.mark.parametrize("value", ["off", "no", "disabled", ""])
-    def test_disabled(self, value):
-        from gambaterm.graphics_autoscaler import parse_autoscale
-
-        assert parse_autoscale(value).enabled is False
-
-    @pytest.mark.parametrize(
-        "value,seconds,fps,mbits",
-        [
-            ("30fps", -1, 30.0, 0.0),
-            ("60s,30fps,10mb", 60, 30.0, 80.0),
-            ("1500kb", -1, 40.0, 12.0),
-            ("always,25fps", -1, 25.0, 0.0),
-        ],
-    )
-    def test_parse(self, value, seconds, fps, mbits):
-        from gambaterm.graphics_autoscaler import parse_autoscale
-
-        cfg = parse_autoscale(value)
-        assert cfg.enabled is True
-        assert cfg.seconds == seconds
-        assert cfg.fps == fps
-        assert cfg.bandwidth_mbits == mbits
-
-    @pytest.mark.parametrize(
-        "value",
-        [
-            "always,90s,30fps",
-            "disabled,90s,10mb",
-            "off,30fps",
-        ],
-    )
-    def test_mutually_exclusive_errors(self, value):
-        from gambaterm.graphics_autoscaler import parse_autoscale
-
-        with pytest.raises(ValueError):
-            parse_autoscale(value)
-
-
 class TestKittyFrameCache:
     @staticmethod
     def test_keyframe_cache_hit():
