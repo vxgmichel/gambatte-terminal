@@ -42,7 +42,6 @@ class AppConfig:
     speed: float
     skip_inputs: int
     cpr_sync: int
-    limit_bandwidth_kbps: int = 2000
     graphics_protocol: GraphicsProtocol = GraphicsProtocol.TEXT
     available_graphics: list[GraphicsProtocol] = field(
         default_factory=lambda: [GraphicsProtocol.TEXT]
@@ -68,6 +67,13 @@ class LocalAppConfig(AppConfig):
     enable_controller: bool = False
     write_input: Path | None = None
     load_state: int | None = None
+
+
+@dataclass
+class TerminalInfo:
+    terminal: Terminal
+    name: str
+    force_transparent_offset: bool
 
 
 def add_base_arguments(parser: argparse.ArgumentParser) -> None:
@@ -132,20 +138,11 @@ def add_tuning_arguments(parser: argparse.ArgumentParser) -> None:
         "(default: 1 if flag given without value)",
     )
     parser.add_argument(
-        "--limit-bandwidth-kbps",
-        "--lb",
-        type=int,
-        default=2000,
-        help="Limit output bandwidth to N kilobytes per second "
-        "(0=disabled, default: 2000).  Drops frames when projected "
-        "rate exceeds the limit.",
-    )
-    parser.add_argument(
         "--graphics",
         choices=["text", "sixel", "kitty", "auto"],
         default="auto",
         help="Graphics rendering mode "
-        "(kitty, sixel, text, or auto-detect; default is auto)",
+        "(kitty, sixel, text, or auto-detect)",
     )
 
 
@@ -187,7 +184,7 @@ def add_local_only_arguments(parser: argparse.ArgumentParser) -> None:
         "--sd",
         type=Path,
         default=None,
-        help="Path to the save directory (default to the ROM directory)",
+        help="Save directory path (defaults to the ROM directory when unspecified)",
     )
 
 
@@ -222,6 +219,51 @@ def detect_graphics_local(
     return available[-1], available
 
 
+def resolve_terminal_and_graphics(
+    graphics_value: str,
+    console: Console,
+) -> tuple[TerminalInfo, GraphicsProtocol, list[GraphicsProtocol]]:
+    """Set up terminal, detect capabilities, and resolve the graphics protocol.
+
+    Returns (terminal_info, protocol, available_protocols).
+    """
+    terminal = Terminal()
+    sv = terminal.get_software_version()
+    terminal_name = sv.name.lower() if sv is not None else ""
+    force_transparent_offset = (
+        sv is not None
+        and sv.name == "kitty"
+        and tuple(int(x) for x in sv.version.split(".")) <= (0, 47, 4)
+    )
+    tinfo = TerminalInfo(terminal, terminal_name, force_transparent_offset)
+
+    available_graphics: list[GraphicsProtocol] = [GraphicsProtocol.TEXT]
+    if graphics_value == "auto":
+        protocol, available_graphics = detect_graphics_local(terminal, sv=sv)
+    elif graphics_value != "text":
+        protocol = GraphicsProtocol[graphics_value.upper()]
+        available_graphics = [GraphicsProtocol.TEXT, protocol]
+    else:
+        protocol = GraphicsProtocol.TEXT
+
+    # Unknown terminals may have broken sixel transparency; force blitless.
+    if not terminal_name and protocol is GraphicsProtocol.SIXEL:
+        protocol = GraphicsProtocol.BLITLESS_SIXEL
+
+    # Prefer text mode when it fits the terminal, unless the terminal has
+    # poor unicode rendering (Rio, mlterm).
+    term_height = terminal.height or 24
+    term_width = terminal.width or 80
+    if (
+        term_width >= console.WIDTH
+        and term_height >= console.HEIGHT // 2
+        and not terminal_name.startswith(BAD_TEXT)
+    ):
+        protocol = GraphicsProtocol.TEXT
+
+    return tinfo, protocol, available_graphics
+
+
 def main(
     parser_args: tuple[str, ...] | None = None,
     console_cls: type[Console] = GameboyColor,
@@ -250,53 +292,25 @@ def main(
     if not args.romfile.exists():
         raise SystemExit(f"ROM file `{args.romfile}` does not exist")
 
-    # Instantiate the console and terminal
+    # Instantiate the console
     console = console_cls.from_app_config(args)
     if args.load_state is not None:
         console.gb.select_state(args.load_state % 10)
         console.gb.load_state()
-    terminal = Terminal()
-    sv = terminal.get_software_version()
-    terminal_name = sv.name.lower() if sv is not None else ""
-    force_transparent_offset = (
-        sv is not None
-        and sv.name == "kitty"
-        and tuple(int(x) for x in sv.version.split(".")) <= (0, 47, 4)
+
+    # Detect terminal and resolve graphics protocol
+    tinfo, args.graphics_protocol, available_graphics = (
+        resolve_terminal_and_graphics(graphics_value, console)
     )
-
-    # Apply graphics protocol selection
-    available_graphics: list[GraphicsProtocol] = [GraphicsProtocol.TEXT]
-    if graphics_value == "auto":
-        args.graphics_protocol, available_graphics = detect_graphics_local(
-            terminal, sv=sv
-        )
-    elif graphics_value != "text":
-        args.graphics_protocol = GraphicsProtocol[graphics_value.upper()]
-        available_graphics = [GraphicsProtocol.TEXT, args.graphics_protocol]
-
-    # Unknown terminals may have broken sixel transparency; force blitless.
-    if not terminal_name and args.graphics_protocol is GraphicsProtocol.SIXEL:
-        args.graphics_protocol = GraphicsProtocol.BLITLESS_SIXEL
-
-    # Prefer text mode when it fits the terminal, unless the terminal has
-    # poor unicode rendering (Rio, mlterm).
-    term_height = terminal.height or 24
-    term_width = terminal.width or 80
-    if (
-        term_width >= console.WIDTH
-        and term_height >= console.HEIGHT // 2
-        and not terminal_name.startswith(BAD_TEXT)
-    ):
-        args.graphics_protocol = GraphicsProtocol.TEXT
 
     # Prepare input context
     input_context: ContextManager[BaseInputGetter]
     if args.input_file is not None:
         input_context = console_input_from_file_context(
-            console, terminal, args.input_file, args.skip_inputs
+            console, tinfo.terminal, args.input_file, args.skip_inputs
         )
     else:
-        input_context = console_input_from_keyboard_context(console, terminal)
+        input_context = console_input_from_keyboard_context(console, tinfo.terminal)
         if args.enable_controller:
             input_context = combine_console_input_from_controller_context(input_context)
 
@@ -309,22 +323,23 @@ def main(
         )
 
     # Enter terminal raw mode
-    with terminal.raw(), terminal.focus_events():
+    with tinfo.terminal.raw(), tinfo.terminal.focus_events():
         try:
             # Detect color mode
             if args.color_mode is None:
-                args.color_mode = detect_local_color_mode(terminal)
+                args.color_mode = detect_local_color_mode(tinfo.terminal)
                 if args.color_mode == ColorMode.COULD_NOT_DETECT:
                     # TODO: add a prompt to ask the user to choose a color mode
                     # instead of silently falling back to 8-bit
                     args.color_mode = ColorMode.HAS_8_BIT_COLOR
 
             # Prepare alternate screen
-            terminal.stream.write(
-                terminal.enter_fullscreen + terminal.clear + terminal.hide_cursor
+            tinfo.terminal.stream.write(
+                tinfo.terminal.enter_fullscreen + tinfo.terminal.clear
+                + tinfo.terminal.hide_cursor
                 + "\033[?7l"  # disable line wrap
             )
-            terminal.stream.flush()
+            tinfo.terminal.stream.flush()
 
             # Enter input and audio contexts
             with input_context as get_gb_input:
@@ -332,7 +347,7 @@ def main(
                     run(
                         console,
                         get_gb_input,
-                        term=terminal,
+                        term=tinfo.terminal,
                         audio_out=audio_out,
                         frame_advance=args.frame_advance,
                         color_mode=args.color_mode,
@@ -341,11 +356,10 @@ def main(
                         use_cpr_sync=args.cpr_sync,
                         graphics_protocol=args.graphics_protocol,
                         available_graphics_protocols=available_graphics,
-                        terminal_name=terminal_name,
-                        force_transparent_offset=force_transparent_offset,
+                        terminal_name=tinfo.name,
+                        force_transparent_offset=tinfo.force_transparent_offset,
                         show_status=show_status,
                         blit_visualizer=blit_visualizer,
-                        limit_bandwidth_kbps=args.limit_bandwidth_kbps,
                     )
 
         # Deal with ctrl+c and ctrl+d exceptions
@@ -365,12 +379,15 @@ def main(
             # Wait for a possible CPR
             time.sleep(0.1)
             # Clear alternate screen
-            restore = terminal.clear + terminal.exit_fullscreen + terminal.normal_cursor
+            restore = (
+                tinfo.terminal.clear + tinfo.terminal.exit_fullscreen
+                + tinfo.terminal.normal_cursor
+            )
             if args.graphics_protocol is GraphicsProtocol.KITTY:
                 restore = b"\033_Ga=d,d=a,q=1\033\\".decode() + restore
             restore = "\033[?7h" + restore  # re-enable line wrap
-            terminal.stream.write(restore)
-            terminal.stream.flush()
+            tinfo.terminal.stream.write(restore)
+            tinfo.terminal.stream.flush()
 
 
 if __name__ == "__main__":

@@ -12,10 +12,12 @@ A terminal front-end for gambatte, the gameboy color emulator.
 
 
 It supports:
-- 16 colors, 256 colors and 24-bit colors terminal
+- All 16 colors, 256 colors and 24-bit color utf-8 terminals
+- Kitty and sixel graphics where supported
 - Playing audio from the emulator
 - Using TAS input files as game input
 - Using keyboard presses as game input
+- Remote execution over ssh or telnet (no audio)
 
 
 Quickstart
@@ -44,8 +46,10 @@ Usage:
 ```
 usage: gambaterm [-h] [--input-file INPUT_FILE] [--frame-advance FRAME_ADVANCE]
                  [--break-after BREAK_AFTER] [--speed SPEED] [--force-gameboy]
-                 [--skip-inputs SKIP_INPUTS] [--cpr-sync] [--disable-audio]
-                 [--color-mode COLOR_MODE]
+                 [--skip-inputs SKIP_INPUTS] [--cpr-sync [N]] [--disable-audio]
+                 [--color-mode COLOR_MODE] [--graphics {text,sixel,kitty,auto}]
+                 [--enable-controller] [--write-input FILE] [--status]
+                 [--blit-visualizer] [--load-state N] [--save-directory DIR]
                  ROM
 ```
 
@@ -61,31 +65,28 @@ Optional arguments:
 
   - `--frame-advance FRAME_ADVANCE, --fa FRAME_ADVANCE`
 
-    Number of frames to run before displaying the next one (default is 1)
+    Number of frames to run before displaying the next one
 
   - `--break-after BREAK_AFTER, --ba BREAK_AFTER`
 
-    Number of frames to run before forcing the emulator to stop (doesn't stop by default)
+    Number of frames to run before forcing the emulator to stop
 
   - `--speed SPEED, -s SPEED`
 
-    Control the execution speed (default is 1.0)
+    Control the execution speed
 
   - `--force-gameboy, --fg`
 
-    Force the emulator to treat the rom as a GB file
+    Force the emulator to treat the ROM as a GB file (monochrome)
 
   - `--skip-inputs SKIP_INPUTS, --si SKIP_INPUTS`
 
-    Number of frame inputs to skip in order to compensate for the lack of BIOS (default is 188)
+    Number of frame inputs to skip to compensate for the lack of BIOS
 
-  - `--cpr-sync, --cs`
+  - `--cpr-sync [N], --cs [N]`
 
-    Use CPR synchronization to prevent video buffering
-
-  - `--enable-controller, --ec`
-
-    Enable game controller support
+    Enable CPR synchronization to prevent video buffering.
+    N is the window of unacknowledged frames allowed (default 1 if flag given without value).
 
   - `--disable-audio, --da`
 
@@ -93,8 +94,38 @@ Optional arguments:
 
   - `--color-mode COLOR_MODE, -c COLOR_MODE`
 
-    Force a color mode (1: 4 greyscale colors, 2: 16 colors, 3: 256 colors, 4: 24-bit colors)
-    Note: the color mode can be cycled at runtime by pressing the Tab key, which is useful for testing the different color modes supported by the terminal.
+    Force a color mode (1: 4 greyscale colors, 2: 16 colors, 3: 256 colors, 4: 24-bit colors).
+    The color mode can be cycled at runtime by pressing Tab.
+
+  - `--graphics {text,sixel,kitty,auto}`
+
+    Graphics rendering mode. Default "auto" detects available protocols.
+    Text mode uses unicode block characters at native resolution.
+
+  - `--enable-controller, --ec`
+
+    Enable game controller support
+
+  - `--write-input FILE, --wi FILE`
+
+    Record game inputs to a file
+
+  - `--status`
+
+    Enable the status bar (toggle with backtick/tilde key)
+    Shows FPS, bandwidth, CPU usage, and current graphics mode.
+
+  - `--blit-visualizer`
+
+    Enable blit visualizer overlay (toggle with F12 key)
+
+  - `--load-state N, --ls N`
+
+    Load save state N at startup (e.g. --load-state 8 loads ROM_8.gqs)
+
+  - `--save-directory DIR, --sd DIR`
+
+    Save directory path (defaults to the ROM directory when not specified)
 
 
 SSH server
@@ -184,19 +215,19 @@ Not all terminals will actually offer a pleasant experience. The main criteria a
   terminals where their graphics modes can be used and be automatically detected, though, at some
   cost of higher bandwidth and CPU usage.
 
-  For this reason, "auto-scaling" is enabled by default, that, for the first 90 seconds of the game
-  or anytime after resize or change of modes, the size of the image may be reduced when frames drop
-  below 50fps. Disable using ``--graphics-autoscale=off``.
+  Graphics scale is automatically capped to fit within the terminal at the best integer scale.
+  Bandwidth is managed via CPR sync (--cpr-sync) which prevents the terminal from being
+  overwhelmed with data.
 
-  Although Graphics modes (kitty, sixel) is preferred, counter-intuitively there is tremendous
-  bandwidth savings by using a larger text area or smaller font, and larger window resolution, gambaterm
-  automatically switches between graphics modes, changing to "text mode" when supported and fits on the
-  screen.
+  Although graphics modes (kitty, sixel) are preferred, counter-intuitively there is tremendous
+  bandwidth savings by using a larger text area or smaller font, and larger window resolution.
+  gambaterm automatically switches between graphics modes, changing to "text mode" when it
+  fits on the screen.
 
 - Press `TILDE` (~) or `GRAVE_ACCENT` (\`) to check the current mode of gambaterm. This enables a
   status bar on the top of the window that displays the current FPS, Bandwidth, CPU Usage data, and
-  current graphics mode. Press `BACKSPACE` or `DELETE` to switch available graphics modes.  Press `TAB` in
-  text mode to switch between 4, 8, 16, 256, and 24-bit color modes.
+  current graphics mode. Press `TAB` in text mode to switch between 4, 8, 16, 256, and 24-bit color
+  modes. Press `F12` to toggle the blit visualizer overlay.
 
 The table below sums up my findings when I tried the most common terminal emulators. Here's about linux:
 
@@ -223,7 +254,7 @@ About MacOS:
 
 | MacOS            | Status     | Graphics      | Colors        | Unicode rendering  | Kitty keyboard protocol | Performance | Comments                                                        |
 |------------------|------------|---------------|------------------------------------|-------------------------|-------------|-----------------------------------------------------------------|
-| iTerm2           | Excellent  | Sixel*        | 24-bit colors | Good               | Yes                     | 60 FPS\*    | Poor resize performance, `--graphics-autoscale=off` suggested ! |
+| iTerm2           | Excellent  | Sixel*        | 24-bit colors | Good               | Yes                     | 60 FPS\*    | Poor resize performance |
 | Terminal.app     | Bad        |               | 24-bit colors | Bad                | No                      | 30 FPS      | A bit jittery                                                   |
 
 About Windows:
@@ -242,6 +273,15 @@ Terminal size
 -------------
 
 The emulator uses a single character on screen to display two vertically aligned pixels, like so `▄▀`. The gameboy being 160 pixels wide over 144 pixels high, you'll need your terminal to be at least 160 characters wide over 72 characters high to display the entire screen. Setting the terminal to full screen is usually enough but you might want to tweak the character size, typically using the `ctrl - / ctrl +` or `ctrl wheel` shortcuts.
+
+Performance and window size
+---------------------------
+
+Larger terminal windows (more rows/columns) and smaller fonts improve performance in text mode because more pixels fit per character. In graphics mode (kitty/sixel), the integer scale is automatically chosen to best fit the window — larger windows support higher scales, giving a sharper image at the cost of more CPU and bandwidth.
+
+At high scales (8x and above), kitty keyframe encoding can take 25-30ms, which may cause audio clicking on slower machines. Use ``--cpr-sync`` to let the terminal pace the frame rate, and reduce the terminal window size or increase font size to lower the graphics scale.
+
+For SSH/telnet usage, lower scales produce less network traffic. The status bar (``~`` key) shows real-time bandwidth and FPS.
 
 Keyboard, game controller and file inputs
 -----------------------------------------

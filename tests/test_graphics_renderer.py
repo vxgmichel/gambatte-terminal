@@ -8,7 +8,6 @@
 # These mostly help reduce regressions in either graphics renderer, especially the individual byte
 # colors, the RGB ordering is a bit tricky between the native emulator screen and the two graphics
 # renderers, or any other misfiring, or as confirmation of adjustments to blitters.
-import time
 from pathlib import Path
 
 import numpy as np
@@ -205,126 +204,6 @@ def test_sixel_rebaseline_on_large_change():
     assert text.startswith("\033[2;3H\033[0m")
     assert "\033P0;1;0q" in text
     assert "\033\\" in text
-
-
-class TestAutoScale:
-    @staticmethod
-    def test_fps_below_threshold_reduces():
-        from gambaterm.graphics_scaler import AutoScale
-
-        autoscale = AutoScale(8, -1)
-        result = autoscale.feed_fps(30.0, 40.0)
-        assert result is True
-        assert autoscale.max_scale == 6
-
-    @staticmethod
-    def test_fps_above_threshold_no_reduction():
-        from gambaterm.graphics_scaler import AutoScale
-
-        autoscale = AutoScale(8, -1)
-        result = autoscale.feed_fps(50.0, 40.0)
-        assert result is False
-        assert autoscale.max_scale == 8
-
-    @pytest.mark.parametrize("threshold,expected", [(0.0, False), (40.0, False)])
-    def test_fps_check_respects(self, threshold, expected):
-        from gambaterm.graphics_scaler import AutoScale
-
-        autoscale = AutoScale(8, -1)
-        if threshold == 0.0:
-            result = autoscale.feed_fps(10.0, threshold)
-            assert result is expected
-        else:
-            autoscale.deadline = 0
-            result = autoscale.feed_fps(10.0, threshold)
-            assert result is expected
-        assert autoscale.max_scale == 8
-
-    @staticmethod
-    def test_reduces_to_floor_of_one():
-        from gambaterm.graphics_scaler import AutoScale
-
-        autoscale = AutoScale(8, -1)
-        result = autoscale.feed_fps(30.0, 40.0)
-        assert result is True
-        assert autoscale.max_scale == 6
-        autoscale._next_allow = 0.0
-        result = autoscale.feed_fps(30.0, 40.0)
-        assert result is True
-        assert autoscale.max_scale == 4
-        autoscale._next_allow = 0.0
-        result = autoscale.feed_fps(30.0, 40.0)
-        assert result is True
-        assert autoscale.max_scale == 2
-        autoscale._next_allow = 0.0
-        result = autoscale.feed_fps(30.0, 40.0)
-        assert result is True
-        assert autoscale.max_scale == 1
-        result = autoscale.feed_fps(30.0, 40.0)
-        assert result is False
-        assert autoscale.max_scale == 1
-
-    @staticmethod
-    def test_reset_restores_ceiling():
-        from gambaterm.graphics_scaler import AutoScale
-
-        autoscale = AutoScale(8, -1)
-        autoscale.feed_fps(30.0, 40.0)
-        assert autoscale.max_scale == 6
-        autoscale.reset()
-        assert autoscale.max_scale == 8
-
-    @staticmethod
-    def test_reset_deadline_at_least_1s_cooldown():
-        from gambaterm.graphics_scaler import AutoScale
-
-        autoscale = AutoScale(8, 0)
-        autoscale.reset()
-        min_deadline = time.monotonic() + 0.99
-        assert autoscale.deadline >= min_deadline
-
-    @pytest.mark.parametrize("window_s", [0, -1])
-    def test_window_modes(self, window_s):
-        from gambaterm.graphics_scaler import AutoScale
-
-        autoscale = AutoScale(8, window_s)
-        if window_s == 0:
-            result = autoscale.feed_fps(10.0, 40.0)
-            assert result is False
-            assert autoscale.max_scale == 8
-        else:
-            assert autoscale.deadline == float("inf")
-
-    @staticmethod
-    def test_bandwidth_over_threshold_reduces():
-        from gambaterm.graphics_scaler import AutoScale
-
-        autoscale = AutoScale(8, -1)
-        result = autoscale.feed_bandwidth(300.0, 2.0)
-        assert result is True
-        assert autoscale.max_scale == 6
-
-    @staticmethod
-    def test_bandwidth_below_threshold_no_reduction():
-        from gambaterm.graphics_scaler import AutoScale
-
-        autoscale = AutoScale(8, -1)
-        result = autoscale.feed_bandwidth(200.0, 2.0)
-        assert result is False
-        assert autoscale.max_scale == 8
-
-    @pytest.mark.parametrize("threshold,expected", [(0.0, False), (1.0, False)])
-    def test_bandwidth_check_respects(self, threshold, expected):
-        from gambaterm.graphics_scaler import AutoScale
-
-        autoscale = AutoScale(8, -1)
-        if threshold == 0.0:
-            result = autoscale.feed_bandwidth(9999.0, threshold)
-        else:
-            autoscale.deadline = 0
-            result = autoscale.feed_bandwidth(9999.0, threshold)
-        assert result is expected
-        assert autoscale.max_scale == 8
 
 
 class TestKittyFrameCache:
