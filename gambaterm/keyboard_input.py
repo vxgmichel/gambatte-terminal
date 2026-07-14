@@ -23,6 +23,7 @@ Here is a list of terminals known to support this protocol:
 
 - kitty https://sw.kovidgoyal.net/kitty/
 - ghostty https://ghostty.org/
+- alacritty https://alacritty.org/
 - foot https://codeberg.org/dnkl/foot
 - iTerm2 https://iterm2.com/
 - Rio https://rioterm.com/
@@ -128,25 +129,24 @@ class KittyKeyboardInputGetter(KeyboardInputGetter):
         return self._pop_keystrokes()
 
 
-def is_kitty_keyboard_protocol_supported(
-    term: Terminal, timeout: float | None = None
-) -> bool:
+def is_kitty_keyboard_protocol_supported(term: Terminal) -> bool:
     """Check if the terminal supports the kitty keyboard protocol."""
-    # Some terminals (eg. last release of Contour) responds to the kitty keyboard query but ignores
-    # the modes that we set, it is not fully implementing them. And so we verify that report_events
-    # is actually enabled after requesting it.
-    #
-    # Other terminals (eg. last release of Alacritty), *do* support the kitty keyboard protocol
-    # flags that set, but fail to accurately report their state!
-    # https://github.com/alacritty/alacritty/pull/8953
-    state = term.get_kitty_keyboard_state(timeout=timeout)
+    # Some terminals (last release of Contour) responds to the kitty keyboard query but ignores
+    # the modes that we set, because it is not fully implementing them, so we set and check state
+    # manually to detect this condition, that Contour does *not* report kitty keyboard for the
+    # mode required by gambaterm.
+
+    state = term.get_kitty_keyboard_state()
     if state is None:
         return False
-    with term.enable_kitty_keyboard(report_events=True, timeout=timeout):
-        active = term.get_kitty_keyboard_state(timeout=timeout)
+    with term.enable_kitty_keyboard(report_events=True):
+        active = term.get_kitty_keyboard_state()
     if active is not None and active.report_events:
         return True
-    sv = term.get_software_version(timeout=timeout)
+    # Other terminals (last release of Alacritty), *do* support the kitty keyboard protocol flags
+    # when they are set, but fails to accurately report state, the bugfix was not accepted and so we
+    # manually work around it, https://github.com/alacritty/alacritty/pull/8953.
+    sv = term.get_software_version()
     if sv is not None and sv.name == "alacritty":
         return True
     return False
