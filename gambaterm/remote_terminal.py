@@ -195,7 +195,8 @@ XTERM_SIXEL_SCALE_CAP = ("xterm",)
 # Ghostty does not support the bulk a=d,d=a delete action; we emit individual
 # a=d,d=i delete commands per ID instead.
 FORCE_KITTY_INDIVIDUAL_DELETES = ("ghostty",)
-KITTY_GFX_CLEAR = b"\033_Ga=d,d=a\033\\"
+# q=1 is required to suppress Gi=<id>;OK response pollution on the input stream.
+KITTY_GFX_CLEAR = b"\033_Ga=d,d=a,q=1\033\\"
 KITTY_GFX_GHOSTTY_CLEAR = (b"\033_Ga=d,d=i,i=1\033\\" +
                            b"\033_Ga=d,d=i,i=100\033\\")
 TEXT_HOME_CLEAR = b"\033[H\033[2J"
@@ -216,10 +217,10 @@ def detect_graphics_frontend(
         config.graphics_protocol = GraphicsProtocol.KITTY
         return config
 
-    has_kitty = keyboard_detection.get() == KeyboardSupport.KEYBOARD_PROTOCOL
     has_sixel = does_sixel(terminal)
 
     sv = terminal.get_software_version(timeout=1.0)
+    has_kitty_graphics = terminal.does_kitty_graphics()
     blitless = sv is not None and sv.name.lower() in FORCE_SIXEL_BLITLESS
     config.available_graphics = [GraphicsProtocol.TEXT]
     if blitless:
@@ -228,13 +229,13 @@ def detect_graphics_frontend(
         return config
     if has_sixel:
         config.available_graphics.append(GraphicsProtocol.SIXEL)
-    if has_kitty:
+    if has_kitty_graphics:
         config.available_graphics.append(GraphicsProtocol.KITTY)
 
     # Prefer sixel, then kitty, then text
     if has_sixel:
         config.graphics_protocol = GraphicsProtocol.SIXEL
-    elif has_kitty:
+    elif has_kitty_graphics:
         config.graphics_protocol = GraphicsProtocol.KITTY
 
     return config

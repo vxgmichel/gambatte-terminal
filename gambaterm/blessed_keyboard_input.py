@@ -70,7 +70,7 @@ def blessed_key_pressed_context(
 
         def _update() -> None:
             while True:
-                key = term.inkey(timeout=0)
+                key = term.inkey(timeout=0, capture_cpr=True)
                 if not key:
                     break
                 if not key.released:

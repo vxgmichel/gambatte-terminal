@@ -21,8 +21,6 @@ from .remote_terminal import (
     BAD_TEXT,
     does_sixel,
 )
-from .graphics_autoscaler import parse_autoscale
-from .keyboard_input import is_kitty_keyboard_protocol_supported
 from .input_getter import BaseInputGetter
 from .keyboard_input import console_input_from_keyboard_context
 from .controller_input import combine_console_input_from_controller_context
@@ -43,7 +41,8 @@ class AppConfig:
     break_after: int | None
     speed: float
     skip_inputs: int
-    cpr_sync: bool
+    cpr_sync: int
+    limit_bandwidth_kbps: int = 2000
     graphics_protocol: GraphicsProtocol = GraphicsProtocol.TEXT
     available_graphics: list[GraphicsProtocol] = field(
         default_factory=lambda: [GraphicsProtocol.TEXT]
@@ -68,6 +67,7 @@ class AppConfig:
 class LocalAppConfig(AppConfig):
     enable_controller: bool = False
     write_input: Path | None = None
+    load_state: int | None = None
 
 
 def add_base_arguments(parser: argparse.ArgumentParser) -> None:
@@ -124,8 +124,21 @@ def add_tuning_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--cpr-sync",
         "--cs",
-        action="store_true",
-        help="Use CPR synchronization to prevent video buffering",
+        nargs="?",
+        const=1,
+        type=int,
+        default=0,
+        help="CPR sync window: 0=off, N=allow N unacknowledged frames "
+        "(default: 1 if flag given without value)",
+    )
+    parser.add_argument(
+        "--limit-bandwidth-kbps",
+        "--lb",
+        type=int,
+        default=2000,
+        help="Limit output bandwidth to N kilobytes per second "
+        "(0=disabled, default: 2000).  Drops frames when projected "
+        "rate exceeds the limit.",
     )
     parser.add_argument(
         "--graphics",
@@ -133,19 +146,6 @@ def add_tuning_arguments(parser: argparse.ArgumentParser) -> None:
         default="auto",
         help="Graphics rendering mode "
         "(kitty, sixel, text, or auto-detect; default is auto)",
-    )
-    parser.add_argument(
-        "--graphics-autoscale",
-        type=str,
-        default="90s,54fps",
-        help="Auto-scale graphics when frame rate or bandwidth triggers fire. "
-        "Comma-separated tokens with suffixes: <N>s indicates number of seconds "
-        "after resize, mode switch, or game start that autoscaling is enabledi by "
-        "timer. use 'off' to disable autoscaling, or 'always' to enable for entire "
-        "process. <N>fps indicates FPS threshold, graphics will scale smaller when "
-        "FPS drops below this value. <N>mb or <N>kb indicates bandwidth limit, "
-        "useful for network servers: E.g. "
-        "'always,30fps,2500kb'.",
     )
 
 
@@ -176,6 +176,13 @@ def add_local_only_arguments(parser: argparse.ArgumentParser) -> None:
         help="Enable blit visualizer (toggle with F12 key)",
     )
     parser.add_argument(
+        "--load-state",
+        "--ls",
+        type=int,
+        default=None,
+        help="Load save state N at startup (e.g. --load-state 8 loads ROM_8.gqs)",
+    )
+    parser.add_argument(
         "--save-directory",
         "--sd",
         type=Path,
@@ -200,15 +207,14 @@ def detect_graphics_local(
 
     available = [GraphicsProtocol.TEXT]
     if sv is None:
-        sv = terminal.get_software_version(timeout=1.0)
+        sv = terminal.get_software_version()
     blitless = sv is not None and sv.name.lower() in FORCE_SIXEL_BLITLESS
     if blitless:
         available.append(GraphicsProtocol.BLITLESS_SIXEL)
         return GraphicsProtocol.BLITLESS_SIXEL, available
     if does_sixel(terminal, sv=sv):
         available.append(GraphicsProtocol.SIXEL)
-    has_kitty = is_kitty_keyboard_protocol_supported(terminal, timeout=1.0)
-    if has_kitty:
+    if terminal.does_kitty_graphics():
         available.append(GraphicsProtocol.KITTY)
     # Prefer sixel, then kitty, then text
     if GraphicsProtocol.SIXEL in available:
@@ -238,8 +244,6 @@ def main(
     show_status = namespace.__dict__.pop("status")
     blit_visualizer = namespace.__dict__.pop("blit_visualizer")
     graphics_value: str = namespace.__dict__.pop("graphics")
-    autoscale_value: str = namespace.__dict__.pop("graphics_autoscale")
-    autoscale_config = parse_autoscale(autoscale_value)
     args = LocalAppConfig.from_namespace(namespace)
 
     # Check that the ROM file exists
@@ -248,9 +252,17 @@ def main(
 
     # Instantiate the console and terminal
     console = console_cls.from_app_config(args)
+    if args.load_state is not None:
+        console.gb.select_state(args.load_state % 10)
+        console.gb.load_state()
     terminal = Terminal()
-    sv = terminal.get_software_version(timeout=0.25)
+    sv = terminal.get_software_version()
     terminal_name = sv.name.lower() if sv is not None else ""
+    force_transparent_offset = (
+        sv is not None
+        and sv.name == "kitty"
+        and tuple(int(x) for x in sv.version.split(".")) <= (0, 47, 4)
+    )
 
     # Apply graphics protocol selection
     available_graphics: list[GraphicsProtocol] = [GraphicsProtocol.TEXT]
@@ -310,6 +322,7 @@ def main(
             # Prepare alternate screen
             terminal.stream.write(
                 terminal.enter_fullscreen + terminal.clear + terminal.hide_cursor
+                + "\033[?7l"  # disable line wrap
             )
             terminal.stream.flush()
 
@@ -328,10 +341,11 @@ def main(
                         use_cpr_sync=args.cpr_sync,
                         graphics_protocol=args.graphics_protocol,
                         available_graphics_protocols=available_graphics,
-                        autoscale_config=autoscale_config,
                         terminal_name=terminal_name,
+                        force_transparent_offset=force_transparent_offset,
                         show_status=show_status,
                         blit_visualizer=blit_visualizer,
+                        limit_bandwidth_kbps=args.limit_bandwidth_kbps,
                     )
 
         # Deal with ctrl+c and ctrl+d exceptions
@@ -353,7 +367,8 @@ def main(
             # Clear alternate screen
             restore = terminal.clear + terminal.exit_fullscreen + terminal.normal_cursor
             if args.graphics_protocol is GraphicsProtocol.KITTY:
-                restore = b"\033_Ga=d,d=a\033\\".decode() + restore
+                restore = b"\033_Ga=d,d=a,q=1\033\\".decode() + restore
+            restore = "\033[?7h" + restore  # re-enable line wrap
             terminal.stream.write(restore)
             terminal.stream.flush()
 

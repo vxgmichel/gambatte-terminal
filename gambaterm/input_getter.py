@@ -9,7 +9,7 @@ from .console import Console
 def pop_keystrokes_from_terminal(terminal: Terminal) -> list[Keystroke]:
     result: list[Keystroke] = []
     while True:
-        key = terminal.inkey(timeout=0)
+        key = terminal.inkey(timeout=0, capture_cpr=True)
         if not key:
             break
         result.append(key)

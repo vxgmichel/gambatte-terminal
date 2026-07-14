@@ -18,11 +18,6 @@ from .graphicsblit import (
     encode_kitty_rgba,
     quantize_colors,
 )
-from .graphics_autoscaler import (
-    AutoScale,
-    AutoScaleConfig,
-    SCALE_MAX,
-)
 from .remote_terminal import (
     GraphicsProtocol,
     FORCE_KITTY_BLITLESS,
@@ -43,8 +38,10 @@ DELTA_ID = 100
 # Fraction of changed pixels that triggers a full keyframe instead of a delta.
 REBASELINE_THRESHOLD = float(os.environ.get("GAMBATERM_REBASELINE_THRESHOLD", "0.385"))
 # Fraction of bounding-box area (vs total frame) that triggers a kitty keyframe,
-# regardless of how few pixels changed — catches sparse but widely-spread changes.
+# regardless of how few pixels changed -- catches sparse but widely-spread changes.
 KITTY_REBASELINE_SPREAD = float(os.environ.get("GAMBATERM_KITTY_REBASELINE_SPREAD", "0.30"))
+
+SCALE_MAX = int(os.environ.get("GAMBATERM_SCALE_MAX", "12"))
 
 
 def blit_vis_channels(rgb: np.ndarray, mode: int) -> np.ndarray:
@@ -109,7 +106,6 @@ class GraphicsScaler:
         console: Console,
         height: int,
         width: int,
-        autoscale: AutoScale | None = None,
         terminal_name: str = "",
     ) -> GraphicsScaler:
         """Query terminal pixel geometry and return a new GraphicsScaler."""
@@ -117,12 +113,7 @@ class GraphicsScaler:
         if pixel_h <= 0 or pixel_w <= 0:
             return cls(1, 1, 1, 1, 1, 1, 1, 1)
         natural_scale = max(1, min(pixel_w // console.WIDTH, pixel_h // console.HEIGHT))
-        if autoscale is not None:
-            if autoscale.max_scale > natural_scale:
-                autoscale.max_scale = natural_scale
-            effective_cap = autoscale.max_scale
-        else:
-            effective_cap = min(natural_scale, SCALE_MAX)
+        effective_cap = min(natural_scale, SCALE_MAX)
         floor = max(1, natural_scale // 2)
         graphics_scale = max(floor, effective_cap)
         cell_h = max(1, pixel_h // height)
@@ -147,7 +138,10 @@ class GraphicsScaler:
         while kitty_scale > 1:
             img_h = console.HEIGHT * kitty_scale
             rows = (img_h + cell_h - 1) // cell_h
-            if 2 + rows <= height:
+            refx_candidate = max(2, (pixel_h - img_h) // 2 // cell_h + 1)
+            # Kitty scrolls when the image abuts the last row; reserve an
+            # extra margin row as a safety buffer (observed on 19-row terms).
+            if refx_candidate + rows + 1 <= height:
                 break
             kitty_scale -= 1
 
@@ -213,6 +207,7 @@ class FrameEncoder:
         "_flash_pending",
         "_frames_since_rebaseline",
         "_force_rebaseline_every",
+        "force_transparent_offset",
     )
 
     def __init__(
@@ -225,6 +220,7 @@ class FrameEncoder:
         refy_kitty: int,
         cell_h: int,
         cell_w: int,
+        force_transparent_offset: bool = False,
     ) -> None:
         self.scale = scale
         self.kitty_scale = kitty_scale
@@ -234,6 +230,7 @@ class FrameEncoder:
         self.refy_kitty = refy_kitty
         self.cell_h = cell_h
         self.cell_w = cell_w
+        self.force_transparent_offset = force_transparent_offset
         self.baseline: np.ndarray | None = None
         self.sixel_baseline: np.ndarray | None = None
         self._delta_is_placed = False
@@ -500,7 +497,7 @@ class FrameEncoder:
                 self._flash_pending = not self._flash_pending
             parts: list[bytes] = [
                 f"\033[{self.refx_kitty};{self.refy_kitty}H".encode(),
-                encode_fn(rgba.ravel(), w, h, image_id=BASELINE_ID),
+                encode_fn(rgba.ravel(), w, h, image_id=BASELINE_ID, placement_id=1),
             ]
             self._delta_is_placed = False
             result = b"".join(parts)
@@ -570,7 +567,7 @@ class FrameEncoder:
             rebase_parts: list[bytes] = [
                 prefix,
                 f"\033[{self.refx_kitty};{self.refy_kitty}H".encode(),
-                encode_fn(rgba.ravel(), w, h, image_id=BASELINE_ID),
+                encode_fn(rgba.ravel(), w, h, image_id=BASELINE_ID, placement_id=1),
             ]
             self._delta_is_placed = False
             result = b"".join(rebase_parts)
@@ -606,6 +603,20 @@ class FrameEncoder:
             mask = rect_rgba[:, :, 3] != 0
             rect_rgba[mask, :3] = blit_vis_channels(rect_rgba[mask, :3], self.blitter_vis)
 
+        # Workaround for Kitty 0.47.4(?) and earlier, https://github.com/kovidgoyal/kitty/pull/10256
+        # Padd "blit" images using transparent pixels and anchor to (0, 0) setting X=0,Y=0 to avoid
+        # the bug of drawing an image at an offset until fixed
+        if self.force_transparent_offset and (off_y or off_x):
+            padded = np.zeros(
+                (scaled_h + off_y, scaled_w + off_x, 4), dtype=np.uint8
+            )
+            padded[off_y:off_y + scaled_h, off_x:off_x + scaled_w] = rect_rgba
+            rect_rgba = padded
+            scaled_w += off_x
+            scaled_h += off_y
+            off_x = 0
+            off_y = 0
+
         delete_old = (
             f"\033_Ga=d,d=i,i={DELTA_ID}\033\\".encode()
             if self._delta_is_placed
@@ -621,6 +632,7 @@ class FrameEncoder:
                 image_id=DELTA_ID,
                 X=off_x,
                 Y=off_y,
+                placement_id=1,
             ),
         ]
         self._delta_is_placed = True
@@ -660,34 +672,27 @@ class FrameEncoder:
 
 
 class GraphicsRenderer:
-    """Owns runtime graphics state: scaler lifecycle, autoscale, frame encoding.
+    """Owns runtime graphics state: scaler lifecycle, frame encoding.
 
-    Instantiated once per ``run()`` session.  ``on_state_change``, ``render``,
-    ``feed_bandwidth``, and ``feed_fps`` are called from the main loop.
+    Instantiated once per ``run()`` session.  ``on_state_change`` and
+    ``render`` are called from the main loop.
     """
 
     def __init__(
         self,
         term: Terminal,
         console: Console,
-        autoscale_config: AutoScaleConfig | None,
         terminal_name: str,
         protocol: GraphicsProtocol,
+        force_transparent_offset: bool = False,
     ) -> None:
         self._term = term
         self._console = console
-        self._autoscale_config = autoscale_config
         self._terminal_name = terminal_name
+        self._force_transparent_offset = force_transparent_offset
 
         self.scaler: GraphicsScaler | None = None
         self.encoder: FrameEncoder | None = None
-        self.autoscale: AutoScale | None = (
-            AutoScale(SCALE_MAX, autoscale_config.seconds)
-            if autoscale_config is not None
-            and autoscale_config.enabled
-            and protocol is not GraphicsProtocol.TEXT
-            else None
-        )
         self._blitter_vis = 0
         self._force_clear = False
         self._force_keyframe = False
@@ -704,6 +709,7 @@ class GraphicsRenderer:
             self.scaler.refy_kitty,
             self.scaler.cell_h,
             self.scaler.cell_w,
+            force_transparent_offset=self._force_transparent_offset,
         )
         self.encoder.blitter_vis = self._blitter_vis
 
@@ -716,10 +722,6 @@ class GraphicsRenderer:
         self._blitter_vis = vis
         if self.encoder is not None:
             self.encoder.blitter_vis = vis
-
-    @property
-    def has_autoscale(self) -> bool:
-        return self.autoscale is not None
 
     @property
     def scale(self) -> int | None:
@@ -752,24 +754,9 @@ class GraphicsRenderer:
     ) -> bytes:
         """Handle protocol/color/resize change.
 
-        Tears down the current scaler, manages the autoscale lifecycle,
-        and returns the clear/delete escape sequence to emit before the
-        next frame.
+        Tears down the current scaler and returns the clear/delete escape
+        sequence to emit before the next frame.
         """
-        # Autoscale lifecycle
-        if new_protocol is GraphicsProtocol.TEXT:
-            self.autoscale = None
-        elif (
-            self.autoscale is None
-            and self._autoscale_config is not None
-            and self._autoscale_config.enabled
-        ):
-            self.autoscale = AutoScale(
-                SCALE_MAX, self._autoscale_config.seconds
-            )
-        elif self.autoscale is not None:
-            self.autoscale.reset()
-
         # Scaler teardown
         if self.encoder is not None:
             self.encoder.close()
@@ -819,7 +806,6 @@ class GraphicsRenderer:
                 self._console,
                 height,
                 width,
-                self.autoscale,
                 terminal_name=self._terminal_name,
             )
             self._make_encoder()
@@ -845,49 +831,6 @@ class GraphicsRenderer:
                 return prefix + suffix
             return b""
         return prefix + result + suffix
-
-    def _rebuild_scaler(self, height: int, width: int) -> None:
-        if self.encoder is not None:
-            self.encoder.close()
-        self.scaler = GraphicsScaler.recompute(
-            self._term,
-            self._console,
-            height,
-            width,
-            self.autoscale,
-            terminal_name=self._terminal_name,
-        )
-        self._make_encoder()
-        self._force_clear = True
-        if self._terminal_name.startswith(FORCE_KITTY_INDIVIDUAL_DELETES):
-            self._ghostty_kitty_gfx_clear = True
-
-    def feed_bandwidth(
-        self,
-        data_rate_kb_s: float,
-        height: int,
-        width: int,
-    ) -> None:
-        """Feed autoscale with output bandwidth; reduce scale cap if too high."""
-        if self.autoscale is None or self._autoscale_config is None:
-            return
-        if self.autoscale.feed_bandwidth(
-            data_rate_kb_s, self._autoscale_config.bandwidth_mbits
-        ):
-            self._rebuild_scaler(height, width)
-
-    def feed_fps(
-        self,
-        video_fps: float,
-        protocol: GraphicsProtocol,
-        height: int,
-        width: int,
-    ) -> None:
-        """Feed autoscale with video FPS; reduce scale cap if too slow."""
-        if self.autoscale is None or self._autoscale_config is None:
-            return
-        if self.autoscale.feed_fps(video_fps, self._autoscale_config.fps):
-            self._rebuild_scaler(height, width)
 
     def close(self) -> None:
         if self.encoder is not None:

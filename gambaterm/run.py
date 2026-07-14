@@ -6,6 +6,7 @@ import time
 import contextlib
 from itertools import count
 from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from typing import Deque, Iterator
 
 import numpy as np
@@ -16,7 +17,7 @@ from .audio import MaybeAudioOut, DISABLED_AUDIO_OUT
 from .console import Console
 from .input_getter import BaseInputGetter
 from .colors import ColorMode
-from .graphics_scaler import AutoScaleConfig, GraphicsRenderer
+from .graphics_scaler import GraphicsRenderer
 from .remote_terminal import GraphicsProtocol, resolve_graphics_protocol
 
 debug_input_fh = None
@@ -88,10 +89,11 @@ def format_status(
     video_percent: float,
     data_rate: float,
     audio_percent: float,
+    dropped_frames: int,
+    bandwidth_drops: int,
     graphics_protocol: GraphicsProtocol,
     color_mode: ColorMode,
     blitter_vis: bool,
-    autoscale_scale: int | None,
     terminal_name: str,
 ) -> str:
     """Build the human-readable status line."""
@@ -101,8 +103,10 @@ def format_status(
     parts.append(
         f"Emu {speed:.2f}x {emu_fps:.0f} FPS {emu_percent:.0f}% CPU | "
     )
+    maybe_dropped = f"-{dropped_frames}! " if dropped_frames else ""
+    bw_tag = f"{bandwidth_drops}* " if bandwidth_drops else ""
     parts.append(
-        f"Video {video_fps:.0f} FPS {video_percent:.0f}% CPU "
+        f"Video {video_fps:.0f}{maybe_dropped}{bw_tag}FPS {video_percent:.0f}% CPU "
         f"{data_rate:.0f} KB/s | "
     )
     parts.append(f"Audio {audio_percent:.0f}% CPU | ")
@@ -116,8 +120,6 @@ def format_status(
         parts.append("kitty ")
     if blitter_vis:
         parts.append("(vis) ")
-    if autoscale_scale is not None:
-        parts.append(f"scale{autoscale_scale}")
     return "".join(parts)
 
 
@@ -130,13 +132,14 @@ def run(
     color_mode: ColorMode = ColorMode.HAS_24_BIT_COLOR,
     break_after: int | None = None,
     speed: float = 1.0,
-    use_cpr_sync: bool = False,
+    use_cpr_sync: int = 0,
     graphics_protocol: GraphicsProtocol = GraphicsProtocol.TEXT,
     available_graphics_protocols: list[GraphicsProtocol] | None = None,
-    autoscale_config: AutoScaleConfig | None = None,
     terminal_name: str = "",
+    force_transparent_offset: bool = False,
     show_status: bool = False,
     blit_visualizer: bool = False,
+    limit_bandwidth_kbps: int = 0,
 ) -> None:
     assert color_mode > 0
 
@@ -152,6 +155,8 @@ def run(
     width = term.width or 80
     refx, refy = get_ref(width, height, console)
 
+    # TODO: these two sections are better extracted to some external class & obj ?
+
     # Prepare reporting
     fps = console.FPS * speed
     average_over = int(round(fps))  # frames
@@ -166,17 +171,33 @@ def run(
     data_length: Deque[int] = deque(maxlen=average_over)
     start = time.time()
 
+    # Bandwidth limiter
+    bw_limit = limit_bandwidth_kbps * 1000  # bytes/sec (0 = disabled)
+    bw_window = int(os.environ.get("GAMBATERM_BW_WINDOW", "20"))
+    bw_deque: deque[int] = deque(maxlen=bw_window)
+    bw_budget = bw_limit * bw_window // 60  # bytes per window (~bw_window/60 sec)
+    bw_consecutive_skips = 0
+    bw_dropped = 0
+    bw_max_frame = 0
+    bw_cooldown = 0
+
     # Prepare state
     new_frame = False
-    screen_ready = True
+    pending_cpr = 0
+    cpr_sync_window = use_cpr_sync
     frame_start_time = None
     frame_data = bytearray()
     blitter_vis = 1 if blit_visualizer else 0
 
-    # Graphics renderer (owns scaler, autoscale, kitty workarounds)
+    # Graphics renderer
     renderer = GraphicsRenderer(
-        term, console, autoscale_config, terminal_name, graphics_protocol,
+        term, console, terminal_name, graphics_protocol,
+        force_transparent_offset=force_transparent_offset,
     )
+
+    # Threaded encoding pipeline: encode in background, never block main thread
+    encode_executor = ThreadPoolExecutor(max_workers=1)
+    encode_queue: deque[tuple[object, bytes]] = deque()  # (Future, clear_seq)
 
     # Status bar
     status_bar = StatusBar(term, show=show_status)
@@ -221,7 +242,7 @@ def run(
                     f"{time.monotonic():.4f} {key.key_name or key} {key!r}\n"
                 )
             if key.key_name == "CPR_RESPONSE":
-                screen_ready = True
+                pending_cpr = max(0, pending_cpr - 1)
             elif key.key_name == "KEY_CTRL_C":
                 raise KeyboardInterrupt
             elif key.key_name == "KEY_CTRL_D":
@@ -261,8 +282,54 @@ def run(
             # - a new frame is available from the emulator
             # - the screen is ready for a new frame (either CPR sync is disabled, or enabled and we received the CPR response)
             # - we are not currently shifting (to prevent flooding the terminal with new frames when the rendering is too slow)
-            if i % frame_advance == 0 and new_frame and screen_ready and not shift:
+            cpr_ready = (
+                not cpr_sync_window or pending_cpr < cpr_sync_window
+            )
+            bw_skip = False
+            if bw_limit > 0 and new_frame and i % frame_advance == 0 and not shift:
+                bw_force = (bw_consecutive_skips >= bw_window - 1)
+                bw_skip = (
+                    (sum(bw_deque) >= bw_budget) or bw_cooldown > 0
+                ) and not bw_force
+            if i % frame_advance == 0 and new_frame and cpr_ready and not bw_skip and not shift:
                 new_frame = False
+
+                # Drain completed encode results (non-blocking)
+                while encode_queue:
+                    future, clear_seq = encode_queue[0]
+                    if not future.done():
+                        break
+                    encode_queue.popleft()
+                    render_result = future.result()
+                    frame_data = bytearray(clear_seq)
+                    frame_data += render_result
+                    if cpr_sync_window:
+                        frame_data += b"\033[1;1H\033[6n"
+                        pending_cpr += 1
+                    if status_bar.show and status_bar.bar:
+                        frame_data[:0] = status_bar.bar
+                    if status_bar.needs_clear:
+                        status_bar.needs_clear = False
+                        frame_data[:0] = b"\033[1;1H\033[K"
+                    if blitter_vis:
+                        blitter_vis = 3 - blitter_vis
+                        renderer.blitter_vis = blitter_vis
+                    write_frame(term, frame_data)
+                    if status_bar.show:
+                        status_bar.last_sent = time.monotonic()
+                    data_length.append(len(frame_data))
+                    shown_frames.append(True)
+                    if bw_limit > 0:
+                        bw_deque.append(len(frame_data))
+                        bw_consecutive_skips = 0
+                        if len(frame_data) > bw_max_frame:
+                            bw_max_frame = len(frame_data)
+                            bw_budget = max(bw_limit * bw_window // 60, bw_max_frame)
+                        if len(frame_data) > bw_budget // 2:
+                            bw_cooldown = 2
+                        elif bw_cooldown > 0:
+                            bw_cooldown -= 1
+                    frame_data = bytearray()
 
                 # Detect terminal resize, color mode, or graphics protocol change
                 new_height = term.height or 24
@@ -306,60 +373,68 @@ def run(
 
                 # Render frame
                 if graphics_protocol is GraphicsProtocol.TEXT:
-                    frame_data += clear_seq
+                    if clear_seq:
+                        frame_data += clear_seq
                     frame_data += b"\033[?2026h"
                     frame_data += blit(
                         video, last_frame, refx, refy, width - 1, height, color_mode,
                         blitter_vis,
                     )
                     frame_data += b"\033[?2026l"
+                    if cpr_sync_window:
+                        frame_data += b"\033[1;1H\033[6n"
+                        pending_cpr += 1
+                    if status_bar.show and status_bar.bar:
+                        frame_data[:0] = status_bar.bar
+                    if status_bar.needs_clear:
+                        status_bar.needs_clear = False
+                        frame_data[:0] = b"\033[1;1H\033[K"
+                    if blitter_vis:
+                        blitter_vis = 3 - blitter_vis
+                        renderer.blitter_vis = blitter_vis
+                    write_frame(term, frame_data)
+                    if status_bar.show:
+                        status_bar.last_sent = time.monotonic()
+                    data_length.append(len(frame_data))
+                    shown_frames.append(True)
+                    if bw_limit > 0:
+                        bw_deque.append(len(frame_data))
+                        bw_consecutive_skips = 0
+                        if len(frame_data) > bw_max_frame:
+                            bw_max_frame = len(frame_data)
+                            bw_budget = max(bw_limit * bw_window // 60, bw_max_frame)
+                        if len(frame_data) > bw_budget // 2:
+                            bw_cooldown = 2
+                        elif bw_cooldown > 0:
+                            bw_cooldown -= 1
+                    frame_data = bytearray()
                 else:
-                    frame_data += clear_seq
-                    frame_data += renderer.render(
-                        video, last_frame, graphics_protocol, height, width,
+                    video_copy = video.copy()
+                    last_frame_copy = last_frame.copy()
+                    future = encode_executor.submit(
+                        renderer.render,
+                        video_copy, last_frame_copy,
+                        graphics_protocol, height, width,
                     )
+                    encode_queue.append((future, clear_seq))
 
                 video, last_frame = last_frame, video
 
-                # Cycle blitter vis mode 1/2 on each rendered frame
-                if blitter_vis and frame_data:
-                    blitter_vis = 3 - blitter_vis
-                    renderer.blitter_vis = blitter_vis
-
-                # Update reporting
-                data_length.append(len(frame_data))
-                shown_frames.append(True)
-
             # Ignore this video frame
             else:
+                if bw_skip:
+                    bw_deque.append(0)
+                    bw_consecutive_skips += 1
+                    bw_dropped += 1
+                    if bw_cooldown > 0:
+                        bw_cooldown -= 1
                 data_length.append(0)
                 shown_frames.append(False)
 
-        # Feed auto-scale with output bandwidth; reduce cap if too high.
-        if data_length:
-            data_rate_kb_s = sum(data_length) / len(data_length) * fps / 1000
-            renderer.feed_bandwidth(data_rate_kb_s, height, width)
-
         # Pacing and synchronization
         with timing(sync_deltas):
-            # Video sync
-            if frame_data:
-                # Send CPR request
-                if use_cpr_sync:
-                    frame_data += b"\033[1;1H\033[6n"
-                    screen_ready = False
-                # Prepend status bar when enabled
-                if status_bar.show and status_bar.bar:
-                    frame_data[:0] = status_bar.bar
-                # Clear status bar line when just hidden
-                if status_bar.needs_clear:
-                    status_bar.needs_clear = False
-                    frame_data[:0] = b"\033[1;1H\033[K"
-                # Write the entire frame in one go to avoid fragmentation
-                write_frame(term, frame_data)
-                if status_bar.show:
-                    status_bar.last_sent = time.monotonic()
-            elif status_bar.show and status_bar.bar:
+            # Idle status bar heartbeat
+            if status_bar.show and status_bar.bar and not frame_data:
                 now = time.monotonic()
                 if now - status_bar.last_sent >= StatusBar.IDLE_INTERVAL:
                     write_frame(term, status_bar.bar)
@@ -378,19 +453,20 @@ def run(
         if i % average_over == 1 or status_bar.force_update:
             status_bar.force_update = False
             tps = fps * console.TICKS_IN_FRAME
-            emu_fps = tps * len(ticks) / sum(ticks)
-            video_fps = emu_fps * sum(shown_frames) / len(shown_frames)
-            total_fps = len(total_deltas) / sum(total_deltas)
+            emu_fps = tps * len(ticks) / sum(ticks) if ticks else 0
+            if shown_frames:
+                video_fps = emu_fps * sum(shown_frames) / len(shown_frames)
+            else:
+                video_fps = 0
+            total_fps = len(total_deltas) / sum(total_deltas) if total_deltas else 0
 
-            # Feed auto-scale with video FPS; reduce cap if too slow.
-            # Wait until deques have enough data for a meaningful FPS reading.
-            if len(shown_frames) >= average_over // 2:
-                renderer.feed_fps(video_fps, graphics_protocol, height, width)
-
-            emu_percent = sum(emu_deltas) / len(emu_deltas) * total_fps * 100
-            audio_percent = sum(audio_deltas) / len(audio_deltas) * total_fps * 100
-            video_percent = sum(video_deltas) / len(video_deltas) * total_fps * 100
-            data_rate = sum(data_length) / len(data_length) * total_fps / 1000
+            emu_percent = sum(emu_deltas) / len(emu_deltas) * total_fps * 100 if emu_deltas else 0
+            audio_percent = sum(audio_deltas) / len(audio_deltas) * total_fps * 100 if audio_deltas else 0
+            video_percent = sum(video_deltas) / len(video_deltas) * total_fps * 100 if video_deltas else 0
+            data_rate = sum(data_length) / len(data_length) * total_fps / 1000 if data_length else 0
+            dropped_frames = len(shown_frames) - sum(shown_frames)
+            bw_dropped_period = bw_dropped
+            bw_dropped = 0
 
             status_bar.bar = status_bar.encode(
                 format_status(
@@ -403,10 +479,11 @@ def run(
                     video_percent=video_percent,
                     data_rate=data_rate,
                     audio_percent=audio_percent,
+                    dropped_frames=dropped_frames,
+                    bandwidth_drops=bw_dropped_period,
                     graphics_protocol=graphics_protocol,
                     color_mode=color_mode,
                     blitter_vis=blitter_vis,
-                    autoscale_scale=renderer.scale if renderer.has_autoscale else None,
                     terminal_name=terminal_name,
                 ),
                 width,

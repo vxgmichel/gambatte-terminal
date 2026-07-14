@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Generator, Iterator, TYPE_CHECKING
 from contextlib import contextmanager
 from collections import deque
@@ -25,7 +26,7 @@ class AudioOut:
     # Miniaudio poll        | 1.5 frames | 50 ms        | 25 ms       | 12 ms       |
     # Expected audio delay  | 3 frames   | 100 ms       | 50 ms       | 25 ms       |
     # Ring buffer size      | 6 frames   | 200 ms       | 100 ms      | 50 ms       |
-    audio_delay_in_frames: int = 3
+    audio_delay_in_frames: int = int(os.environ.get("GAMBATERM_AUDIO_BUFFER_FRAMES", "3"))
 
     # Controller configuration
     kp: float = 0.1
