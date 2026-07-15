@@ -173,6 +173,14 @@ def add_local_only_arguments(parser: argparse.ArgumentParser) -> None:
         help="Enable blit visualizer (toggle with F12 key)",
     )
     parser.add_argument(
+        "--frame-banding",
+        action="store_true",
+        default=os.environ.get("GAMBATERM_FRAME_BANDING", "").lower()
+        in ("1", "true", "yes"),
+        help="Split large kitty frames into bands to reduce audio drops "
+        "(env: GAMBATERM_FRAME_BANDING)",
+    )
+    parser.add_argument(
         "--load-state",
         "--ls",
         type=int,
@@ -285,6 +293,7 @@ def main(
     disable_audio = getattr(namespace, "disable_audio", False)
     show_status = namespace.__dict__.pop("status")
     blit_visualizer = namespace.__dict__.pop("blit_visualizer")
+    frame_banding = namespace.__dict__.pop("frame_banding")
     graphics_value: str = namespace.__dict__.pop("graphics")
     args = LocalAppConfig.from_namespace(namespace)
 
@@ -360,6 +369,7 @@ def main(
                         force_transparent_offset=tinfo.force_transparent_offset,
                         show_status=show_status,
                         blit_visualizer=blit_visualizer,
+                        frame_banding=frame_banding,
                     )
 
         # Deal with ctrl+c and ctrl+d exceptions
