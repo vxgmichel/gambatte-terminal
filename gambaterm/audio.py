@@ -131,7 +131,7 @@ class AudioOut:
         # Ring buffer fill ratio (0-1.0)
         if self.ring_size == 0:
             return 0.0
-        return (self.write_counter - self.read_counter) / self.ring_size
+        return max(0.0, (self.write_counter - self.read_counter) / self.ring_size)
 
     def adapt_sample_rate(self) -> None:
         # First perform a short moving average of the last 5 measurements
