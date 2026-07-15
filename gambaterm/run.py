@@ -6,7 +6,6 @@ import time
 import contextlib
 from itertools import count
 from collections import deque
-from concurrent.futures import ThreadPoolExecutor
 from typing import Deque, Iterator
 
 import numpy as np
@@ -152,6 +151,8 @@ def format_status(
     color_mode: ColorMode,
     blitter_vis: bool,
     terminal_name: str,
+    graphics_scale: int = 0,
+    audio_buffer: float = 0.0,
 ) -> str:
     """Build the human-readable status line."""
     parts = [f" {terminal_name} " if terminal_name else " "]
@@ -165,15 +166,15 @@ def format_status(
         f"Video {video_fps:.0f}{maybe_dropped}FPS {video_percent:.0f}% CPU "
         f"{data_rate:.0f} KB/s | "
     )
-    parts.append(f"Audio {audio_percent:.0f}% CPU | ")
+    parts.append(f"Audio {audio_percent:.0f}% CPU b:{audio_buffer*100:.0f}% | ")
     if graphics_protocol is GraphicsProtocol.TEXT:
         parts.append(f"{color_mode.report()} textmode ")
     elif graphics_protocol is GraphicsProtocol.SIXEL:
-        parts.append("sixel ")
+        parts.append(f"sixel{graphics_scale}x " if graphics_scale else "sixel ")
     elif graphics_protocol is GraphicsProtocol.BLITLESS_SIXEL:
-        parts.append("sixel-blitless ")
+        parts.append(f"sixel-blitless{graphics_scale}x " if graphics_scale else "sixel-blitless ")
     else:
-        parts.append("kitty ")
+        parts.append(f"kitty{graphics_scale}x " if graphics_scale else "kitty ")
     if blitter_vis:
         parts.append("(vis) ")
     return "".join(parts)
@@ -195,6 +196,7 @@ def run(
     force_transparent_offset: bool = False,
     show_status: bool = False,
     blit_visualizer: bool = False,
+    frame_banding: bool = False,
 ) -> None:
     assert color_mode > 0
 
@@ -224,6 +226,7 @@ def run(
     shifting: Deque[float] = deque(maxlen=average_over)
     shown_frames: Deque[int] = deque(maxlen=average_over)
     data_length: Deque[int] = deque(maxlen=average_over)
+    buffer_levels: Deque[float] = deque(maxlen=average_over)
     start = time.time()
 
     # Prepare state
@@ -235,11 +238,8 @@ def run(
     renderer = GraphicsRenderer(
         term, console, terminal_name, graphics_protocol,
         force_transparent_offset=force_transparent_offset,
+        frame_banding=frame_banding,
     )
-
-    # Threaded encoding pipeline: encode in background, never block main thread
-    encode_executor = ThreadPoolExecutor(max_workers=1)
-    encode_queue: deque[tuple[object, bytes]] = deque()  # (Future, clear_seq)
 
     # Status bar
     status_bar = StatusBar(term, show=show_status)
@@ -277,6 +277,7 @@ def run(
         # Send audio
         with timing(audio_deltas):
             audio_out.send(console, audio[:samples, :])
+            buffer_levels.append(audio_out.fill_fraction)
 
         # Read keys for ctrl-c, ctrl-d, and CPR response.
         # If the kitty keyboard protocol is used, all inputs are sent as CSI sequences
@@ -331,23 +332,13 @@ def run(
             # - a new frame is available from the emulator
             # - the screen is ready for a new frame (either CPR sync is disabled, or enabled and we received the CPR response)
             # - we are not currently shifting (to prevent flooding the terminal with new frames when the rendering is too slow)
-            if i % frame_advance == 0 and new_frame and frame_emitter.cpr_ready and not shift:
+            if (
+                i % frame_advance == 0
+                and new_frame
+                and frame_emitter.cpr_ready
+                and not shift
+            ):
                 new_frame = False
-
-                # Drain completed encode results (non-blocking)
-                while encode_queue:
-                    future, clear_seq = encode_queue[0]
-                    if not future.done():
-                        break
-                    encode_queue.popleft()
-                    render_result = future.result()
-                    frame_data = bytearray(clear_seq)
-                    frame_data += render_result
-                    frame_data = frame_emitter.emit(
-                        frame_data, data_length, shown_frames,
-                    )
-
-                # Detect terminal resize, color mode, or graphics protocol change
                 new_height = term.height or 24
                 new_width = term.width or 80
                 resized = (new_height, new_width) != (height, width)
@@ -401,14 +392,16 @@ def run(
                         frame_data, data_length, shown_frames,
                     )
                 else:
-                    video_copy = video.copy()
-                    last_frame_copy = last_frame.copy()
-                    future = encode_executor.submit(
-                        renderer.render,
-                        video_copy, last_frame_copy,
+                    if clear_seq:
+                        frame_data += clear_seq
+                    render_result = renderer.render(
+                        video, last_frame,
                         graphics_protocol, height, width,
                     )
-                    encode_queue.append((future, clear_seq))
+                    frame_data += render_result
+                    frame_data = frame_emitter.emit(
+                        frame_data, data_length, shown_frames,
+                    )
 
                 video, last_frame = last_frame, video
 
@@ -451,6 +444,7 @@ def run(
             video_percent = sum(video_deltas) / len(video_deltas) * total_fps * 100 if video_deltas else 0
             data_rate = sum(data_length) / len(data_length) * total_fps / 1000 if data_length else 0
             dropped_frames = len(shown_frames) - sum(shown_frames)
+            worst_buffer = min(buffer_levels) if buffer_levels else 1.0
 
             status_bar.bar = status_bar.encode(
                 format_status(
@@ -468,6 +462,12 @@ def run(
                     color_mode=color_mode,
                     blitter_vis=frame_emitter.blitter_vis,
                     terminal_name=terminal_name,
+                    graphics_scale=(
+                        renderer.kitty_scale
+                        if graphics_protocol is GraphicsProtocol.KITTY
+                        else renderer.scale
+                    ) or 0,
+                    audio_buffer=worst_buffer,
                 ),
                 width,
             )
