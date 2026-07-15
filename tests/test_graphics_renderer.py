@@ -270,3 +270,84 @@ class TestKittyFrameCache:
         assert "Y=1" in text_delta
         assert "a=T" in text_delta
         assert "i=100" in text_delta
+
+
+class TestKittyFrameBanding:
+    @staticmethod
+    def test_band_encode_positioned_images():
+        """Each band is placed at its own cell-snapped cursor row."""
+        from gambaterm.graphics_scaler import FrameEncoder
+
+        scaler = FrameEncoder(
+            scale=1, kitty_scale=2, refx=1, refy=1,
+            refx_kitty=1, refy_kitty=1, cell_h=24, cell_w=12,
+            frame_banding=True,
+        )
+        scaler._V = 3
+        scaler._v_current = 0
+        scaler._v_row_height = 48
+        scaler.kitty_frame_no = 0
+
+        frame = np.full((144, 160), 0xFF00FF00, dtype=np.uint32)
+        last_frame = np.zeros((144, 160), dtype=np.uint32)
+
+        # Band 0: y0=0, row=1, off_y=0.  Includes delete of old band image.
+        result0 = scaler._encode_kitty_band(frame, last_frame)
+        text0 = result0.decode("latin-1")
+        assert "a=d,d=i,i=1" in text0
+        assert "a=T" in text0
+        assert "i=1" in text0
+        assert "f=32" in text0
+        assert "\033[1;1H" in text0
+        assert scaler._v_current == 1
+
+        # Band 1: y0=48, py=96, row=1+96//24=5, off_y=96%24=0
+        result1 = scaler._encode_kitty_band(frame, last_frame)
+        text1 = result1.decode("latin-1")
+        assert "i=2" in text1
+        assert "\033[5;1H" in text1
+        assert scaler._v_current == 2
+
+        # Band 2: y0=96, py=192, row=1+192//24=9, off_y=192%24=0
+        result2 = scaler._encode_kitty_band(frame, last_frame)
+        text2 = result2.decode("latin-1")
+        assert "i=3" in text2
+        assert "\033[9;1H" in text2
+        assert scaler._v_current == 0
+
+    @staticmethod
+    def test_band_skip_unchanged():
+        """Unchanged band regions return empty bytes and do not advance v_current."""
+        from gambaterm.graphics_scaler import FrameEncoder
+
+        scaler = FrameEncoder(
+            scale=1, kitty_scale=1, refx=1, refy=1,
+            refx_kitty=1, refy_kitty=1, cell_h=24, cell_w=12,
+            frame_banding=True,
+        )
+        scaler._V = 2
+        scaler._v_current = 0
+        scaler._v_row_height = 72
+        scaler.kitty_frame_no = 0
+
+        frame = np.full((144, 160), 0xFF00FF00, dtype=np.uint32)
+        last_frame = frame.copy()
+
+        result = scaler._encode_kitty_band(frame, last_frame)
+        assert result == b""
+        assert scaler._v_current == 1
+
+    @staticmethod
+    def test_is_banding_v1_noop():
+        """V=1 means is_banding returns False (full frame fits in one band)."""
+        from gambaterm.graphics_scaler import FrameEncoder
+
+        scaler = FrameEncoder(
+            scale=1, kitty_scale=1, refx=1, refy=1,
+            refx_kitty=1, refy_kitty=1, cell_h=24, cell_w=12,
+            frame_banding=True,
+        )
+        scaler._V = 1
+        assert scaler.is_banding is False
+        scaler._V = 2
+        assert scaler.is_banding is True
