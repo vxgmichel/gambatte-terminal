@@ -3,7 +3,7 @@ from __future__ import annotations
 import atexit
 import logging
 import os
-from typing import Generator, Iterator, TYPE_CHECKING
+from typing import Any, Generator, Iterator, TYPE_CHECKING
 from contextlib import contextmanager
 from collections import deque
 
@@ -75,7 +75,7 @@ class AudioOut:
         self._diag_ratio_min = self.nominal_sampling_ratio
         self._diag_ratio_max = self.nominal_sampling_ratio
         if self._csv_enabled:
-            self._diag_frames: list[dict] = []
+            self._diag_frames: list[dict[str, Any]] = []
             atexit.register(self._dump_csv)
         atexit.register(self._log_summary)
 
