@@ -171,9 +171,6 @@ class AudioOut:
         self._diag_fill_min = min(self._diag_fill_min, fill)
         frame = self._frame_num
         self._frame_num += 1
-        logger.debug(
-            "skip frame=%d input=%d acc=%d fill=%.4f", frame, input_len, acc_len, fill
-        )
         if self._csv_enabled:
             self._diag_frames.append(
                 {
@@ -196,14 +193,6 @@ class AudioOut:
         self._diag_fill_min = min(self._diag_fill_min, fill)
         frame = self._frame_num
         self._frame_num += 1
-        logger.debug(
-            "process frame=%d input=%d acc=%d output=%d fill=%.4f",
-            frame,
-            input_len,
-            acc_len,
-            output_len,
-            fill,
-        )
         if self._csv_enabled:
             self._diag_frames.append(
                 {
