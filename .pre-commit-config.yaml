@@ -15,7 +15,7 @@ repos:
     - id: trailing-whitespace
       exclude: \.patch$
 -   repo: https://github.com/pre-commit/mirrors-mypy
-    rev: "v1.7.0"
+    rev: "v2.3.0"
     hooks:
     - id: mypy
       additional_dependencies: [
