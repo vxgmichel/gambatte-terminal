@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import time
+import logging
 import argparse
 from pathlib import Path
-from typing import ContextManager, TYPE_CHECKING
+from typing import Any, ContextManager, Optional, TYPE_CHECKING
 import dataclasses
 from dataclasses import dataclass, field
 
@@ -22,6 +23,45 @@ from .file_input import console_input_from_file_context, write_input_context
 # `typing.Self` is not available in python 3.10
 if TYPE_CHECKING:
     from typing import Self
+
+_DEFAULT_LOGFMT = " ".join(("%(levelname)s", "%(filename)s:%(lineno)d", "%(message)s"))
+
+
+def make_logger(
+    name: str,
+    loglevel: str = "info",
+    logfile: Optional[str] = None,
+    logfmt: str = _DEFAULT_LOGFMT,
+    filemode: str = "a",
+) -> logging.Logger:
+    """Create and return a configured logger (following telnetlib3 pattern)."""
+    lvl = getattr(logging, loglevel.upper(), None)
+    if lvl is None:
+        lvl = logging.getLevelName(loglevel.upper())
+    _cfg: dict[str, Any] = {"format": logfmt}
+    if logfile:
+        _cfg["filename"] = logfile
+        _cfg["filemode"] = filemode
+    logging.basicConfig(**_cfg)
+    logging.getLogger().setLevel(lvl)
+    logging.getLogger(name).setLevel(lvl)
+    return logging.getLogger(name)
+
+
+def add_logging_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--logfile", default=None, help="File path for log output (default: stderr)"
+    )
+    parser.add_argument(
+        "--loglevel",
+        default="warn",
+        help="Logging level: debug, info, warn, error (default: warn)",
+    )
+    parser.add_argument(
+        "--logfmt",
+        default=_DEFAULT_LOGFMT,
+        help="Log format string (default: LEVEL file:lineno message)",
+    )
 
 
 @dataclass
@@ -151,11 +191,18 @@ def main(
     add_base_arguments(parser)
     add_input_file_arguments(parser)
     add_tuning_arguments(parser)
+    add_logging_arguments(parser)
     add_local_only_arguments(parser)
     console_cls.add_console_arguments(parser)
 
     # Parse arguments
     namespace = parser.parse_args(parser_args)
+    make_logger(
+        __name__,
+        loglevel=getattr(namespace, "loglevel", "warn"),
+        logfile=getattr(namespace, "logfile", None),
+        logfmt=getattr(namespace, "logfmt", _DEFAULT_LOGFMT),
+    )
     disable_audio = getattr(namespace, "disable_audio", False)
     args = LocalAppConfig.from_namespace(namespace)
 
