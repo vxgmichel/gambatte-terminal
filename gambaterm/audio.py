@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import atexit
-import logging
-import os
-from typing import Any, Generator, Iterator, TYPE_CHECKING
+from typing import Generator, Iterator, TYPE_CHECKING
 from contextlib import contextmanager
 from collections import deque
 
 import numpy as np
 import numpy.typing as npt
+import structlog
 
 from .console import Console
 
@@ -17,7 +16,7 @@ if TYPE_CHECKING:
     import miniaudio
     import samplerate
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 class AudioOut:
@@ -55,12 +54,12 @@ class AudioOut:
         self.ring_buffer = np.zeros((self.ring_size, 2), dtype=np.int16)
 
         # We implement a SPSC (Single Producer Single Consumer) ring buffer,
-        # so we do not need synchronization primitives. The contract is:
-        # - only the producer (the `send` method) can increment the write counter
+        # so we do not need synchonization primitives. The contract is:
+        # - only the producer (the `send` method) can incremement the write counter
         # - only the consumer (the `_audio_stream` generator) can increment the read counter
         # - the read counter can never surpass the write counter
         # - both the consumer and producer can read both counters to compute the fill level
-        # Since this fill is not protected by a lock, it represents:
+        # Since this this fill is not protected by a lock, it represents:
         # - a maximum fill level when it's read by the producer
         # - a minimum fill level when it's read by the consumer
         self.write_counter = 0
@@ -69,23 +68,14 @@ class AudioOut:
         # Diagnostics variables
         self._underruns = 0
         self._overruns = 0
-        self._frame_num = 0
-        self._csv_enabled = bool(os.environ.get("GAMBATERM_AUDIO_CSV"))
         self._diag_fill_min = 1.0
         self._diag_ratio_min = self.nominal_sampling_ratio
         self._diag_ratio_max = self.nominal_sampling_ratio
-        if self._csv_enabled:
-            self._diag_frames: list[dict[str, Any]] = []
-            atexit.register(self._dump_csv)
         atexit.register(self._log_summary)
 
         # Controller configuration
         self.correction_min = 1 - self.correction_clamp
         self.correction_max = 1 + self.correction_clamp
-
-        # Batch the variable-length emulator audio output, avoids starving the ring buffer, runFor()
-        # sometimes returns partial frames!
-        self._acc_buf: npt.NDArray[np.float32] = np.empty((0, 2), dtype=np.float32)
 
         # Controller state
         self.last_buffer_levels = deque[float](maxlen=self.ma_length)
@@ -108,27 +98,15 @@ class AudioOut:
         device.start(stream)
         return device
 
-    def _dump_csv(self) -> None:
-        if diag_csv := os.environ.get("GAMBATERM_AUDIO_CSV"):
-            with open(diag_csv, "w") as fout:
-                fout.write("frame,input,acc,proc,output,fill\n")
-                for _df in self._diag_frames:
-                    fout.write(
-                        f"{_df['frame']},{_df['input']},{_df['acc']},"
-                        f"{_df['proc']},{_df['output']},{_df['fill']:.4f}\n"
-                    )
-
     def _log_summary(self) -> None:
         logger.debug(
-            "Audio stats: underruns=%d overruns=%d "
-            "fill_min=%.4f ratio_min=%.8f ratio_max=%.8f "
-            "ratio_range=%.8f",
-            self._underruns,
-            self._overruns,
-            self._diag_fill_min,
-            self._diag_ratio_min,
-            self._diag_ratio_max,
-            self._diag_ratio_max - self._diag_ratio_min,
+            "audio_summary",
+            underruns=self._underruns,
+            overruns=self._overruns,
+            fill_min=self._diag_fill_min,
+            ratio_min=self._diag_ratio_min,
+            ratio_max=self._diag_ratio_max,
+            ratio_range=self._diag_ratio_max - self._diag_ratio_min,
         )
 
     @property
@@ -164,82 +142,16 @@ class AudioOut:
 
         # Return the adjusted sample rate
         self.sampling_ratio = self.nominal_sampling_ratio * correction
-        self._diag_track_ratio()
-
-    def _diag_record_skip(self, input_len: int, acc_len: int) -> None:
-        fill = self.fill_fraction
-        self._diag_fill_min = min(self._diag_fill_min, fill)
-        frame = self._frame_num
-        self._frame_num += 1
-        if self._csv_enabled:
-            self._diag_frames.append(
-                {
-                    "frame": frame,
-                    "input": input_len,
-                    "acc": acc_len,
-                    "proc": 0,
-                    "output": 0,
-                    "fill": fill,
-                }
-            )
-
-    def _diag_record_process(
-        self,
-        input_len: int,
-        acc_len: int,
-        output_len: int,
-    ) -> None:
-        fill = self.fill_fraction
-        self._diag_fill_min = min(self._diag_fill_min, fill)
-        frame = self._frame_num
-        self._frame_num += 1
-        if self._csv_enabled:
-            self._diag_frames.append(
-                {
-                    "frame": frame,
-                    "input": input_len,
-                    "acc": acc_len,
-                    "proc": 1,
-                    "output": output_len,
-                    "fill": fill,
-                }
-            )
-
-    def _diag_track_fill(self) -> None:
-        self._diag_fill_min = min(self._diag_fill_min, self.fill_fraction)
-
-    def _diag_track_ratio(self) -> None:
         self._diag_ratio_min = min(self._diag_ratio_min, self.sampling_ratio)
         self._diag_ratio_max = max(self._diag_ratio_max, self.sampling_ratio)
 
     def send(self, console: Console, audio: npt.NDArray[np.int16]) -> None:
-        # Scale and remove DC offset
-        scaled = (
+        # Resample input audio to output rate with speed adjustment
+        resampled = self.resampler.process(
             audio.astype(np.float32) * self.audio_volume
-            - console.AUDIO_OFFSET * self.audio_volume
-        )
-
-        # Accumulate input to batch variable-length emulator frames into consistent chunks for the
-        # resampler.  The emulator's runFor() may produce anywhere from a few hundred to tens of
-        # thousands of samples per call; tiny batches could otherwise starve the ring buffer when
-        # under load.
-        self._acc_buf = np.concatenate([self._acc_buf, scaled])
-        input_len = len(scaled)
-        acc_len = len(self._acc_buf)
-
-        # Process when we have enough to produce ~5ms of output at 48 kHz,
-        # or when we have accumulated more than 3 video frames (safety valve).
-        min_output = 240
-        min_input = max(1, int(min_output / self.sampling_ratio))
-        max_input = console.TICKS_IN_FRAME * 3
-        if acc_len < min_input and acc_len < max_input:
-            self._diag_record_skip(input_len, acc_len)
-            return
-
-        chunk = self._acc_buf
-        self._acc_buf = np.empty((0, 2), dtype=np.float32)
-        resampled = self.resampler.process(chunk, self.sampling_ratio)
-        resampled = np.clip(resampled, -32768, 32767).astype(np.int16)
+            - console.AUDIO_OFFSET * self.audio_volume,
+            self.sampling_ratio,
+        ).astype(np.int16)
 
         # Get the ring buffer
         ring_buffer = self.ring_buffer
@@ -257,10 +169,10 @@ class AudioOut:
         if frames > space:
             self._overruns += 1
             logger.warning(
-                "Audio overrun: dropping %d of %d frames (fill=%.2f)",
-                frames - space,
-                frames,
-                self.fill_fraction,
+                "audio_overrun",
+                dropped=frames - space,
+                frames=frames,
+                fill=self.fill_fraction,
             )
             resampled = resampled[:space]
             frames = space
@@ -283,7 +195,13 @@ class AudioOut:
 
         # Update the write counter
         self.write_counter += frames
-        self._diag_record_process(input_len, acc_len, frames)
+        self._diag_fill_min = min(self._diag_fill_min, self.fill_fraction)
+        logger.debug(
+            "audio_frame",
+            input=len(audio),
+            output=frames,
+            fill=self.fill_fraction,
+        )
 
     def _audio_stream(self) -> Generator[bytes, int, None]:
         # Get the ring buffer
@@ -328,16 +246,16 @@ class AudioOut:
 
             # Update the read counter
             self.read_counter += read_size
-            self._diag_track_fill()
+            self._diag_fill_min = min(self._diag_fill_min, self.fill_fraction)
 
             # Log if we're underrunning
             if read_size < required_frames:
                 self._underruns += 1
                 logger.warning(
-                    "Audio underrun: requested %d, got %d (fill=%.2f)",
-                    required_frames,
-                    read_size,
-                    self.fill_fraction,
+                    "audio_underrun",
+                    required=required_frames,
+                    got=read_size,
+                    fill=self.fill_fraction,
                 )
 
             # Send audio to output and get next required frames
