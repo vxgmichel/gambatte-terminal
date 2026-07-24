@@ -9,6 +9,7 @@ from typing import Any, ContextManager, Optional, TYPE_CHECKING
 import dataclasses
 from dataclasses import dataclass, field
 
+import structlog
 from blessed import Terminal
 
 from .run import run
@@ -34,7 +35,7 @@ def make_logger(
     logfmt: str = _DEFAULT_LOGFMT,
     filemode: str = "a",
 ) -> logging.Logger:
-    """Create and return a configured logger (following telnetlib3 pattern)."""
+    """Create and return a configured logger."""
     lvl = getattr(logging, loglevel.upper(), None)
     if lvl is None:
         lvl = logging.getLevelName(loglevel.upper())
@@ -45,6 +46,27 @@ def make_logger(
     logging.basicConfig(**_cfg)
     logging.getLogger().setLevel(lvl)
     logging.getLogger(name).setLevel(lvl)
+
+    # Route structlog through standard logging so --logfile can be used
+    # to capture debug output when running locally without muddying up
+    # the screen's display
+    structlog.configure(
+        processors=[
+            structlog.stdlib.filter_by_level,
+            structlog.stdlib.add_log_level,
+            structlog.stdlib.PositionalArgumentsFormatter(),
+            structlog.processors.TimeStamper(fmt="iso"),
+            structlog.processors.StackInfoRenderer(),
+            structlog.processors.format_exc_info,
+            structlog.processors.UnicodeDecoder(),
+            structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
+        ],
+        context_class=dict,
+        logger_factory=structlog.stdlib.LoggerFactory(),
+        wrapper_class=structlog.stdlib.BoundLogger,
+        cache_logger_on_first_use=True,
+    )
+
     return logging.getLogger(name)
 
 
@@ -54,8 +76,8 @@ def add_logging_arguments(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--loglevel",
-        default="warn",
-        help="Logging level: debug, info, warn, error (default: warn)",
+        default="info",
+        help="Logging level: debug, info, warn, error, critical (default: critical for local, info for ssh/telnet)",
     )
     parser.add_argument(
         "--logfmt",
@@ -192,6 +214,7 @@ def main(
     add_input_file_arguments(parser)
     add_tuning_arguments(parser)
     add_logging_arguments(parser)
+    parser.set_defaults(loglevel="critical")
     add_local_only_arguments(parser)
     console_cls.add_console_arguments(parser)
 
@@ -199,7 +222,7 @@ def main(
     namespace = parser.parse_args(parser_args)
     make_logger(
         __name__,
-        loglevel=getattr(namespace, "loglevel", "warn"),
+        loglevel=getattr(namespace, "loglevel", "critical"),
         logfile=getattr(namespace, "logfile", None),
         logfmt=getattr(namespace, "logfmt", _DEFAULT_LOGFMT),
     )

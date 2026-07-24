@@ -576,7 +576,7 @@ def main(
     namespace = parser.parse_args(parser_args)
     make_logger(
         __name__,
-        loglevel=getattr(namespace, "loglevel", "warn"),
+        loglevel=getattr(namespace, "loglevel", "info"),
         logfile=getattr(namespace, "logfile", None),
         logfmt=getattr(namespace, "logfmt", _DEFAULT_LOGFMT),
     )
