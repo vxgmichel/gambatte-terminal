@@ -43,6 +43,7 @@ async def main() -> None:
             bind="127.0.0.1",
             port=8022,
             authentication=gambaterm_ssh.NoAuthentication(),
+            robot_check=False,
             console_cls=GameboyColor,
             namespace=namespace,
             command_parser=lambda cmd, ns, write: ns,
