@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import time
 import hmac
 import asyncio
@@ -17,6 +18,7 @@ import asyncssh
 import structlog
 from asyncssh import (
     SFTPServerFactory,
+    SSHReader,
     SSHServerConnection,
     SSHServerProcess,
     SSHAcceptor,
@@ -58,6 +60,71 @@ Writer: TypeAlias = Callable[[str], None]
 CommandParser: TypeAlias = Callable[
     [str, argparse.Namespace, Writer], argparse.Namespace
 ]
+
+CPR_PATTERN = re.compile(r"\x1b\[(\d+);(\d+)R")
+
+
+async def _read_cpr_response(
+    reader: SSHReader[str],
+) -> tuple[int, int] | None:
+    buf = ""
+    while True:
+        try:
+            data = await reader.read(1)
+        except UnicodeDecodeError:
+            return None
+        if not data:
+            return None
+        buf += data
+        if buf.endswith("R"):
+            match = CPR_PATTERN.search(buf)
+            if match:
+                return (int(match.group(1)), int(match.group(2)))
+
+
+async def get_cursor_position(
+    process: SSHServerProcess[str],
+    timeout: float = 1.0,
+) -> tuple[int, int] | None:
+    # Send Device Status Report request
+    process.stdout.write("\x1b[6n")
+    await process.stdout.drain()
+
+    # Read response: ESC [ row ; col R
+    try:
+        return await asyncio.wait_for(_read_cpr_response(process.stdin), timeout)
+    except asyncio.TimeoutError:
+        return None
+
+
+async def do_robot_check(
+    process: SSHServerProcess[str],
+    timeout: float = 1.0,
+) -> tuple[bool, float]:
+    start1 = time.perf_counter()
+    pos1 = await get_cursor_position(process, timeout)
+    if pos1 is None:
+        return False, 0.0
+    delta1 = time.perf_counter() - start1
+
+    # Write test character
+    process.stdout.write(" ")
+    await process.stdout.drain()
+
+    start2 = time.perf_counter()
+    pos2 = await get_cursor_position(process, timeout)
+    if pos2 is None:
+        return False, 0.0
+    delta2 = time.perf_counter() - start2
+
+    # Clear the test character
+    process.stdout.write("\b")
+    await process.stdout.drain()
+
+    _, x1 = pos1
+    _, x2 = pos2
+    delta = (delta1 + delta2) / 2
+    return x2 - x1 == 1, delta
 
 
 class InputSource(Enum):
@@ -105,6 +172,7 @@ async def ssh_process_handler(process: SSHServerProcess[str]) -> int:
     command_parser: CommandParser = process.get_extra_info("command_parser")
     users_directory: Path = process.get_extra_info("users_directory")
     executor: ThreadPoolExecutor = process.get_extra_info("executor")
+    robot_check: bool = process.get_extra_info("robot_check")
     display = process.channel.get_x11_display()
     command = process.channel.get_command()
     terminal_type = process.get_terminal_type()
@@ -136,10 +204,25 @@ async def ssh_process_handler(process: SSHServerProcess[str]) -> int:
             "Please use a terminal to access the interactive interface.",
             "Use `-t` to force pseudo-terminal allocation if a command is provided.",
             sep="\r\n",
+            end="\r\n",
             file=process.stdout,
         )
         session_logger.warning("User did not use an interactive terminal")
         return 1
+
+    # Robot check
+    if robot_check:
+        session_logger.info("Perform robot check")
+        passed, round_trip = await do_robot_check(process)
+        if not passed:
+            print(
+                "Your terminal does not seem to support cursor postion request (CPR).",
+                end="\r\n",
+                file=process.stdout,
+            )
+            session_logger.warning("Terminal did not pass the robot check")
+            return 1
+        session_logger.info("Robot check passed", round_trip=round_trip)
 
     return await process_to_terminal(
         process,
@@ -329,6 +412,7 @@ class GambatermSSHServer(SSHServer):
     def __init__(
         self,
         authentication: AuthenticationMethod,
+        robot_check: bool,
         console_cls: type[Console],
         namespace: argparse.Namespace,
         command_parser: CommandParser,
@@ -346,6 +430,7 @@ class GambatermSSHServer(SSHServer):
         self._gambaterm_users_directory = users_directory
         self._gambaterm_executor = executor
         self._gambaterm_authentication = authentication
+        self._gambaterm_robot_check = robot_check
         self._gambaterm_active_connections = active_connections
         self._gambaterm_active_sessions: set[GambatermSSHServerProcess] = set()
         self._gambaterm_frontend = frontend
@@ -358,6 +443,7 @@ class GambatermSSHServer(SSHServer):
         conn.set_extra_info(command_parser=self._gambaterm_command_parser)
         conn.set_extra_info(users_directory=self._gambaterm_users_directory)
         conn.set_extra_info(frontend=self._gambaterm_frontend)
+        conn.set_extra_info(robot_check=self._gambaterm_robot_check)
         self._gambaterm_active_connections[self] = conn
 
     def connection_lost(self, exc: Exception | None) -> None:
@@ -404,6 +490,7 @@ async def run_ssh_server(
     bind: str,
     port: int,
     authentication: AuthenticationMethod,
+    robot_check: bool,
     console_cls: type[Console],
     namespace: argparse.Namespace,
     command_parser: CommandParser,
@@ -466,6 +553,7 @@ async def run_ssh_server(
     server = await asyncssh.create_server(
         lambda: GambatermSSHServer(
             authentication,
+            robot_check,
             console_cls,
             namespace,
             command_parser,
@@ -562,6 +650,12 @@ def main(
         help="Disable authentication altogether (no password nor public key required)",
     )
     parser.add_argument(
+        "--robot-check",
+        action="store_true",
+        default=False,
+        help="reject bots by checking if client responds to cursor position requests",
+    )
+    parser.add_argument(
         "--users-directory",
         type=Path,
         default=Path("users_save"),
@@ -574,6 +668,7 @@ def main(
     port: int = namespace.__dict__.pop("port")
     password: str = namespace.__dict__.pop("password")
     no_auth: bool = namespace.__dict__.pop("no_auth")
+    robot_check: bool = namespace.__dict__.pop("robot_check")
     users_directory: Path = namespace.__dict__.pop("users_directory")
 
     # Determine authentication method
@@ -612,6 +707,7 @@ def main(
                     bind,
                     port,
                     authentication,
+                    robot_check,
                     console_cls,
                     namespace,
                     command_parser,
