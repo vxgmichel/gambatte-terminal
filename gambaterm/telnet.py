@@ -44,6 +44,7 @@ from .remote_terminal import (
     KeyboardSupport,
     KeyboardSupportDetection,
     RemoteTerminal,
+    make_graphics_frontend,
     user_directory_name,
     FrontendCallback,
 )
@@ -122,6 +123,8 @@ def thread_target(
                 break_after=app_config.break_after,
                 speed=app_config.speed,
                 use_cpr_sync=app_config.cpr_sync,
+                graphics_protocol=app_config.graphics_protocol,
+                available_graphics_protocols=app_config.available_graphics,
             )
     except (KeyboardInterrupt, EOFError):
         return 0
@@ -439,7 +442,9 @@ def main(
     console_cls: type[Console] = GameboyColor,
 ) -> None:
     parser = argparse.ArgumentParser(
-        description="Gambatte terminal front-end over telnet"
+        prog="gambaterm-telnet",
+        description="Gambatte terminal front-end over telnet",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     add_base_arguments(parser)
     add_input_file_arguments(parser)
@@ -464,8 +469,7 @@ def main(
         "--robot-check",
         action="store_true",
         default=False,
-        help="reject bots by checking if client responds to "
-        "cursor position requests",
+        help="reject bots by checking if client responds to cursor position requests",
     )
     parser.add_argument(
         "--port",
@@ -494,6 +498,8 @@ def main(
     max_players: int = namespace.__dict__.pop("max_players")
     idle_timeout: float | None = namespace.__dict__.pop("idle_timeout")
     users_directory: Path = namespace.__dict__.pop("users_directory")
+    graphics_value: str = namespace.__dict__.pop("graphics")
+    frontend = make_graphics_frontend(graphics_value)
 
     try:
         with ThreadPoolExecutor(max_workers=32) as executor:
@@ -509,6 +515,7 @@ def main(
                     namespace,
                     users_directory,
                     executor,
+                    frontend=frontend,
                 ):
                     await asyncio.Future()
 

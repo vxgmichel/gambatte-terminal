@@ -12,10 +12,12 @@ A terminal front-end for gambatte, the gameboy color emulator.
 
 
 It supports:
-- 16 colors, 256 colors and 24-bit colors terminal
+- All 16 colors, 256 colors and 24-bit color utf-8 terminals
+- Kitty and sixel graphics where supported
 - Playing audio from the emulator
 - Using TAS input files as game input
 - Using keyboard presses as game input
+- Remote execution over ssh or telnet (no audio)
 
 
 Quickstart
@@ -44,8 +46,10 @@ Usage:
 ```
 usage: gambaterm [-h] [--input-file INPUT_FILE] [--frame-advance FRAME_ADVANCE]
                  [--break-after BREAK_AFTER] [--speed SPEED] [--force-gameboy]
-                 [--skip-inputs SKIP_INPUTS] [--cpr-sync] [--disable-audio]
-                 [--color-mode COLOR_MODE]
+                 [--skip-inputs SKIP_INPUTS] [--cpr-sync [N]] [--disable-audio]
+                 [--color-mode COLOR_MODE] [--graphics {text,sixel,kitty,auto}]
+                 [--enable-controller] [--write-input FILE] [--status]
+                 [--blit-visualizer] [--load-state N] [--save-directory DIR]
                  ROM
 ```
 
@@ -61,31 +65,28 @@ Optional arguments:
 
   - `--frame-advance FRAME_ADVANCE, --fa FRAME_ADVANCE`
 
-    Number of frames to run before displaying the next one (default is 1)
+    Number of frames to run before displaying the next one
 
   - `--break-after BREAK_AFTER, --ba BREAK_AFTER`
 
-    Number of frames to run before forcing the emulator to stop (doesn't stop by default)
+    Number of frames to run before forcing the emulator to stop
 
   - `--speed SPEED, -s SPEED`
 
-    Control the execution speed (default is 1.0)
+    Control the execution speed
 
   - `--force-gameboy, --fg`
 
-    Force the emulator to treat the rom as a GB file
+    Force the emulator to treat the ROM as a GB file (monochrome)
 
   - `--skip-inputs SKIP_INPUTS, --si SKIP_INPUTS`
 
-    Number of frame inputs to skip in order to compensate for the lack of BIOS (default is 188)
+    Number of frame inputs to skip to compensate for the lack of BIOS
 
-  - `--cpr-sync, --cs`
+  - `--cpr-sync [N], --cs [N]`
 
-    Use CPR synchronization to prevent video buffering
-
-  - `--enable-controller, --ec`
-
-    Enable game controller support
+    Enable CPR synchronization to prevent video buffering.
+    N is the window of unacknowledged frames allowed (default 1 if flag given without value).
 
   - `--disable-audio, --da`
 
@@ -93,8 +94,38 @@ Optional arguments:
 
   - `--color-mode COLOR_MODE, -c COLOR_MODE`
 
-    Force a color mode (1: 4 greyscale colors, 2: 16 colors, 3: 256 colors, 4: 24-bit colors)
-    Note: the color mode can be cycled at runtime by pressing the Tab key, which is useful for testing the different color modes supported by the terminal.
+    Force a color mode (1: 4 greyscale colors, 2: 16 colors, 3: 256 colors, 4: 24-bit colors).
+    The color mode can be cycled at runtime by pressing Tab.
+
+  - `--graphics {text,sixel,kitty,auto}`
+
+    Graphics rendering mode. Default "auto" detects available protocols.
+    Text mode uses unicode block characters at native resolution.
+
+  - `--enable-controller, --ec`
+
+    Enable game controller support
+
+  - `--write-input FILE, --wi FILE`
+
+    Record game inputs to a file
+
+  - `--status`
+
+    Enable the status bar (toggle with backtick/tilde key)
+    Shows FPS, bandwidth, CPU usage, and current graphics mode.
+
+  - `--blit-visualizer`
+
+    Enable blit visualizer overlay (toggle with F12 key)
+
+  - `--load-state N, --ls N`
+
+    Load save state N at startup (e.g. --load-state 8 loads ROM_8.gqs)
+
+  - `--save-directory DIR, --sd DIR`
+
+    Save directory path (defaults to the ROM directory when not specified)
 
 
 SSH server
@@ -164,53 +195,77 @@ Not all terminals will actually offer a pleasant experience. The main criteria a
   This is not always well supported.
 
 - **Support for the [kitty keyboard protocol](https://sw.kovidgoyal.net/kitty/keyboard-protocol/)**
-  This is mandatory if you're using Wayland, and recommended on every other platforms.
+  This is mandatory if you're using Wayland, and recommended on every other platform.
   In the case where the kitty keyboard protocol is not detected by `gambaterm`, the following fallbacks are implemented:
   * Linux: uses X11 through `python-xlib`
   * Macos: uses `pynput` (it requires granting specific authorizations to the terminal app)
   * Windows: uses `pynput` (the key presses are detected even if the terminal windows is not focused)
-  It is also mandatory when connecting to a `gambaterm` SSH server.
+  Kitty keyboard support is mandatory for `gambaterm` telnet or SSH server.
 
 - **Good rendering performance**
-  The terminal has to be able to process about 500KB of requests per seconds for a smooth rendering of "intense" frames.
+  The terminal has to be able to process about 500KB or more of terminal sequences for a smooth 60fps rendering experience.
+
   Typically, the most intense bursts happen during screen transitions of two detailed scenes.
+  Some forms of post-process blitting and compression is used in all modes, and so bandwidth is
+  of variable bitrate, but gameboy is capable of up to full-screen 60fps changes of up to 2Mbit
+  in the highest graphics modes.
+
+- **kitty or sixel graphics**
+  A terminal with support for kitty and sixel graphics provides crisp integer scaling to all
+  terminals where their graphics modes can be used and be automatically detected, though, at some
+  cost of higher bandwidth and CPU usage.
+
+  Graphics scale is automatically capped to fit within the terminal at the best integer scale.
+  Bandwidth is managed via CPR sync (--cpr-sync) which prevents the terminal from being
+  overwhelmed with data.
+
+  Although graphics modes (kitty, sixel) are preferred, counter-intuitively there is tremendous
+  bandwidth savings by using a larger text area or smaller font, and larger window resolution.
+  gambaterm automatically switches between graphics modes, changing to "text mode" when it
+  fits on the screen.
+
+- Press `TILDE` (~) or `GRAVE_ACCENT` (\`) to check the current mode of gambaterm. This enables a
+  status bar on the top of the window that displays the current FPS, Bandwidth, CPU Usage data, and
+  current graphics mode. Press `TAB` in text mode to switch between 4, 8, 16, 256, and 24-bit color
+  modes. Press `F12` to toggle the blit visualizer overlay.
 
 The table below sums up my findings when I tried the most common terminal emulators. Here's about linux:
 
-| Linux            | Status     | Colors        | Unicode rendering      | Kitty keyboard protocol | Performance | Comments                                                    |
-|------------------|------------|---------------|------------------------|-------------------------|-------------|-------------------------------------------------------------|
-| Ghostty          | Excellent  | 24-bit colors | Good                   | Yes                     | 60 FPS      |                                                             |
-| Kitty            | Excellent  | 24-bit colors | Good                   | Yes                     | 60 FPS      |                                                             |
-| foot             | Excellent  | 24-bit colors | Good                   | Yes                     | 60 FPS      |                                                             |
-| Rio              | Excellent  | 24-bit colors | Good                   | Yes                     | 60 FPS      |                                                             |
-| Contour          | Excellent  | 24-bit colors | Good                   | Yes                     | 60 FPS      | [Download latest for kitty support](https://github.com/contour-terminal/contour/releases) |
-| Alacritty        | Good       | 24-bit colors | Good                   | No*                     | 60 FPS      | *Fails kitty detection [due to reported bug](https://github.com/alacritty/alacritty/pull/8953) |
-| Konsole          | Good       | 24-bit colors | Good                   | No                      | 60 FPS      |                                                             |
-| Gnome terminal   | Good       | 24-bit colors | Good                   | No                      | 60 FPS      |                                                             |
-| Terminator       | Good       | 24-bit colors | Good                   | No                      | 60 FPS      |                                                             |
-| XTerm            | Good       | 24-bit colors | Good                   | No                      | 60 FPS      | Ctrl+Right click to resize, "Unreadable" locks up XTerm     |
-| Rxvt             | Good       | 24-bit colors | Good                   | No                      | 60 FPS      | No resize shortcuts                                         |
-| Terminology      | Good       | 24-bit colors | Light misalignments    | No                      | 60 FPS      | Font sizes under ~9pt create horizontal line artifacts      |
-| Termit           | Ok         | 24-bit colors | Good                   | No                      | 60 FPS      | No window title                                             |
-| Mlterm           | Ok         | 24-bit colors | Light misalignments    | No                      | 60 FPS      | No resize shortcuts                                         |
+| Linux            | Status     | Graphics      | Colors        | Unicode rendering      | Kitty keyboard protocol | Performance | Comments                                                    |
+|------------------|------------|---------------|---------------|------------------------|-------------------------|-------------|-------------------------------------------------------------|
+| Ghostty          | Excellent  | Kitty         | 24-bit colors | Good                   | Yes                     | 60 FPS      |                                                             |
+| Kitty            | Excellent  | Kitty         | 24-bit colors | Good                   | Yes                     | 60 FPS      |                                                             |
+| foot             | Excellent  | Sixel         | 24-bit colors | Good                   | Yes                     | 60 FPS      |                                                             |
+| Rio              | Excellent  | Kitty         | 24-bit colors | Good                   | Yes                     | 60 FPS      | \*suggest changing (render strategy)[https://rioterm.com/docs/config#rendererstrategy] to `game` |
+| Contour          | Excellent  | Sixel         | 24-bit colors | Good                   | Yes                     | 60 FPS      |                                                             |
+| XTerm            | Good       | Sixel*        | 24-bit colors | Good                   | No                      | 60 FPS      | \*Launch using `xterm -ti vt340`                            |
+| Konsole          | Good       | Sixel         | 24-bit colors | Good                   | No                      | 60 FPS      |                                                             |
+| Tabby            | Good       | Sixel         | 24-bit colors | Good                   | No                      | 60 FPS      |                                                             |
+| Alacritty        | Good       |               | 24-bit colors | Good                   | No*                     | 60 FPS      |                                                             |
+| Gnome terminal   | Good       |               | 24-bit colors | Good                   | No                      | 60 FPS      |                                                             |
+| Terminator       | Good       |               | 24-bit colors | Good                   | No                      | 60 FPS      |                                                             |
+| Rxvt             | Good       |               | 24-bit colors | Good                   | No                      | 60 FPS      | No resize shortcuts                                         |
+| Termit           | Good       |               | 24-bit colors | Good                   | No                      | 60 FPS      |                                                             |
+| Mlterm           | Ok         | Sixel*        | 24-bit colors | misalignments          | No                      | 60 FPS      | \* sixel blitting issues when window is out of focus, slow performance |
+| Terminology      | Ok         |               | 24-bit colors | Light misalignments    | No                      | 60 FPS      | Font sizes under ~9pt create horizontal line artifacts      |
+| Exoterm          | Bad        |               | 24-bit colors | Light misalignments    | No                      | 60 FPS      | \* sixel issues and font graphics corruption both |
 
 About MacOS:
 
-| MacOS            | Status     | Colors        | Unicode rendering         | Kitty keyboard protocol | Performance | Comments                 |
-|------------------|------------|---------------|---------------------------|-------------------------|-------------|--------------------------|
-| iTerm2           | Excellent  | 24-bit colors | Good                      | Yes                     | 60 FPS      |                          |
-| Terminal.app     | Bad        | 24-bit colors | Bad--adjust font spacing! | No                      | 30 FPS      | A bit jittery            |
+| MacOS            | Status     | Graphics      | Colors        | Unicode rendering  | Kitty keyboard protocol | Performance | Comments                                                        |
+|------------------|------------|---------------|------------------------------------|-------------------------|-------------|-----------------------------------------------------------------|
+| iTerm2           | Excellent  | Sixel*        | 24-bit colors | Good               | Yes                     | 60 FPS\*    | Poor resize performance |
+| Terminal.app     | Bad        |               | 24-bit colors | Bad                | No                      | 30 FPS      | A bit jittery                                                   |
 
 About Windows:
 
-| Windows            | Status     | Colors        | Unicode rendering      | Kitty keyboard protocol | Performance | Comments                 |
+| Windows            | Status     | Graphics      | Colors        | Unicode rendering      | Kitty keyboard protocol | Performance | Comments                 |
 |--------------------|------------|---------------|------------------------|-------------------------|-------------|--------------------------|
-| Windows terminal   | Excellent  | 24-bit colors | Good                   | Yes                     | 60 FPS      | [Download latest for kitty support)](https://github.com/microsoft/terminal/releases) |
-| Cmder              | Unplayable | 24-bit colors | Good                   | Yes                     | 2 FPS       | No window title          |
-| Terminus           | Unplayable | 24-bit colors | Misalignments          | No                      | 10 FPS      |                          |
-| Command prompt     | Bad        | 24-bit colors | Good                   | No                      | 1 FPS       | Slow/Unresponsive        |
-| Git bash (mingw64) | Ok         | 24-bit colors | Good                   | No                      | N/A         |                          |
-
+| Windows terminal   | Excellent  |               | 24-bit colors | Good                   | Yes                     | 60 FPS      | [Download latest for kitty support)](https://github.com/microsoft/terminal/releases) |
+| Cmder              | Unplayable |               | 24-bit colors | Good                   | Yes                     | 2 FPS       | No window title          |
+| Terminus           | Unplayable |               | 24-bit colors | Misalignments          | No                      | 10 FPS      |                          |
+| Command prompt     | Bad        |               | 24-bit colors | Good                   | No                      | 1 FPS       | Slow/Unresponsive        |
+| Git bash (mingw64) | Ok         |               | 24-bit colors | Good                   | No                      | N/A         |                          |
 
 Terminals without Kitty keyboard protocol require X11 to play locally, or X11 forwarding to use over SSH.
 
@@ -218,6 +273,15 @@ Terminal size
 -------------
 
 The emulator uses a single character on screen to display two vertically aligned pixels, like so `▄▀`. The gameboy being 160 pixels wide over 144 pixels high, you'll need your terminal to be at least 160 characters wide over 72 characters high to display the entire screen. Setting the terminal to full screen is usually enough but you might want to tweak the character size, typically using the `ctrl - / ctrl +` or `ctrl wheel` shortcuts.
+
+Performance and window size
+---------------------------
+
+Larger terminal windows (more rows/columns) and smaller fonts improve performance in text mode because more pixels fit per character. In graphics mode (kitty/sixel), the integer scale is automatically chosen to best fit the window — larger windows support higher scales, giving a sharper image at the cost of more CPU and bandwidth.
+
+At high scales (8x and above), kitty keyframe encoding can take 25-30ms, which may cause audio clicking on slower machines. Use ``--cpr-sync`` to let the terminal pace the frame rate, and reduce the terminal window size or increase font size to lower the graphics scale.
+
+For SSH/telnet usage, lower scales produce less network traffic. The status bar (``~`` key) shows real-time bandwidth and FPS.
 
 Keyboard, game controller and file inputs
 -----------------------------------------
