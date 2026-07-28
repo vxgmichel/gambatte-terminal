@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import atexit
 from typing import Generator, Iterator, TYPE_CHECKING
 from contextlib import contextmanager
 from collections import deque
 
 import numpy as np
 import numpy.typing as npt
+import structlog
 
 from .console import Console
 
@@ -13,6 +15,8 @@ from .console import Console
 if TYPE_CHECKING:
     import miniaudio
     import samplerate
+
+logger = structlog.get_logger()
 
 
 class AudioOut:
@@ -61,6 +65,14 @@ class AudioOut:
         self.write_counter = 0
         self.read_counter = 0
 
+        # Diagnostics variables
+        self._underruns = 0
+        self._overruns = 0
+        self._diag_fill_min = 1.0
+        self._diag_ratio_min = self.nominal_sampling_ratio
+        self._diag_ratio_max = self.nominal_sampling_ratio
+        atexit.register(self._log_summary)
+
         # Controller configuration
         self.correction_min = 1 - self.correction_clamp
         self.correction_max = 1 + self.correction_clamp
@@ -86,10 +98,27 @@ class AudioOut:
         device.start(stream)
         return device
 
+    def _log_summary(self) -> None:
+        logger.debug(
+            "audio_summary",
+            underruns=self._underruns,
+            overruns=self._overruns,
+            fill_min=self._diag_fill_min,
+            ratio_min=self._diag_ratio_min,
+            ratio_max=self._diag_ratio_max,
+            ratio_range=self._diag_ratio_max - self._diag_ratio_min,
+        )
+
+    @property
+    def fill_fraction(self) -> float:
+        # Ring buffer fill ratio (0-1.0)
+        if self.ring_size == 0:
+            return 0.0
+        return max(0.0, (self.write_counter - self.read_counter) / self.ring_size)
+
     def adapt_sample_rate(self) -> None:
         # First perform a short moving average of the last 5 measurements
-        ring_fill = self.write_counter - self.read_counter
-        self.last_buffer_levels.append(ring_fill / self.ring_size)
+        self.last_buffer_levels.append(self.fill_fraction)
         buffer_level = sum(self.last_buffer_levels) / len(self.last_buffer_levels)
 
         # Then perform a longer exponential moving average
@@ -113,11 +142,14 @@ class AudioOut:
 
         # Return the adjusted sample rate
         self.sampling_ratio = self.nominal_sampling_ratio * correction
+        self._diag_ratio_min = min(self._diag_ratio_min, self.sampling_ratio)
+        self._diag_ratio_max = max(self._diag_ratio_max, self.sampling_ratio)
 
     def send(self, console: Console, audio: npt.NDArray[np.int16]) -> None:
         # Resample input audio to output rate with speed adjustment
         resampled = self.resampler.process(
-            audio * self.audio_volume - console.AUDIO_OFFSET * self.audio_volume,
+            audio.astype(np.float32) * self.audio_volume
+            - console.AUDIO_OFFSET * self.audio_volume,
             self.sampling_ratio,
         ).astype(np.int16)
 
@@ -135,7 +167,13 @@ class AudioOut:
 
         # Drop excess frames if we're overrun
         if frames > space:
-            # TODO: Implement logging
+            self._overruns += 1
+            logger.warning(
+                "audio_overrun",
+                dropped=frames - space,
+                frames=frames,
+                fill=self.fill_fraction,
+            )
             resampled = resampled[:space]
             frames = space
 
@@ -157,6 +195,13 @@ class AudioOut:
 
         # Update the write counter
         self.write_counter += frames
+        self._diag_fill_min = min(self._diag_fill_min, self.fill_fraction)
+        logger.debug(
+            "audio_frame",
+            input=len(audio),
+            output=frames,
+            fill=self.fill_fraction,
+        )
 
     def _audio_stream(self) -> Generator[bytes, int, None]:
         # Get the ring buffer
@@ -201,11 +246,17 @@ class AudioOut:
 
             # Update the read counter
             self.read_counter += read_size
+            self._diag_fill_min = min(self._diag_fill_min, self.fill_fraction)
 
             # Log if we're underrunning
             if read_size < required_frames:
-                # TODO: Implement logging
-                pass
+                self._underruns += 1
+                logger.warning(
+                    "audio_underrun",
+                    required=required_frames,
+                    got=read_size,
+                    fill=self.fill_fraction,
+                )
 
             # Send audio to output and get next required frames
             required_frames = yield result.tobytes()

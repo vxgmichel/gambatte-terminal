@@ -32,6 +32,9 @@ from .main import (
     add_base_arguments,
     add_input_file_arguments,
     add_tuning_arguments,
+    add_logging_arguments,
+    make_logger,
+    _DEFAULT_LOGFMT,
     AppConfig,
 )
 from .console import Console, GameboyColor
@@ -444,6 +447,7 @@ def main(
     add_base_arguments(parser)
     add_input_file_arguments(parser)
     add_tuning_arguments(parser)
+    add_logging_arguments(parser)
     console_cls.add_console_arguments(parser)
     parser.add_argument(
         "--bind",
@@ -464,8 +468,7 @@ def main(
         "--robot-check",
         action="store_true",
         default=False,
-        help="reject bots by checking if client responds to "
-        "cursor position requests",
+        help="reject bots by checking if client responds to cursor position requests",
     )
     parser.add_argument(
         "--port",
@@ -488,6 +491,12 @@ def main(
     )
 
     namespace = parser.parse_args(parser_args)
+    make_logger(
+        __name__,
+        loglevel=getattr(namespace, "loglevel", "info"),
+        logfile=getattr(namespace, "logfile", None),
+        logfmt=getattr(namespace, "logfmt", _DEFAULT_LOGFMT),
+    )
     bind: str = namespace.__dict__.pop("bind")
     port: int = namespace.__dict__.pop("port")
     robot_check: bool = namespace.__dict__.pop("robot_check")

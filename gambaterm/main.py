@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import time
+import logging
 import argparse
 from pathlib import Path
-from typing import ContextManager, TYPE_CHECKING
+from typing import Any, ContextManager, Optional, TYPE_CHECKING
 import dataclasses
 from dataclasses import dataclass, field
 
+import structlog
 from blessed import Terminal
 
 from .run import run
@@ -22,6 +24,66 @@ from .file_input import console_input_from_file_context, write_input_context
 # `typing.Self` is not available in python 3.10
 if TYPE_CHECKING:
     from typing import Self
+
+_DEFAULT_LOGFMT = " ".join(("%(levelname)s", "%(filename)s:%(lineno)d", "%(message)s"))
+
+
+def make_logger(
+    name: str,
+    loglevel: str = "info",
+    logfile: Optional[str] = None,
+    logfmt: str = _DEFAULT_LOGFMT,
+    filemode: str = "a",
+) -> logging.Logger:
+    """Create and return a configured logger."""
+    lvl = getattr(logging, loglevel.upper(), None)
+    if lvl is None:
+        lvl = logging.getLevelName(loglevel.upper())
+    _cfg: dict[str, Any] = {"format": logfmt}
+    if logfile:
+        _cfg["filename"] = logfile
+        _cfg["filemode"] = filemode
+    logging.basicConfig(**_cfg)
+    logging.getLogger().setLevel(lvl)
+    logging.getLogger(name).setLevel(lvl)
+
+    # Route structlog through standard logging so --logfile can be used
+    # to capture debug output when running locally without muddying up
+    # the screen's display
+    structlog.configure(
+        processors=[
+            structlog.stdlib.filter_by_level,
+            structlog.stdlib.add_log_level,
+            structlog.stdlib.PositionalArgumentsFormatter(),
+            structlog.processors.TimeStamper(fmt="iso"),
+            structlog.processors.StackInfoRenderer(),
+            structlog.processors.format_exc_info,
+            structlog.processors.UnicodeDecoder(),
+            structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
+        ],
+        context_class=dict,
+        logger_factory=structlog.stdlib.LoggerFactory(),
+        wrapper_class=structlog.stdlib.BoundLogger,
+        cache_logger_on_first_use=True,
+    )
+
+    return logging.getLogger(name)
+
+
+def add_logging_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--logfile", default=None, help="File path for log output (default: stderr)"
+    )
+    parser.add_argument(
+        "--loglevel",
+        default="info",
+        help="Logging level: debug, info, warn, error, critical (default: critical for local, info for ssh/telnet)",
+    )
+    parser.add_argument(
+        "--logfmt",
+        default=_DEFAULT_LOGFMT,
+        help="Log format string (default: LEVEL file:lineno message)",
+    )
 
 
 @dataclass
@@ -151,11 +213,19 @@ def main(
     add_base_arguments(parser)
     add_input_file_arguments(parser)
     add_tuning_arguments(parser)
+    add_logging_arguments(parser)
+    parser.set_defaults(loglevel="critical")
     add_local_only_arguments(parser)
     console_cls.add_console_arguments(parser)
 
     # Parse arguments
     namespace = parser.parse_args(parser_args)
+    make_logger(
+        __name__,
+        loglevel=getattr(namespace, "loglevel", "critical"),
+        logfile=getattr(namespace, "logfile", None),
+        logfmt=getattr(namespace, "logfmt", _DEFAULT_LOGFMT),
+    )
     disable_audio = getattr(namespace, "disable_audio", False)
     args = LocalAppConfig.from_namespace(namespace)
 
