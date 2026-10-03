@@ -27,6 +27,10 @@ Using [uvx](https://docs.astral.sh/uv/guides/tools/):
 $ uvx gambaterm myrom.gbc
 ```
 
+Or connect to the following SSH server for a quick demonstration:
+```shell
+$ ssh gambaterm.vxgmichel.com -p 22022
+```
 
 Installation
 ------------
