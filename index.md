@@ -32,8 +32,7 @@ Somehow yes, but there are some security concerns that come with that. Check out
 What you can safely do though is expose tool-assisted speedruns over SSH, like this amazing [GBC The Legend of Zelda: Link's Awakening DX (USA v1.0) in 27:55.02 by TwistedTammer](http://tasvideos.org/4017M.html). Try it out by connecting to my demo server:
 
 ```bash
-ssh gambaterm.vxgmichel.xyz
-# When prompted for a password, use `not@bot`
+ssh gambaterm.vxgmichel.com -p 22022
 # Resize the terminal font if necessary, typically with `ctrl -` or `ctrl mouse-wheel`
 # Don't expect any sound, audio can't really be streamed through SSH :(
 ```
