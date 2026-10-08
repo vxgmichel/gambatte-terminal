@@ -59,7 +59,14 @@ def get_extensions() -> list[Extension]:
         sources=["termblit_ext/termblit.pyx"],
     )
 
-    return [gambatte_extension, termblit_extension]
+    graphicsblit_extension = Extension(
+        "gambaterm.graphicsblit",
+        language="c",
+        include_dirs=[numpy.get_include()],
+        sources=["termblit_ext/graphicsblit.pyx"],
+    )
+
+    return [gambatte_extension, termblit_extension, graphicsblit_extension]
 
 
 setup(ext_modules=get_extensions())

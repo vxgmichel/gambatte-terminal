@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from blessed.keyboard import Keystroke
 from blessed.terminal import Terminal
 
@@ -5,7 +7,13 @@ from .console import Console
 
 
 def pop_keystrokes_from_terminal(terminal: Terminal) -> list[Keystroke]:
-    return list(iter(lambda: terminal.inkey(timeout=0), ""))
+    result: list[Keystroke] = []
+    while True:
+        key = terminal.inkey(timeout=0, capture_cpr=True)
+        if not key:
+            break
+        result.append(key)
+    return result
 
 
 class BaseInputGetter:

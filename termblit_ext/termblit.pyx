@@ -143,12 +143,21 @@ cdef char* move_from_to(
     return move_relative(buff, to_x - from_x, to_y - from_y)
 
 
+cdef inline uint32_t blit_vis_mode1(uint32_t c) noexcept nogil:
+    return c ^ 0x00AA5500u
+
+
+cdef inline uint32_t blit_vis_mode2(uint32_t c) noexcept nogil:
+    return c ^ 0x0000AA55u
+
+
 @boundscheck(False)
 cdef char* _blit(
     uint32_t[:, ::1] image,
     uint32_t[:, ::1] last,
     int refx, int refy, int width, int height,
     int color_mode,
+    bint blitter_vis,
     char* base,
 ) noexcept nogil:
 
@@ -184,6 +193,13 @@ cdef char* _blit(
                 last[2 * row_index + 1, column_index] == color2
             ):
                 continue
+
+            if blitter_vis == 1:
+                color1 = blit_vis_mode1(color1)
+                color2 = blit_vis_mode1(color2)
+            elif blitter_vis == 2:
+                color1 = blit_vis_mode2(color1)
+                color2 = blit_vis_mode2(color2)
 
             # Go to the new position
             new_x, new_y = row_index + refx, column_index + refy
@@ -240,12 +256,13 @@ def blit(
     uint32_t[:, ::1] last,
     int refx, int refy, int width, int height,
     int color_mode,
+    int blitter_vis=0,
 ):
     cdef char* base
 
     with nogil:
         base = <char *> malloc(image.shape[0] * image.shape[1] * 30)
-        result = _blit(image, last, refx, refy, width, height, color_mode, base)
+        result = _blit(image, last, refx, refy, width, height, color_mode, blitter_vis, base)
 
     try:
         return base[:result - base]

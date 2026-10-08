@@ -6,8 +6,9 @@ from __future__ import annotations
 
 import codecs
 from concurrent.futures import ThreadPoolExecutor, CancelledError
-from enum import Enum
+from enum import Enum, auto
 import hashlib
+import os
 import contextlib
 from typing import IO, Callable, Generator, TypeAlias, TYPE_CHECKING
 
@@ -16,6 +17,7 @@ from blessed.terminal import WINSZ
 
 if TYPE_CHECKING:
     from .main import AppConfig
+    from blessed.terminal import SoftwareVersion
 
 
 class RemoteTerminal(BlessedTerminal):
@@ -98,6 +100,43 @@ class KeyboardSupport(Enum):
     X11 = "x11"
 
 
+class GraphicsProtocol(Enum):
+    TEXT = auto()
+    SIXEL = auto()
+    KITTY = auto()
+    BLITLESS_SIXEL = auto()
+
+
+def does_sixel(
+    term: BlessedTerminal, timeout: float = 1.0, sv: SoftwareVersion | None = None
+) -> bool:
+    """Check if the terminal supports sixel graphics.
+
+    Includes workarounds for terminals that report sixel support in error.
+    """
+    if not term.does_sixel(timeout=timeout):
+        return False
+    if sv is None:
+        sv = term.get_software_version(timeout=timeout)
+    if sv is None:
+        return True
+    if sv.name.lower() == "rio" and version_in_range(sv.version, "0.3", "0.4.9"):
+        # rio supported sixel, then broke it in 0.4 release (still reports
+        # support via DA/XTGETTCAP), fixed in 0.4.9+.
+        return False
+    return True
+
+
+def version_in_range(version: str, lo_excl: str, hi_excl: str) -> bool:
+    """Return True if *version* is in (lo_excl, hi_excl)."""
+    # Strip pre-release suffixes (e.g. "0.4.0-alpha") before numeric parse.
+    _nums = __import__("re").split(r"[^\d]", version)
+    v = tuple(int(p) for p in _nums if p)
+    lo = tuple(int(p) for p in lo_excl.split("."))
+    hi = tuple(int(p) for p in hi_excl.split("."))
+    return lo < v < hi
+
+
 class KeyboardSupportDetection:
     def __init__(
         self,
@@ -136,9 +175,102 @@ class KeyboardSupportDetection:
         return KeyboardSupport.BASIC
 
 
+# many terminals do not support multiple overlaying images or ID's, like used with kitty, or don't
+# support the "transparent pixels" used with sixel. Other terminals, like 'rio' and 'mlterm' have
+# common font alignment issues, where the "full unicode block" do not touch completely, and so they
+# are "banned" from using text mode, preferring their graphics modes for all scales, instead.
+FORCE_SIXEL_BLITLESS = ("contour", "tabby", "konsole", "mlterm", "iterm2", "wezterm", "foot")
+FORCE_KITTY_BLITLESS = ("rio",)
+BAD_TEXT = ("rio", "mlterm")
+
+# I think these sixel terminals draw directly to the X11 window without any memory, and so when they
+# lose focus or get occluded by another window, their image contents are lost. Lucky for us, they
+# support the DEC Private Mode for detecting FOCUS_IN and FOCUS_OUT events as a workaround to detect
+# and force full keyframe refresh.
+SIXEL_FORCE_REFRESH_ON_FOCUS = ("mlterm", "xterm")
+
+# xterm has a 1,000 x 1,000 image size (it begins to get cropped), an approximate scale cap is enforced.
+XTERM_SIXEL_SCALE_CAP = ("xterm",)
+
+# Ghostty does not support the bulk a=d,d=a delete action; we emit individual
+# a=d,d=i delete commands per ID instead.
+FORCE_KITTY_INDIVIDUAL_DELETES = ("ghostty",)
+# q=1 is required to suppress Gi=<id>;OK response pollution on the input stream.
+KITTY_GFX_CLEAR = b"\033_Ga=d,d=a,q=1\033\\"
+KITTY_GFX_GHOSTTY_CLEAR = (b"\033_Ga=d,d=i,i=1\033\\" +
+                           b"\033_Ga=d,d=i,i=100\033\\")
+TEXT_HOME_CLEAR = b"\033[H\033[2J"
+
+
+def detect_graphics_frontend(
+    terminal: RemoteTerminal,
+    config: "AppConfig",
+    keyboard_detection: KeyboardSupportDetection,
+) -> "AppConfig":
+    """Probe terminal graphics capabilities and set config.graphics_protocol."""
+    if os.environ.get("GAMBATERM_FORCE_SIXEL"):
+        config.available_graphics = [GraphicsProtocol.TEXT, GraphicsProtocol.SIXEL]
+        config.graphics_protocol = GraphicsProtocol.SIXEL
+        return config
+    if os.environ.get("GAMBATERM_FORCE_KITTY"):
+        config.available_graphics = [GraphicsProtocol.TEXT, GraphicsProtocol.KITTY]
+        config.graphics_protocol = GraphicsProtocol.KITTY
+        return config
+
+    has_sixel = does_sixel(terminal)
+
+    sv = terminal.get_software_version(timeout=1.0)
+    has_kitty_graphics = terminal.does_kitty_graphics()
+    blitless = sv is not None and sv.name.lower() in FORCE_SIXEL_BLITLESS
+    config.available_graphics = [GraphicsProtocol.TEXT]
+    if blitless:
+        config.available_graphics.append(GraphicsProtocol.BLITLESS_SIXEL)
+        config.graphics_protocol = GraphicsProtocol.TEXT
+        return config
+    if has_sixel:
+        config.available_graphics.append(GraphicsProtocol.SIXEL)
+    if has_kitty_graphics:
+        config.available_graphics.append(GraphicsProtocol.KITTY)
+
+    # Prefer sixel, then kitty, then text
+    if has_sixel:
+        config.graphics_protocol = GraphicsProtocol.SIXEL
+    elif has_kitty_graphics:
+        config.graphics_protocol = GraphicsProtocol.KITTY
+
+    return config
+
+
 FrontendCallback: TypeAlias = Callable[
     [RemoteTerminal, "AppConfig", KeyboardSupportDetection], "AppConfig"
 ]
+
+
+def make_graphics_frontend(graphics_value: str) -> FrontendCallback | None:
+    """Return a FrontendCallback for the given --graphics value, or None.
+
+    ``"auto"`` returns :func:`detect_graphics_frontend`.  Explicit protocol
+    names return a callback that forces that protocol.  ``"text"`` returns
+    ``None`` (no frontend callback needed).
+    """
+    if graphics_value == "auto":
+        return detect_graphics_frontend
+    if graphics_value != "text":
+
+        def force_graphics(
+            term: RemoteTerminal,
+            config: "AppConfig",
+            kbd: KeyboardSupportDetection,
+        ) -> "AppConfig":
+            config.graphics_protocol = GraphicsProtocol[graphics_value.upper()]
+            config.available_graphics = [
+                GraphicsProtocol.TEXT,
+                config.graphics_protocol,
+            ]
+            return config
+
+        return force_graphics
+    return None
 
 
 def user_directory_name(username: str | None) -> str:
@@ -150,3 +282,34 @@ def user_directory_name(username: str | None) -> str:
     if username is None:
         return "_anonymous"
     return hashlib.sha256(username.encode("utf-8")).hexdigest()[:16]
+
+
+def resolve_graphics_protocol(
+    resized: bool,
+    current: GraphicsProtocol,
+    new_height: int,
+    new_width: int,
+    console_width: int,
+    console_height: int,
+    available: list[GraphicsProtocol],
+    terminal_name: str,
+) -> GraphicsProtocol:
+    """Return the best graphics protocol for the current terminal size.
+
+    On resize, switch between text and the best available graphics protocol.
+    """
+    if not resized:
+        return current
+
+    text_fits = new_width >= console_width and new_height >= console_height // 2
+    if (
+        text_fits
+        and current is not GraphicsProtocol.TEXT
+        and not terminal_name.startswith(BAD_TEXT)
+    ):
+        return GraphicsProtocol.TEXT
+    if not text_fits and current is GraphicsProtocol.TEXT:
+        for gp in reversed(available):
+            if gp is not GraphicsProtocol.TEXT:
+                return gp
+    return current

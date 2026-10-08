@@ -46,9 +46,10 @@ from .console import Console, GameboyColor
 
 from .remote_terminal import (
     KeyboardSupport,
-    RemoteTerminal,
-    user_directory_name,
     KeyboardSupportDetection,
+    RemoteTerminal,
+    make_graphics_frontend,
+    user_directory_name,
     FrontendCallback,
 )
 from .ssh_app_session import process_to_terminal
@@ -281,10 +282,7 @@ def ssh_terminal_handler(
     input_source = detect_input_source(app_config, keyboard_support_detection)
     console_input_context: ContextManager[BaseInputGetter]
     if input_source is None:
-        message = (
-            MESSAGE_SUGGESTING_KITTY_SUPPORT
-            + "\n\n"
-            + """\
+        message = MESSAGE_SUGGESTING_KITTY_SUPPORT + "\n\n" + """\
 Alternatively, X11 forwarding can be used in order to give the gambaterm-ssh
 server access to your keyboard, eg. `ssh -Y -p 8022 localhost`.
 ===============================[ WARNING ]=====================================
@@ -293,7 +291,6 @@ endanger your machine. Please only do so if you are running the X11 server in a
 sandbox. More information here: https://security.stackexchange.com/a/7496
 ===============================[ WARNING ]=====================================
 """
-        )
         terminal.stream.write(message)
         terminal.stream.flush()
         session_logger.warning(
@@ -351,6 +348,8 @@ sandbox. More information here: https://security.stackexchange.com/a/7496
                 break_after=app_config.break_after,
                 speed=app_config.speed,
                 use_cpr_sync=app_config.cpr_sync,
+                graphics_protocol=app_config.graphics_protocol,
+                available_graphics_protocols=app_config.available_graphics,
             )
             return 0
     finally:
@@ -419,10 +418,10 @@ class GambatermSSHServer(SSHServer):
         users_directory: Path,
         executor: ThreadPoolExecutor,
         active_connections: dict[GambatermSSHServer, SSHServerConnection],
-        frontend: Callable[
-            [RemoteTerminal, AppConfig, KeyboardSupportDetection], AppConfig
-        ]
-        | None = None,
+        frontend: (
+            Callable[[RemoteTerminal, AppConfig, KeyboardSupportDetection], AppConfig]
+            | None
+        ) = None,
     ):
         self._gambaterm_console_cls = console_cls
         self._gambaterm_namespace = namespace
@@ -617,7 +616,11 @@ def main(
     parser_args: tuple[str, ...] | None = None,
     console_cls: type[Console] = GameboyColor,
 ) -> None:
-    parser = argparse.ArgumentParser(description="Gambatte terminal front-end over ssh")
+    parser = argparse.ArgumentParser(
+        prog="gambaterm-ssh",
+        description="Gambatte terminal front-end over ssh",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
     add_base_arguments(parser)
     add_input_file_arguments(parser)
     add_tuning_arguments(parser)
@@ -670,6 +673,10 @@ def main(
     no_auth: bool = namespace.__dict__.pop("no_auth")
     robot_check: bool = namespace.__dict__.pop("robot_check")
     users_directory: Path = namespace.__dict__.pop("users_directory")
+    graphics_value: str = namespace.__dict__.pop("graphics")
+
+    # Determine frontend callback for graphics
+    frontend: FrontendCallback | None = make_graphics_frontend(graphics_value)
 
     # Determine authentication method
     if no_auth and password is None:
@@ -713,6 +720,7 @@ def main(
                     command_parser,
                     users_directory,
                     executor,
+                    frontend=frontend,
                 ):
                     await asyncio.Future()
 

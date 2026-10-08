@@ -9,7 +9,6 @@ from gambaterm.console import GameboyColor
 from gambaterm.main import AppConfig
 from gambaterm.remote_terminal import RemoteTerminal, KeyboardSupportDetection
 
-
 rom = Path(sys.argv[1])
 
 

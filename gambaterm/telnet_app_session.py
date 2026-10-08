@@ -1,6 +1,7 @@
 """
 Provide paced output forwarding and terminal setup for the telnet server.
 """
+
 from __future__ import annotations
 
 import os

@@ -114,6 +114,13 @@ class AudioOut:
         # Return the adjusted sample rate
         self.sampling_ratio = self.nominal_sampling_ratio * correction
 
+    @property
+    def fill_fraction(self) -> float:
+        """Instantaneous ring buffer fill ratio (0.0–1.0)."""
+        if self.ring_size == 0:
+            return 0.0
+        return max(0.0, (self.write_counter - self.read_counter) / self.ring_size)
+
     def send(self, console: Console, audio: npt.NDArray[np.int16]) -> None:
         # Resample input audio to output rate with speed adjustment
         resampled = self.resampler.process(
@@ -249,6 +256,12 @@ class MaybeAudioOut:
     def send(self, console: Console, audio: npt.NDArray[np.int16]) -> None:
         if self.audio_out is not None:
             self.audio_out.send(console, audio)
+
+    @property
+    def fill_fraction(self) -> float:
+        if self.audio_out is not None:
+            return self.audio_out.fill_fraction
+        return 0.0
 
 
 @contextmanager
