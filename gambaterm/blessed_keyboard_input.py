@@ -20,6 +20,29 @@ BLESSED_NAME_TO_DOM_CODE: dict[str, DomCode] = {
     "KEY_RIGHT": DomCode.ARROW_RIGHT,
     "KEY_ENTER": DomCode.ENTER,
     "KEY_RIGHT_SHIFT": DomCode.SHIFT_RIGHT,
+    "KEY_RIGHT_CONTROL": DomCode.CONTROL_RIGHT,
+    "KEY_LEFT_SHIFT": DomCode.SHIFT_LEFT,
+    "KEY_LEFT_CONTROL": DomCode.CONTROL_LEFT,
+    "KEY_MENU": DomCode.CONTEXT_MENU,
+    "KEY_LEFT_ALT": DomCode.ALT_LEFT,
+    "KEY_ISO_LEVEL3_SHIFT": DomCode.ALT_RIGHT,
+    "KEY_LEFT_SQUARE_BRACKET": DomCode.BRACKET_LEFT,
+    "KEY_BACKSLASH": DomCode.BACKSLASH,
+    "KEY_RIGHT_SQUARE_BRACKET": DomCode.BRACKET_RIGHT,
+    "KEY_GRAVE_ACCENT": DomCode.BACKQUOTE,
+    "KEY_LESS_THAN": DomCode.INTL_BACKSLASH,
+    "KEY_SPACE": DomCode.SPACE,
+    "KEY_APOSTROPHE": DomCode.QUOTE,
+    "KEY_COMMA": DomCode.COMMA,
+    "KEY_MINUS": DomCode.MINUS,
+    "KEY_PERIOD": DomCode.PERIOD,
+    "KEY_SLASH": DomCode.SLASH,
+    "KEY_SEMICOLON": DomCode.SEMICOLON,
+    "KEY_EQUALS": DomCode.EQUAL,
+    "KEY_BACKSPACE": DomCode.BACKSPACE,
+    "KEY_DELETE": DomCode.DEL,
+    "KEY_INSERT": DomCode.INSERT,
+    "KEY_TAB": DomCode.TAB,
 }
 # Add "KEY_{char}" entries for all printable keys in the ASCII mapping,
 # matching the names blessed synthesizes for release/repeat events.
@@ -37,11 +60,6 @@ def keystroke_to_dom_code(keystroke: Keystroke) -> DomCode | None:
         dom_code = BLESSED_NAME_TO_DOM_CODE.get(name)
         if dom_code is not None:
             return dom_code
-    # Fall through to key_value for printable keys and any unrecognized
-    # synthesized names (e.g. blessed returns "CSI" for '[')
-    value = keystroke.key_value
-    if value:
-        return ASCII_PRINTABLE_TO_DOM_CODE.get(value)
     return None
 
 
