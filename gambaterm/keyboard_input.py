@@ -73,8 +73,8 @@ def get_event_mapping(console: Console) -> dict[DomCode, Console.Event]:
         DomCode.DIGIT7: console.Event.SELECT_STATE_7,
         DomCode.DIGIT8: console.Event.SELECT_STATE_8,
         DomCode.DIGIT9: console.Event.SELECT_STATE_9,
-        DomCode.BRACKET_LEFT: console.Event.SAVE_STATE,
-        DomCode.BRACKET_RIGHT: console.Event.LOAD_STATE,
+        DomCode.US_O: console.Event.SAVE_STATE,
+        DomCode.US_P: console.Event.LOAD_STATE,
     }
 
 
