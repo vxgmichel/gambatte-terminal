@@ -277,7 +277,7 @@ wheels = [
 
 [[package]]
 name = "gambaterm"
-version = "1.3.1"
+version = "1.3.2"
 source = { editable = "." }
 dependencies = [
     { name = "asyncssh" },
@@ -307,7 +307,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "asyncssh", specifier = ">=2.9,<3.0.0" },
-    { name = "blessed", specifier = ">=1.43.0,<2" },
+    { name = "blessed", specifier = ">=1.45.0,<2" },
     { name = "miniaudio", specifier = ">=1.2" },
     { name = "numpy", specifier = ">=2.0.0,<3.0.0" },
     { name = "pygame", marker = "extra == 'controller-support'", specifier = ">=1.9.5,<2.0.0" },
