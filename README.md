@@ -242,8 +242,8 @@ The key bindings are not configurable at the moment:
 | Save state commands | Keyboard |
 |---------------------|----------|
 | Select slot         | 0 to 9   |
-| Save state          | `[`      |
-| Load state          | `]`      |
+| Save state          | O        |
+| Load state          | P        |
 
 
 Since `gambaterm` detects physical key presses, this table indicates the keys [as seen on a QWERTY keyboard](https://www.w3.org/TR/uievents-code/#key-alphanumeric-writing-system). In particular, AZERTY or Bépo user won't need to change their keyboard layout in order to play.
